@@ -1,10 +1,12 @@
+import { createReadStream } from 'node:fs';
+import { stat, unlink } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { errors } from '../errors.js';
 import { manifestSchema, parseSlot, type BundleInfo, type ComponentSlot } from '../models/bundle.js';
 import type { DownloadTask } from '../downloads/manager.js';
-import type { ModelKind } from '../paths.js';
+import { safeResolve, type ModelKind } from '../paths.js';
 import { proxyToBackend } from '../services/proxy.js';
 import { startSse } from '../util/sse.js';
 
@@ -360,6 +362,100 @@ export async function compatRoutes(fastify: FastifyInstance): Promise<void> {
       },
     );
   }
+
+  /**
+   * Voice presets (sd-api: POST /v1/audio-models/:model/voice-presets).
+   *
+   * Merges into the manifest's existing presets rather than replacing the
+   * whole manifest the way PUT .../manifest does, then restarts audio.cpp so
+   * the preset is immediately selectable as `voice` on /v1/audio/speech.
+   */
+  app.post(
+    '/v1/audio-models/:model/voice-presets',
+    {
+      schema: {
+        tags: ['compat'],
+        summary: 'Register a named voice preset on an audio model (sd-api compatible)',
+        params: z.object({ model: z.string() }),
+        body: z
+          .object({ name: z.string().min(1), makeDefault: z.boolean().optional() })
+          .passthrough(),
+      },
+    },
+    async (req) => {
+      const { name, makeDefault, ...preset } = req.body as {
+        name: string;
+        makeDefault?: boolean;
+      } & Record<string, unknown>;
+
+      const existing = await app.models.get('audio', req.params.model);
+      const manifest = existing.manifest;
+      if (!manifest?.family || !manifest?.task) {
+        throw errors.invalidModel(
+          `Audio model "${req.params.model}" has no model.json yet — set family/task first via PUT .../manifest`,
+        );
+      }
+
+      const voicePresets = { ...(manifest.voicePresets ?? {}), [name]: preset };
+      // First preset registered becomes the default, matching sd-api: a model
+      // with exactly one voice should not need the caller to name it.
+      const defaultVoicePreset =
+        makeDefault || manifest.defaultVoicePreset === undefined ? name : manifest.defaultVoicePreset;
+
+      const bundle = await app.models.updateManifest('audio', req.params.model, {
+        ...manifest,
+        voicePresets,
+        defaultVoicePreset,
+      });
+      app.backends.scheduleRestart('audiocpp', 'voice preset registered');
+
+      return {
+        model: toLegacyBundle(bundle),
+        voicePresets: Object.keys(voicePresets),
+        defaultVoicePreset,
+      };
+    },
+  );
+
+  /**
+   * Voice reference storage (sd-api: /v1/audio-voice-refs). The modern path is
+   * /v1/audio/voice-refs; these are the same files under the old spelling,
+   * since both resolve into the uploads directory.
+   */
+  app.get(
+    '/v1/audio-voice-refs/:name',
+    {
+      schema: {
+        tags: ['compat'],
+        summary: 'Fetch a voice reference (sd-api compatible)',
+        params: z.object({ name: z.string() }),
+      },
+    },
+    async (req, reply) => {
+      const path = safeResolve(app.paths.uploadsDir, req.params.name);
+      try {
+        await stat(path);
+      } catch {
+        throw errors.audioVoiceRefNotFound(req.params.name);
+      }
+      return reply.header('Content-Type', 'audio/wav').send(createReadStream(path));
+    },
+  );
+
+  app.delete(
+    '/v1/audio-voice-refs/:name',
+    {
+      schema: {
+        tags: ['compat'],
+        summary: 'Delete a voice reference (sd-api compatible)',
+        params: z.object({ name: z.string() }),
+      },
+    },
+    async (req, reply) => {
+      await unlink(safeResolve(app.paths.uploadsDir, req.params.name)).catch(() => {});
+      return reply.code(204).send(null);
+    },
+  );
 
   /**
    * sd-api's generic audio task runner, forwarded unchanged. Its request shape

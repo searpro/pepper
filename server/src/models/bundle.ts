@@ -125,6 +125,14 @@ export const manifestSchema = z.object({
   task: z.string().optional(),
   /** Optional audio.cpp mode qualifier. */
   audio_mode: z.string().optional(),
+  /**
+   * Named voice presets for cloning/design models, selectable as `voice` on
+   * /v1/audio/speech. Values are passed through to audio.cpp untouched, since
+   * which fields a preset carries is a property of the family, not of us.
+   */
+  voicePresets: z.record(z.record(z.unknown())).optional(),
+  /** Preset used when a request names no voice. */
+  defaultVoicePreset: z.string().optional(),
   /** Where this bundle was installed from, for the UI's provenance display. */
   source: z
     .object({
