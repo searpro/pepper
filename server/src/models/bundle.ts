@@ -1,0 +1,414 @@
+import { readFile, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { z } from 'zod';
+import { errors } from '../errors.js';
+import { assertSafeName, safeResolve, type ModelKind } from '../paths.js';
+import { listFiles, stripExt, type FileEntry } from '../util/files.js';
+
+/**
+ * The model bundle layout (requirement 8: "each model should go into its own
+ * directory (bundle name)", under `DATA_DIR/models/<kind>/<bundle-name>/`).
+ *
+ * One layout serves all four kinds, because the thing that varies between an
+ * image model and an LLM is *which* component directories are populated, not
+ * how a bundle is structured:
+ *
+ *   models/<kind>/<bundle>/
+ *     model.json      manifest (optional for image/llm, required for audio)
+ *     checkpoint/     diffusion model or full checkpoint   (-m | --diffusion-model)
+ *     vae/            standalone VAE                       (--vae)
+ *     clip/           text encoders: clip_l/clip_g/t5xxl/llm/clip_vision
+ *     lora/           LoRAs, activated by <lora:name:mult> in the prompt
+ *     weights/        GGUF weights for llm and audio bundles
+ *     aux/            mmproj, vocoders, speaker embeddings, tokenizers
+ *     <anything>/     requirement 8's "other (specify)" — created on demand
+ *
+ * sd-api had three parallel implementations of this (`models/`, `llm-models/`,
+ * `audio-models/`) that had already diverged in their allowed extensions and
+ * their manifest rules. Collapsing them means the download manager, the
+ * catalogue installer and the UI each have one shape to handle, and a new kind
+ * costs a `KIND_SLOTS` entry rather than a new module tree.
+ */
+
+/** Component sub-directories with a defined meaning. */
+export const KNOWN_SLOTS = ['checkpoint', 'vae', 'clip', 'lora', 'weights', 'aux'] as const;
+export type KnownSlot = (typeof KNOWN_SLOTS)[number];
+
+/**
+ * A component slot: one of the known ones, or `other:<dirname>` for
+ * requirement 8's "other (specify) — this will generate the specified
+ * directory and keeps the file there".
+ */
+export type ComponentSlot = KnownSlot | `other:${string}`;
+
+/** Which slots each kind offers in the UI. Storage allows any of them. */
+export const KIND_SLOTS: Record<ModelKind, KnownSlot[]> = {
+  image: ['checkpoint', 'vae', 'clip', 'lora'],
+  video: ['checkpoint', 'vae', 'clip', 'lora'],
+  audio: ['weights', 'aux'],
+  llm: ['weights', 'aux'],
+};
+
+export function isKnownSlot(value: string): value is KnownSlot {
+  return (KNOWN_SLOTS as readonly string[]).includes(value);
+}
+
+/** Resolve a slot to its directory name, validating the "other" case. */
+export function slotDirName(slot: ComponentSlot): string {
+  if (isKnownSlot(slot)) return slot;
+  const custom = slot.slice('other:'.length);
+  // A user-typed directory name goes straight to the filesystem, so it gets
+  // the same single-segment treatment as every other untrusted name.
+  return assertSafeName(custom);
+}
+
+export function parseSlot(value: string): ComponentSlot {
+  if (isKnownSlot(value)) return value;
+  if (value.startsWith('other:')) {
+    slotDirName(value as ComponentSlot);
+    return value as ComponentSlot;
+  }
+  throw errors.validation(
+    `Unknown component slot "${value}". Expected one of ${KNOWN_SLOTS.join(', ')} or "other:<directory>".`,
+  );
+}
+
+/** Text-encoder roles within `clip/`, each mapping to a specific sd-cli flag. */
+export type ClipRole = 'clip_l' | 'clip_g' | 'clip_vision' | 't5xxl' | 'llm' | 'llm_vision';
+
+export const CLIP_ROLES: ClipRole[] = ['clip_l', 'clip_g', 'clip_vision', 't5xxl', 'llm', 'llm_vision'];
+
+export type LoadMode = 'model' | 'diffusion-model';
+export type GenerationMode = 'image' | 'video';
+
+export const manifestSchema = z.object({
+  /** Friendly display name. Defaults to the bundle directory name. */
+  name: z.string().optional(),
+  /** Which generation surface this bundle belongs to. */
+  kind: z.enum(['image', 'video', 'audio', 'llm']).optional(),
+  /** Force the checkpoint load flag; otherwise auto-detected. */
+  load: z.enum(['auto', 'model', 'diffusion-model']).optional(),
+  /** `video` switches sd-cli into `-M vid_gen` and writes .webm. */
+  mode: z.enum(['image', 'video']).optional(),
+  /** Explicit component filenames, overriding auto-detection. */
+  components: z
+    .object({
+      checkpoint: z.string().optional(),
+      vae: z.string().optional(),
+      clip_l: z.string().optional(),
+      clip_g: z.string().optional(),
+      clip_vision: z.string().optional(),
+      t5xxl: z.string().optional(),
+      llm: z.string().optional(),
+      llm_vision: z.string().optional(),
+    })
+    .optional(),
+  /** Generation parameters applied when a request omits them. */
+  defaults: z
+    .object({
+      steps: z.number().optional(),
+      cfg_scale: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+      sampler: z.string().optional(),
+      negative_prompt: z.string().optional(),
+      video_frames: z.number().optional(),
+      flow_shift: z.number().optional(),
+    })
+    .optional(),
+  /** Raw backend flags appended verbatim. */
+  extra_args: z.array(z.string()).optional(),
+  // --- audio.cpp ---
+  /** audio.cpp model family, matching its `model_specs/<family>.json`. */
+  family: z.string().optional(),
+  /** What the audio model does: tts | asr | voice-design | voice-conversion. */
+  task: z.string().optional(),
+  /** Optional audio.cpp mode qualifier. */
+  audio_mode: z.string().optional(),
+  /** Where this bundle was installed from, for the UI's provenance display. */
+  source: z
+    .object({
+      catalogueId: z.string().optional(),
+      repo: z.string().optional(),
+      quant: z.string().optional(),
+    })
+    .optional(),
+});
+
+export type ModelManifest = z.infer<typeof manifestSchema>;
+
+export interface ComponentFile extends FileEntry {
+  slot: ComponentSlot;
+  /** Only for `clip/` files: which encoder flag this maps to. */
+  role?: ClipRole;
+  /** Only for `lora/` files: how the prompt refers to it. */
+  ref?: string;
+}
+
+/** An interrupted download left on disk, resumable. */
+export interface PartialFile {
+  slot: ComponentSlot;
+  /** Final filename, without the `.part` suffix. */
+  name: string;
+  received: number;
+  total: number | null;
+}
+
+export interface BundleInfo {
+  id: string;
+  kind: ModelKind;
+  name: string;
+  manifest: ModelManifest | null;
+  loadMode: LoadMode;
+  mode: GenerationMode;
+  components: ComponentFile[];
+  partials: PartialFile[];
+  size: number;
+  modified: string;
+  /** Whether the bundle has enough on disk to generate with. */
+  ready: boolean;
+  /** Why it is not ready, when it is not. */
+  readyReason?: string;
+}
+
+/** Everything the image/video generator needs, with absolute paths. */
+export interface ResolvedImageBundle {
+  id: string;
+  dir: string;
+  displayName: string;
+  loadMode: LoadMode;
+  mode: GenerationMode;
+  checkpointPath: string;
+  weights: Partial<Record<ClipRole | 'vae', string>>;
+  defaults: NonNullable<ModelManifest['defaults']>;
+  extraArgs: string[];
+  loraDir?: string;
+}
+
+export async function readManifest(dir: string): Promise<ModelManifest | null> {
+  let raw: string;
+  try {
+    raw = await readFile(join(dir, 'model.json'), 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw errors.invalidModel(`Cannot read model.json: ${(err as Error).message}`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw errors.invalidModel(`Invalid model.json: ${(err as Error).message}`);
+  }
+
+  const result = manifestSchema.safeParse(parsed);
+  if (!result.success) {
+    throw errors.invalidModel(`Invalid model.json: ${result.error.issues[0]?.message}`);
+  }
+  return result.data;
+}
+
+export async function writeManifest(dir: string, manifest: ModelManifest): Promise<ModelManifest> {
+  const validated = manifestSchema.parse(manifest);
+  await writeFile(join(dir, 'model.json'), JSON.stringify(validated, null, 2), 'utf8');
+  return validated;
+}
+
+/**
+ * Map a `clip/` filename to its encoder role. Order matters: `mmproj` and
+ * `clip_vision` are checked before the generic families, since a file can
+ * legitimately match both (`mmproj-qwen…` is a vision projector, not the LLM
+ * encoder).
+ */
+export function detectClipRole(filename: string): ClipRole | null {
+  const n = filename.toLowerCase();
+  if (/mmproj/.test(n)) return 'llm_vision';
+  if (/clip[_-]?vision|clip_vit/.test(n)) return 'clip_vision';
+  if (/clip[_-]?l\b|clip[_-]?l[._-]/.test(n)) return 'clip_l';
+  if (/clip[_-]?g\b|clip[_-]?g[._-]/.test(n)) return 'clip_g';
+  if (/t5xxl|t5[_-]?xxl|\bt5\b/.test(n)) return 't5xxl';
+  if (/qwen|mistral|gemma|llama|\bllm\b|umt5/.test(n)) return 'llm';
+  return null;
+}
+
+function manifestRoleFor(manifest: ModelManifest | null, filename: string): ClipRole | null {
+  const components = manifest?.components;
+  if (!components) return null;
+  for (const role of CLIP_ROLES) {
+    if (components[role] === filename) return role;
+  }
+  return null;
+}
+
+/** Directories present in a bundle, including any "other (specify)" ones. */
+async function bundleSlots(dir: string): Promise<ComponentSlot[]> {
+  const { listDirs } = await import('../util/files.js');
+  const dirs = await listDirs(dir);
+  return dirs.map((name) => (isKnownSlot(name) ? name : (`other:${name}` as ComponentSlot)));
+}
+
+async function listPartials(dir: string, slot: ComponentSlot): Promise<PartialFile[]> {
+  const entries = await listFiles(dir, { includePartials: true });
+  const out: PartialFile[] = [];
+  for (const entry of entries) {
+    if (!entry.name.endsWith('.part')) continue;
+    let total: number | null = null;
+    try {
+      const meta = JSON.parse(await readFile(join(dir, `${entry.name}.json`), 'utf8')) as {
+        total?: number | null;
+      };
+      total = typeof meta.total === 'number' ? meta.total : null;
+    } catch {
+      // No sidecar: the size is still known, the target is not.
+    }
+    out.push({
+      slot,
+      name: entry.name.slice(0, -'.part'.length),
+      received: entry.size,
+      total,
+    });
+  }
+  return out;
+}
+
+/** Inspect a bundle directory. Never throws on incomplete contents. */
+export async function inspectBundle(
+  bundlePath: string,
+  id: string,
+  kind: ModelKind,
+): Promise<BundleInfo> {
+  const manifest = await readManifest(bundlePath).catch(() => null);
+  const slots = await bundleSlots(bundlePath);
+
+  const components: ComponentFile[] = [];
+  const partials: PartialFile[] = [];
+
+  for (const slot of slots) {
+    const slotDir = join(bundlePath, slotDirName(slot));
+    for (const file of await listFiles(slotDir)) {
+      components.push({
+        ...file,
+        slot,
+        role:
+          slot === 'clip'
+            ? (manifestRoleFor(manifest, file.name) ?? detectClipRole(file.name) ?? undefined)
+            : undefined,
+        ref: slot === 'lora' ? stripExt(file.name) : undefined,
+      });
+    }
+    partials.push(...(await listPartials(slotDir, slot)));
+  }
+
+  const size = components.reduce((total, file) => total + file.size, 0);
+  let modified = new Date(0).toISOString();
+  try {
+    modified = (await stat(bundlePath)).mtime.toISOString();
+  } catch {
+    // Bundle vanished mid-scan.
+  }
+
+  const readiness = assessReadiness(kind, components, manifest);
+
+  return {
+    id,
+    kind,
+    name: manifest?.name ?? id,
+    manifest,
+    loadMode: resolveLoadMode(manifest, components),
+    mode: manifest?.mode ?? (kind === 'video' ? 'video' : 'image'),
+    components,
+    partials,
+    size,
+    modified,
+    ready: readiness.ready,
+    readyReason: readiness.reason,
+  };
+}
+
+function assessReadiness(
+  kind: ModelKind,
+  components: ComponentFile[],
+  manifest: ModelManifest | null,
+): { ready: boolean; reason?: string } {
+  const has = (slot: ComponentSlot) => components.some((c) => c.slot === slot);
+
+  if (kind === 'image' || kind === 'video') {
+    return has('checkpoint')
+      ? { ready: true }
+      : { ready: false, reason: 'No checkpoint file in checkpoint/' };
+  }
+  if (kind === 'llm') {
+    return has('weights') ? { ready: true } : { ready: false, reason: 'No weights file in weights/' };
+  }
+  // audio.cpp cannot register a bundle without knowing its family and task —
+  // that information is not derivable from the files, so a bundle missing it
+  // is genuinely unusable rather than merely undocumented.
+  if (!has('weights')) return { ready: false, reason: 'No weights file in weights/' };
+  if (!manifest?.family || !manifest?.task) {
+    return { ready: false, reason: 'model.json must declare "family" and "task" for audio models' };
+  }
+  return { ready: true };
+}
+
+function resolveLoadMode(manifest: ModelManifest | null, components: ComponentFile[]): LoadMode {
+  const declared = manifest?.load;
+  if (declared === 'model' || declared === 'diffusion-model') return declared;
+  // Auto: standalone VAE or text encoders mean the checkpoint is a bare
+  // diffusion model rather than a full one.
+  const split = components.some((c) => c.slot === 'vae' || c.slot === 'clip');
+  return split ? 'diffusion-model' : 'model';
+}
+
+/** Pick a file within a slot: the manifest's choice, else the largest. */
+function pickFile(files: ComponentFile[], explicit?: string): ComponentFile | null {
+  if (explicit) return files.find((f) => f.name === explicit) ?? null;
+  if (files.length <= 1) return files[0] ?? null;
+  return [...files].sort((a, b) => b.size - a.size)[0];
+}
+
+/** Resolve an image/video bundle for generation. Throws if unusable. */
+export async function resolveImageBundle(
+  bundlePath: string,
+  id: string,
+  kind: ModelKind,
+): Promise<ResolvedImageBundle> {
+  const info = await inspectBundle(bundlePath, id, kind);
+  if (!info.ready) throw errors.invalidModel(`Model "${id}" is not ready: ${info.readyReason}`);
+
+  const bySlot = (slot: ComponentSlot) => info.components.filter((c) => c.slot === slot);
+
+  const checkpoint = pickFile(bySlot('checkpoint'), info.manifest?.components?.checkpoint);
+  if (!checkpoint) throw errors.invalidModel(`Model "${id}" has no checkpoint file`);
+
+  const weights: Partial<Record<ClipRole | 'vae', string>> = {};
+  const vae = pickFile(bySlot('vae'), info.manifest?.components?.vae);
+  if (vae) weights.vae = join(bundlePath, 'vae', vae.name);
+
+  for (const file of bySlot('clip')) {
+    const role = file.role;
+    // An unmapped encoder is skipped rather than guessed at: passing a text
+    // encoder under the wrong flag produces garbage output, not an error.
+    if (!role || weights[role]) continue;
+    weights[role] = join(bundlePath, 'clip', file.name);
+  }
+
+  const loras = bySlot('lora');
+
+  return {
+    id,
+    dir: bundlePath,
+    displayName: info.name,
+    loadMode: info.loadMode,
+    mode: info.mode,
+    checkpointPath: join(bundlePath, 'checkpoint', checkpoint.name),
+    weights,
+    defaults: info.manifest?.defaults ?? {},
+    extraArgs: info.manifest?.extra_args ?? [],
+    loraDir: loras.length > 0 ? join(bundlePath, 'lora') : undefined,
+  };
+}
+
+/** Absolute path to a component file inside a bundle. */
+export function componentPath(bundlePath: string, slot: ComponentSlot, name: string): string {
+  return safeResolve(join(bundlePath, slotDirName(slot)), name);
+}
