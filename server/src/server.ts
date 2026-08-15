@@ -231,9 +231,12 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   await app.register(audioRoutes);
   await app.register(compatRoutes);
 
-  // The built SPA. Registered last so it never shadows an API route.
+  // The built SPA. Registered last so it never shadows an API route — its
+  // wildcard route is the least specific thing in the tree, and a path it has
+  // no file for falls through to the not-found handler, which serves the
+  // shell so client-side routes survive a hard refresh.
   const staticRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
-  await app.register(fastifyStatic, { root: staticRoot, wildcard: false });
+  await app.register(fastifyStatic, { root: staticRoot });
 
   return { app, closeDb: () => sqlite.close() };
 }

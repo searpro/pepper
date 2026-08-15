@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pepper</title>
+    <script>
+      // Applied before first paint: reading the stored theme in React would
+      // render the light palette for a frame first, which on a dark-themed
+      // browser is a visible white flash on every load.
+      (function () {
+        var stored = localStorage.getItem('pepper-theme');
+        if (stored === 'dark' || (stored === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

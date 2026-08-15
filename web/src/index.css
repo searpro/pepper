@@ -1,0 +1,122 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens (requirement 10: light by default, dark supported).
+ *
+ * shadcn's token names are used verbatim so its component recipes drop in
+ * unchanged. The palette is warm-neutral with a red-orange accent — "pepper" —
+ * rather than the default slate/black, so the app reads as its own product
+ * rather than an unstyled starter.
+ */
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.995 0.003 60);
+  --foreground: oklch(0.21 0.012 45);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.012 45);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.012 45);
+  --primary: oklch(0.58 0.19 32);
+  --primary-foreground: oklch(0.99 0.005 60);
+  --secondary: oklch(0.96 0.008 60);
+  --secondary-foreground: oklch(0.28 0.014 45);
+  --muted: oklch(0.965 0.006 60);
+  --muted-foreground: oklch(0.53 0.014 50);
+  --accent: oklch(0.95 0.02 45);
+  --accent-foreground: oklch(0.28 0.03 35);
+  --destructive: oklch(0.58 0.21 27);
+  --destructive-foreground: oklch(0.99 0.005 60);
+  --success: oklch(0.62 0.15 155);
+  --warning: oklch(0.72 0.16 75);
+  --border: oklch(0.9 0.008 55);
+  --input: oklch(0.9 0.008 55);
+  --ring: oklch(0.58 0.19 32);
+  --radius: 0.65rem;
+}
+
+.dark {
+  --background: oklch(0.17 0.008 50);
+  --foreground: oklch(0.95 0.006 60);
+  --card: oklch(0.21 0.01 50);
+  --card-foreground: oklch(0.95 0.006 60);
+  --popover: oklch(0.21 0.01 50);
+  --popover-foreground: oklch(0.95 0.006 60);
+  --primary: oklch(0.66 0.18 34);
+  --primary-foreground: oklch(0.16 0.01 40);
+  --secondary: oklch(0.27 0.012 50);
+  --secondary-foreground: oklch(0.93 0.006 60);
+  --muted: oklch(0.26 0.01 50);
+  --muted-foreground: oklch(0.68 0.012 55);
+  --accent: oklch(0.3 0.03 40);
+  --accent-foreground: oklch(0.94 0.01 55);
+  --destructive: oklch(0.63 0.2 27);
+  --destructive-foreground: oklch(0.98 0.005 60);
+  --success: oklch(0.68 0.15 155);
+  --warning: oklch(0.76 0.15 75);
+  --border: oklch(0.3 0.012 50);
+  --input: oklch(0.32 0.012 50);
+  --ring: oklch(0.66 0.18 34);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Log and job payload views are dense monospace; keep them from inheriting
+     the proportional stack. */
+  code,
+  pre {
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  }
+}
+
+/* A thin scrollbar keeps the log viewer from losing a chunk of its width to
+   the platform default on Windows. */
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
