@@ -49,7 +49,7 @@ with models on the volume and binaries on ephemeral disk.
 | `LLAMACPP_TIMEOUT` | `300000` | Ceiling on one proxied completion. |
 | `MAX_CONCURRENT_JOBS` | `1` | Simultaneous generations. Each holds a full model in memory. |
 | `MAX_CONCURRENT_DOWNLOADS` | `2` | Simultaneous weight downloads. |
-| `CATALOGUE_URL` | `pepper-catalogue.json` on GitHub | The remote model manifest. |
+| `CATALOGUE_URL` | `pepper-catalogue.json` on GitHub | The remote model manifest. See `catalogue/`. |
 | `HF_TOKEN` | — | HuggingFace token for gated repositories. |
 | `LOG_LEVEL` | `info` | `trace` … `fatal`. |
 
@@ -76,6 +76,24 @@ DATA_DIR/
   db/pepper.db        SQLite (jobs, downloads, settings)
   cache/              catalogue snapshot, generated backend configs
 ```
+
+## Models
+
+The model list is a remote manifest, not code — adding a model is a pull request
+against the catalogue repository, not a pepper release. A starter catalogue of
+16 verified models (image, video, audio and text) is staged in `catalogue/`,
+ready to publish as `searpro/pepper-catalogue`; see
+[`catalogue/PUBLISHING.md`](catalogue/PUBLISHING.md) for how, and
+[`docs/CATALOGUE.md`](docs/CATALOGUE.md) for the schema.
+
+Until that repository exists, point a deployment at the staged copy:
+
+```bash
+CATALOGUE_URL=https://raw.githubusercontent.com/searpro/pepper/claude/sd-api-alpha-vr8x4k/catalogue/pepper-catalogue.json
+```
+
+Models can always be installed by URL from the Models window regardless, so an
+unreachable catalogue is never a hard block.
 
 ## Docker / RunPod
 

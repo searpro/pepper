@@ -227,8 +227,14 @@ export class CatalogueManager {
         if (!extensions.some((ext) => lower.endsWith(ext))) return false;
         if (match && !lower.includes(match)) return false;
         if (SHARD_RE.test(lower)) return false;
-        if (component.role !== 'llm_vision' && isProjector(lower)) return false;
         if (isDraftModel(lower)) return false;
+        // A component that explicitly asks for the projector gets it — either
+        // by the image-side `llm_vision` role or by a `match` naming it, which
+        // is how an LLM bundle's `aux` slot requests one. Everything else must
+        // not see it: an mmproj installed as the weights file yields a server
+        // that starts fine and generates nonsense.
+        const wantsProjector = component.role === 'llm_vision' || (match?.includes('mmproj') ?? false);
+        if (!wantsProjector && isProjector(lower)) return false;
         return true;
       })
       .map((file) => {
@@ -261,10 +267,18 @@ function isProjector(filename: string): boolean {
 }
 
 /**
- * Speculative-decoding draft weights, which several newer repos ship alongside
- * the real ones. Loading one as the model produces a working server that
- * generates noticeably worse output — the worst kind of wrong.
+ * Speculative-decoding draft and auxiliary weights, which several repos ship
+ * alongside the real ones under a naming prefix. Loading one as the model
+ * produces a working server that generates noticeably worse output — the worst
+ * kind of wrong, because nothing errors.
+ *
+ * The list is empirical, not a guess: each prefix was observed in a real
+ * `ggml-org` or community repo (`dflash-`/`dspark-` both appear in
+ * `ggml-org/Qwen3-8B-GGUF` next to the genuine weights). Add to it when a new
+ * one shows up rather than trying to pattern-match "looks auxiliary".
  */
+const DRAFT_PREFIXES = ['mtp-', 'dflash-', 'dspark-', 'eagle3-'];
+
 function isDraftModel(filename: string): boolean {
-  return /^(mtp|dflash|eagle3)-/.test(filename) || filename.includes('-draft');
+  return DRAFT_PREFIXES.some((prefix) => filename.startsWith(prefix)) || filename.includes('-draft');
 }

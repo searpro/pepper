@@ -1,0 +1,26 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+  # These repositories change underneath us — a model gets renamed, gated, or
+  # re-uploaded as shards — so the catalogue is re-checked on a schedule, not
+  # only when someone edits it.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate structure
+        run: node validate.mjs
+
+      - name: Resolve every source against HuggingFace
+        run: node validate.mjs --live

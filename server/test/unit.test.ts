@@ -322,6 +322,28 @@ describe('model bundles', () => {
   });
 });
 
+describe('catalogue file filtering', () => {
+  // The filters live in catalogue/manager.ts as module-private helpers; these
+  // assert the naming rules they encode, which are what actually decides
+  // whether a bundle installs usable weights.
+  const SHARD_RE = /-\d{5}-of-\d{5}\.[a-z]+$/;
+  const DRAFT_PREFIXES = ['mtp-', 'dflash-', 'dspark-', 'eagle3-'];
+  const isDraft = (name: string) =>
+    DRAFT_PREFIXES.some((prefix) => name.startsWith(prefix)) || name.includes('-draft');
+
+  it('excludes multi-part shards, which would install as a truncated model', () => {
+    expect(SHARD_RE.test('model-00001-of-00003.gguf')).toBe(true);
+    expect(SHARD_RE.test('Qwen3-8B-Q8_0.gguf')).toBe(false);
+  });
+
+  it('excludes the draft weights ggml-org ships beside the real ones', () => {
+    // Both of these sit in ggml-org/Qwen3-8B-GGUF next to the genuine files.
+    expect(isDraft('dflash-Qwen3-8B-Q8_0.gguf')).toBe(true);
+    expect(isDraft('dspark-Qwen3-8B-BF16.gguf')).toBe(true);
+    expect(isDraft('Qwen3-8B-Q8_0.gguf')).toBe(false);
+  });
+});
+
 describe('semaphore', () => {
   it('runs work up to its permit count and queues the rest', async () => {
     const semaphore = new Semaphore(2);
