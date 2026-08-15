@@ -1,0 +1,23 @@
+{
+  "name": "pepper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pepper — production media generation API (image, video, audio, text) over stable-diffusion.cpp, llama.cpp and audio.cpp.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace server",
+    "dev:web": "npm run dev --workspace web",
+    "build": "npm run build --workspace web && npm run build --workspace server",
+    "start": "npm run start --workspace server",
+    "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace web",
+    "test": "npm run test --workspace server"
+  }
+}
