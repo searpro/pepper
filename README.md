@@ -79,21 +79,18 @@ DATA_DIR/
 
 ## Models
 
-The model list is a remote manifest, not code — adding a model is a pull request
-against the catalogue repository, not a pepper release. A starter catalogue of
-16 verified models (image, video, audio and text) is staged in `catalogue/`,
-ready to publish as `searpro/pepper-catalogue`; see
-[`catalogue/PUBLISHING.md`](catalogue/PUBLISHING.md) for how, and
-[`docs/CATALOGUE.md`](docs/CATALOGUE.md) for the schema.
+The model list is a remote manifest, not code: it lives in
+[searpro/pepper-catalogue](https://github.com/searpro/pepper-catalogue), so
+adding a model is a pull request there rather than a pepper release. Pepper
+fetches it at startup with no configuration needed, caches a copy on the data
+volume, and falls back to that copy when the fetch fails.
 
-Until that repository exists, point a deployment at the staged copy:
+The catalogue currently carries 16 models across image, video, audio and text.
+See [`docs/CATALOGUE.md`](docs/CATALOGUE.md) for the schema, and the catalogue
+repository's own README for how to add an entry.
 
-```bash
-CATALOGUE_URL=https://raw.githubusercontent.com/searpro/pepper/claude/sd-api-alpha-vr8x4k/catalogue/pepper-catalogue.json
-```
-
-Models can always be installed by URL from the Models window regardless, so an
-unreachable catalogue is never a hard block.
+Models can also be installed by URL from the Models window, so an unreachable
+catalogue is never a hard block.
 
 ## Docker / RunPod
 
