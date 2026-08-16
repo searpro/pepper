@@ -198,6 +198,8 @@ export interface BundleInfo {
   mode: 'image' | 'video';
   components: ComponentFile[];
   partials: { slot: string; name: string; received: number; total: number | null }[];
+  /** Declared extras, e.g. `s2v` for a speech-conditioned video model. */
+  capabilities: string[];
   size: number;
   modified: string;
   ready: boolean;

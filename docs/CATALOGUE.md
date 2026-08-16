@@ -56,6 +56,8 @@ start publishing an attribute before the server understands it.
   "edit": false,                   // expects reference images at generation
   "defaults": { "steps": 8, "cfg_scale": 1, "width": 1024, "height": 1024 },
   "extraArgs": ["--qwen-image-zero-cond-t"],
+  "capabilities": ["s2v"],         // extra abilities; see "Speech-to-video" below
+  "s2v": { "audio_flag": "--ref-audio" },
 
   // --- llm ---
   "params": "8B",
@@ -71,8 +73,9 @@ start publishing an attribute before the server understands it.
 }
 ```
 
-`loadMode`, `mode`, `defaults`, `extraArgs`, `family`, `task` and `audioMode`
-are written into the installed bundle's `model.json` at install time. That is
+`loadMode`, `mode`, `defaults`, `extraArgs`, `capabilities`, `s2v`, `family`,
+`task` and `audioMode` are written into the installed bundle's `model.json` at
+install time. That is
 why they belong in the catalogue: without them a fully-downloaded bundle is
 still unusable, and a user who has to hand-author a manifest after a one-click
 install has not had a one-click install.
@@ -187,3 +190,130 @@ for this app today, and should not be listed.
   (`model_specs/<family>.json`), confirmed from its source. A bundle whose
   manifest declares neither is skipped when the server registry is generated,
   and the model silently never appears.
+
+## Speech-to-video
+
+A video model that conditions on speech declares `"capabilities": ["s2v"]`.
+Nothing is inferred: whether a checkpoint accepts audio is a property of how it
+was trained, and guessing from the filename would offer the UI's **Speech to
+Video** tab a model that silently ignores the audio it is handed.
+
+The optional `s2v` block tunes how a run is chunked. Every field has a default,
+so a model that matches Wan's window needs only the capability flag.
+
+```jsonc
+"s2v": {
+  "audio_flag": "--ref-audio",  // the backend flag the WAV is passed under
+  "frames_per_chunk": 81,       // frames the model emits per window
+  "chunk_seconds": 5,           // seconds of speech per window
+  "overlap_seconds": 0.5,       // replayed from the previous window, to blend seams
+  "sample_rate": 16000,         // resample chunks to what the audio encoder expects
+  "chain_frames": true,         // seed each window with the last frame of the previous
+  "chain_flag": "-i",           // the flag that chained frame is passed under
+  "frame_grid": { "stride": 17, "offset": 5 }  // round frame counts to stride*k + offset
+}
+```
+
+`chain_flag` exists because the same conceptual input needs a different flag per
+model: MiniMax-H3's Ref2VA rejects `--init-img` outright when reference
+conditioning is in play, so its chained frame goes to `-r` instead.
+
+`frame_grid` is not cosmetic. A model that rounds its frame count up on its own
+(MiniMax-H3 aligns to 17k+5) hands back a segment slightly longer than the audio
+it covers, and that error compounds at every seam. Declaring the grid lets the
+rounding happen before the stitch, which is the only place that knows the real
+segment length.
+
+`audio_flag` is the field that makes this model-agnostic, and it is the reason
+adding a second S2V model is a catalogue edit rather than a release. sd-cli
+exposes MiniMax-H3's audio input as `--ref-audio`; a future Wan S2V may land
+under another name, and only this line has to change.
+
+Audio longer than one window is sliced, generated a window at a time and
+stitched — see [ARCHITECTURE.md](ARCHITECTURE.md) for why that is unavoidable
+rather than a shortcut. Long-audio runs therefore need `ffmpeg` on `PATH` (or
+`FFMPEG_PATH` set); audio short enough for a single window does not.
+
+### MiniMax-H3 Ref2VA
+
+The one audio-conditioned video model `stable-diffusion.cpp` can run today, and
+therefore the one that proves this path end to end. Published as
+`minimax-h3-ref2va`.
+
+Worth being precise about what it does: MiniMax-H3 **jointly generates video and
+its own stereo soundtrack**, and `--ref-audio` is a *reference* that conditions
+the result. It is not lip-sync — a Wan-style S2V model driving a speaker's mouth
+from a speech track is a different thing, and that is the gap Wan 2.2 S2V below
+is meant to fill. The `s2v` capability covers both because the pipeline is the
+same: audio in, chunked, video out.
+
+It needs four components, not three — the audio VAE is separate, and without it
+the model still runs but the video comes out silent. Both VAEs live in the `vae`
+slot and are told apart by filename (`audio_vae` vs `video_vae`), the same way
+Wan 2.2's two experts are told apart in `checkpoint`.
+
+Two constraints from the upstream docs are encoded in its entry: frames align to
+a 17k+5 grid, and fps is forced to 24 regardless of what is requested. The
+`extraArgs` (`--diffusion-fa --offload-to-cpu --rng cpu`) are what every
+upstream example uses — a 32B text encoder alongside the DiT does not fit a
+single consumer card without them.
+
+### Wan 2.2 S2V
+
+Wan 2.2 splits denoising across two experts. Both go in `checkpoint/`; the
+high-noise one is recognised by its filename, or named explicitly through the
+bundle manifest's `components.checkpoint_high_noise`.
+
+```jsonc
+{
+  "id": "wan2.2-s2v-14b",
+  "kind": "video",
+  "name": "Wan 2.2 S2V 14B",
+  "description": "Speech-to-video. Generates a talking subject from an audio track and a reference image.",
+  "reference": "https://huggingface.co/Wan-AI/Wan2.2-S2V-14B",
+  "tags": ["s2v", "speech", "wan"],
+  "loadMode": "diffusion-model",
+  "mode": "video",
+  "capabilities": ["s2v"],
+  "s2v": { "frames_per_chunk": 81, "chunk_seconds": 5, "overlap_seconds": 0.5 },
+  "defaults": { "steps": 20, "cfg_scale": 3.5, "width": 640, "height": 640, "fps": 16, "flow_shift": 5 },
+  "components": [
+    {
+      "slot": "checkpoint",
+      "label": "Diffusion model (low noise)",
+      "required": true,
+      "quantizable": true,
+      "source": { "repo": "QuantStack/Wan2.2-S2V-14B-GGUF", "match": "low_noise" }
+    },
+    {
+      "slot": "checkpoint",
+      "label": "Diffusion model (high noise)",
+      "required": true,
+      "quantizable": true,
+      "source": { "repo": "QuantStack/Wan2.2-S2V-14B-GGUF", "match": "high_noise" }
+    },
+    {
+      "slot": "vae",
+      "label": "VAE",
+      "required": true,
+      "source": { "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged", "match": "wan2.1_vae" }
+    },
+    {
+      "slot": "clip",
+      "role": "t5xxl",
+      "label": "UMT5-XXL text encoder",
+      "required": true,
+      "quantizable": true,
+      "source": { "repo": "city96/umt5-xxl-encoder-gguf", "match": "umt5" }
+    }
+  ]
+}
+```
+
+> **Not yet runnable.** As of this writing `stable-diffusion.cpp` has no Wan
+> S2V implementation — `docs/wan.md` upstream covers T2V, I2V and FLF2V only,
+> and there is no Wan audio-conditioning flag. This entry is the wiring that
+> lights up when it lands; publishing it before then would put a model in the
+> catalogue that installs 15GB and then fails at generation. Keep it out of the
+> published `pepper-catalogue.json` until upstream support exists, then confirm
+> `s2v.audio_flag` against the flag sd-cli actually registers.

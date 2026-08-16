@@ -9,9 +9,18 @@ import { evaluatePolicy } from '../src/backends/monitor.js';
 import { parseBackendLine, parseProgress } from '../src/logs/parse.js';
 import { LogBuffer } from '../src/logs/buffer.js';
 import { buildArgv, effectiveArgs, LLAMACPP_ARGS, renderArgs } from '../src/backends/args.js';
-import { inspectBundle, parseSlot, detectClipRole } from '../src/models/bundle.js';
+import {
+  inspectBundle,
+  parseSlot,
+  detectClipRole,
+  isHighNoiseCheckpoint,
+  resolveImageBundle,
+  resolveS2vConfig,
+  alignFrames,
+} from '../src/models/bundle.js';
 import { Semaphore } from '../src/util/semaphore.js';
 import { buildImageArgs } from '../src/services/image-args.js';
+import { probeAudio, sliceAudio } from '../src/util/ffmpeg.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -418,5 +427,246 @@ describe('image generation arguments', () => {
     // Each reference gets its own -r, in the order the client sent them.
     expect(args.filter((arg) => arg === '-r')).toHaveLength(2);
     expect(args[args.indexOf('-r') + 1]).toBe('/in/a.png');
+  });
+});
+
+describe('speech-to-video', () => {
+  /** A minimal 16-bit mono PCM WAV of `seconds` duration. */
+  function makeWav(seconds: number, sampleRate = 16000, extraChunk = false): Buffer {
+    const frames = Math.round(seconds * sampleRate);
+    const data = Buffer.alloc(frames * 2);
+    for (let i = 0; i < frames; i += 1) data.writeInt16LE((i % 1000) - 500, i * 2);
+
+    // A LIST chunk between fmt and data is what real encoders emit and what a
+    // fixed-offset parser gets wrong, so one variant carries it.
+    const list = extraChunk
+      ? (() => {
+          const body = Buffer.from('INFOISFT   test', 'ascii');
+          const head = Buffer.alloc(8);
+          head.write('LIST', 0, 'ascii');
+          head.writeUInt32LE(body.length, 4);
+          return Buffer.concat([head, body]);
+        })()
+      : Buffer.alloc(0);
+
+    const fmt = Buffer.alloc(24);
+    fmt.write('fmt ', 0, 'ascii');
+    fmt.writeUInt32LE(16, 4);
+    fmt.writeUInt16LE(1, 8);
+    fmt.writeUInt16LE(1, 10);
+    fmt.writeUInt32LE(sampleRate, 12);
+    fmt.writeUInt32LE(sampleRate * 2, 16);
+    fmt.writeUInt16LE(2, 20);
+    fmt.writeUInt16LE(16, 22);
+
+    const dataHead = Buffer.alloc(8);
+    dataHead.write('data', 0, 'ascii');
+    dataHead.writeUInt32LE(data.length, 4);
+
+    const rest = Buffer.concat([fmt, list, dataHead, data]);
+    const riff = Buffer.alloc(12);
+    riff.write('RIFF', 0, 'ascii');
+    riff.writeUInt32LE(4 + rest.length, 4);
+    riff.write('WAVE', 8, 'ascii');
+    return Buffer.concat([riff, rest]);
+  }
+
+  async function writeWav(seconds: number, extraChunk = false): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-s2v-test-'));
+    const path = join(dir, 'speech.wav');
+    await writeFile(path, makeWav(seconds, 16000, extraChunk));
+    return path;
+  }
+
+  it('reads duration natively, without needing ffprobe', async () => {
+    const info = await probeAudio(await writeWav(7.5));
+    expect(info.sampleRate).toBe(16000);
+    expect(info.channels).toBe(1);
+    expect(info.duration).toBeCloseTo(7.5, 3);
+  });
+
+  it('walks RIFF chunks rather than assuming data starts at byte 44', async () => {
+    // With a LIST chunk present, a fixed-offset parser reads metadata as audio
+    // and reports a duration longer than the file actually holds.
+    const info = await probeAudio(await writeWav(3, true));
+    expect(info.duration).toBeCloseTo(3, 3);
+  });
+
+  it('slices into overlapping chunks that advance by the step, not the window', async () => {
+    const chunks = await sliceAudio({
+      sourcePath: await writeWav(12),
+      outDir: await mkdtemp(join(tmpdir(), 'pepper-chunks-')),
+      chunkSeconds: 5,
+      overlapSeconds: 0.5,
+    });
+
+    // step = 4.5s, so 12s of audio needs ceil((12 - 0.5) / 4.5) = 3 chunks.
+    expect(chunks).toHaveLength(3);
+    expect(chunks.map((c) => c.start)).toEqual([0, 4.5, 9]);
+    // The first two are full windows; the last is whatever audio remains.
+    expect(chunks[0].duration).toBeCloseTo(5, 3);
+    expect(chunks[2].duration).toBeCloseTo(3, 3);
+  });
+
+  it('emits a single chunk for audio shorter than one window', async () => {
+    const chunks = await sliceAudio({
+      sourcePath: await writeWav(2),
+      outDir: await mkdtemp(join(tmpdir(), 'pepper-chunks-')),
+      chunkSeconds: 5,
+      overlapSeconds: 0.5,
+    });
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].duration).toBeCloseTo(2, 3);
+  });
+
+  it('writes each chunk as a playable WAV of the right length', async () => {
+    const outDir = await mkdtemp(join(tmpdir(), 'pepper-chunks-'));
+    const chunks = await sliceAudio({
+      sourcePath: await writeWav(10),
+      outDir,
+      chunkSeconds: 4,
+      overlapSeconds: 1,
+    });
+    // Reading a chunk back through the parser is what proves the header it
+    // was given actually describes its payload.
+    const first = await probeAudio(chunks[0].path);
+    expect(first.duration).toBeCloseTo(4, 2);
+    expect(first.sampleRate).toBe(16000);
+  });
+
+  it('rejects an overlap that would not advance the timeline', async () => {
+    await expect(
+      sliceAudio({
+        sourcePath: await writeWav(10),
+        outDir: await mkdtemp(join(tmpdir(), 'pepper-chunks-')),
+        chunkSeconds: 4,
+        overlapSeconds: 4,
+      }),
+    ).rejects.toThrow(/overlapSeconds/);
+  });
+
+  it('identifies Wan 2.2 high-noise checkpoints by filename', () => {
+    expect(isHighNoiseCheckpoint('wan2.2_s2v_high_noise_Q4_K.gguf')).toBe(true);
+    expect(isHighNoiseCheckpoint('Wan2.2-HighNoise-14B.safetensors')).toBe(true);
+    expect(isHighNoiseCheckpoint('wan2.2_s2v_low_noise_Q4_K.gguf')).toBe(false);
+  });
+
+  it('keeps the high-noise expert out of the ordinary checkpoint pick', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pepper-wan-'));
+    await mkdir(join(root, 'checkpoint'), { recursive: true });
+    // The high-noise file is deliberately the larger one: "largest wins" would
+    // otherwise load it as the only diffusion model and produce noise.
+    await writeFile(join(root, 'checkpoint', 'wan2.2_high_noise.gguf'), 'x'.repeat(200));
+    await writeFile(join(root, 'checkpoint', 'wan2.2_low_noise.gguf'), 'x'.repeat(100));
+    await writeFile(
+      join(root, 'model.json'),
+      JSON.stringify({ kind: 'video', mode: 'video', capabilities: ['s2v'] }),
+    );
+
+    const resolved = await resolveImageBundle(root, 'wan22-s2v', 'video');
+    expect(resolved.checkpointPath).toMatch(/low_noise/);
+    expect(resolved.highNoisePath).toMatch(/high_noise/);
+    expect(resolved.s2v?.audioFlag).toBe('--ref-audio');
+  });
+
+  it('leaves s2v unset on a model that does not declare the capability', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pepper-wan-t2v-'));
+    await mkdir(join(root, 'checkpoint'), { recursive: true });
+    await writeFile(join(root, 'checkpoint', 'wan2.1_t2v.gguf'), 'x'.repeat(100));
+
+    const resolved = await resolveImageBundle(root, 'wan21', 'video');
+    expect(resolved.s2v).toBeUndefined();
+    expect(resolved.highNoisePath).toBeUndefined();
+  });
+
+  it('lets a manifest override the audio flag, so a new model is a config change', () => {
+    const config = resolveS2vConfig({ s2v: { audio_flag: '--audio', chunk_seconds: 4.5 } });
+    expect(config.audioFlag).toBe('--audio');
+    expect(config.chunkSeconds).toBe(4.5);
+    // Unspecified fields still fall back to the model-family defaults.
+    expect(config.framesPerChunk).toBe(81);
+  });
+
+  it('rounds a frame count up onto the model\'s grid, leaving ungridded models alone', () => {
+    // MiniMax-H3 accepts only 17k+5 and rounds up on its own; doing it here is
+    // what keeps the stitch's idea of a segment's length correct.
+    expect(alignFrames(50, { stride: 17, offset: 5 })).toBe(56);
+    expect(alignFrames(56, { stride: 17, offset: 5 })).toBe(56);
+    expect(alignFrames(1, { stride: 17, offset: 5 })).toBe(5);
+    expect(alignFrames(80)).toBe(80);
+  });
+
+  it('separates an audio VAE from the video VAE in a shared slot', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pepper-mm-'));
+    await mkdir(join(root, 'checkpoint'), { recursive: true });
+    await mkdir(join(root, 'vae'), { recursive: true });
+    await writeFile(join(root, 'checkpoint', 'minimax_h3_ref2va-Q4_K_M.gguf'), 'x'.repeat(100));
+    // The audio VAE is deliberately the larger file here.
+    await writeFile(join(root, 'vae', 'minimax_h3_audio_vae_fp32.safetensors'), 'x'.repeat(200));
+    await writeFile(join(root, 'vae', 'minimax_h3_video_vae_fp16.safetensors'), 'x'.repeat(50));
+    await writeFile(
+      join(root, 'model.json'),
+      JSON.stringify({ kind: 'video', mode: 'video', capabilities: ['s2v'] }),
+    );
+
+    const resolved = await resolveImageBundle(root, 'minimax-h3', 'video');
+    expect(resolved.weights.vae).toMatch(/video_vae/);
+    expect(resolved.weights.audio_vae).toMatch(/audio_vae/);
+  });
+
+  it('routes the chained frame to the flag the model accepts', () => {
+    // MiniMax-H3's Ref2VA rejects --init-img outright when reference
+    // conditioning is in play, so the chained frame has to go to -r.
+    const args = buildImageArgs({
+      params: { prompt: 'x', model: 'minimax-h3' },
+      bundle: {
+        id: 'minimax-h3',
+        mode: 'video',
+        loadMode: 'diffusion-model',
+        checkpointPath: '/models/mm.gguf',
+        weights: { audio_vae: '/models/audio_vae.safetensors' },
+        extraArgs: [],
+        defaults: {},
+        capabilities: ['s2v'],
+      } as never,
+      outputPath: '/out/segment.webm',
+      images: { init: '/tmp/seed.png', initFlag: '-r' },
+    });
+
+    expect(args[args.indexOf('-r') + 1]).toBe('/tmp/seed.png');
+    expect(args).not.toContain('-i');
+    expect(args[args.indexOf('--audio-vae') + 1]).toBe('/models/audio_vae.safetensors');
+  });
+
+  it('passes audio and the high-noise expert under their own flags', () => {
+    const args = buildImageArgs({
+      params: { prompt: 'a person speaking', model: 'wan22-s2v', video_frames: 81, fps: 16 },
+      bundle: {
+        id: 'wan22-s2v',
+        mode: 'video',
+        loadMode: 'diffusion-model',
+        checkpointPath: '/models/low.gguf',
+        highNoisePath: '/models/high.gguf',
+        weights: {},
+        extraArgs: [],
+        defaults: {},
+        capabilities: ['s2v'],
+      } as never,
+      outputPath: '/out/segment.webm',
+      images: { init: '/tmp/seed.png' },
+      audio: { path: '/tmp/chunk-0000.wav', flag: '--ref-audio' },
+    });
+
+    expect(args.slice(0, 2)).toEqual(['-M', 'vid_gen']);
+    for (const [flag, value] of [
+      ['--diffusion-model', '/models/low.gguf'],
+      ['--high-noise-diffusion-model', '/models/high.gguf'],
+      ['--ref-audio', '/tmp/chunk-0000.wav'],
+      ['-i', '/tmp/seed.png'],
+      ['--video-frames', '81'],
+      ['--fps', '16'],
+    ] as const) {
+      expect(args[args.indexOf(flag) + 1]).toBe(value);
+    }
   });
 });

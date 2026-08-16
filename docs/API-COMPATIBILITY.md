@@ -77,6 +77,16 @@ New endpoints, none of which a legacy client needs to know about:
   argument management.
 - `GET /v1/system/status`, `GET /v1/config`.
 - `POST`/`GET`/`DELETE /v1/audio/voice-refs`.
+- `POST /v1/videos`, `GET /v1/videos`, `GET /v1/videos/:id`,
+  `GET /v1/videos/:id/content`, `DELETE /v1/videos/:id` — an OpenAI-shaped
+  surface over the same job queue, for tooling that already speaks it. It
+  translates names (`size` to width/height, `seconds` to a frame count,
+  `queued`/`running` to `queued`/`in_progress`) and owns no generation of its
+  own. `/v1/jobs` is unchanged and remains the fuller surface: samplers, flow
+  shift and speech chunk sizing have no standard spelling to adopt.
+  `input_audio` is this API's own extension — OpenAI has no speech-conditioned
+  video parameter, and inventing a differently-named one would only mean two
+  spellings of the same thing.
 
 ## One path that could not be kept
 

@@ -68,6 +68,8 @@ and acceleration.
 | `MAX_CONCURRENT_JOBS` | `1` | Simultaneous generations. Each holds a full model in memory. |
 | `MAX_CONCURRENT_DOWNLOADS` | `2` | Simultaneous weight downloads. |
 | `CATALOGUE_URL` | `pepper-catalogue.json` on GitHub | The remote model manifest. See `catalogue/`. |
+| `FFMPEG_PATH` | `ffmpeg` | Used to slice and stitch speech-to-video runs. Only needed for audio longer than one model window, or non-WAV input. |
+| `FFPROBE_PATH` | `ffprobe` | Reads duration for non-WAV audio. Plain WAV is parsed in-process. |
 | `HF_TOKEN` | — | HuggingFace token for gated repositories. |
 | `LOG_LEVEL` | `info` | `trace` … `fatal`. |
 

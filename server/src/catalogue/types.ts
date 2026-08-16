@@ -70,6 +70,14 @@ export const catalogueModelSchema = z
     mode: z.enum(['image', 'video']).optional(),
     /** Edit model: expects one or more reference images at generation time. */
     edit: z.boolean().optional(),
+    /**
+     * Extra abilities, e.g. `s2v` for a speech-conditioned video model. Copied
+     * into the installed bundle's manifest, which is what the generator and
+     * the UI's Speech to Video tab actually read.
+     */
+    capabilities: z.array(z.string()).optional(),
+    /** Speech-to-video wiring, mirroring the bundle manifest's `s2v` block. */
+    s2v: z.record(z.unknown()).optional(),
     defaults: z.record(z.unknown()).optional(),
     extraArgs: z.array(z.string()).optional(),
 

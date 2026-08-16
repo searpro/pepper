@@ -51,6 +51,23 @@ export const generateSchema = z.object({
   // --- Video (Wan T2V/I2V). I2V's conditioning image reuses `init_image`. ---
   video_frames: z.number().int().min(1).max(257).optional(),
   flow_shift: z.number().min(0).optional(),
+  fps: z.number().int().min(1).max(60).optional(),
+
+  // --- Speech-to-video ---
+  /**
+   * Name of an uploaded audio file, from POST /v1/inputs. Its presence is what
+   * makes a request speech-to-video: the model still needs a prompt and may
+   * still take `init_image` as the speaker's portrait.
+   */
+  audio: z.string().optional(),
+  /**
+   * Seconds of audio per generated chunk. Defaults to the model's window;
+   * raising it past what the model was trained on degrades lip-sync rather
+   * than failing, which is why it is exposed but not encouraged.
+   */
+  audio_chunk_seconds: z.number().min(0.5).max(30).optional(),
+  /** Seconds each chunk replays from the previous one, to blend the seam. */
+  audio_overlap_seconds: z.number().min(0).max(5).optional(),
 
   // --- Additions ---
   /** Number of images to produce; each becomes its own job. */
@@ -79,6 +96,10 @@ export const generateResultSchema = z.object({
     sampler: z.string().optional(),
     video_frames: z.number().optional(),
     flow_shift: z.number().optional(),
+    fps: z.number().optional(),
+    /** Speech-to-video only: how the run was split, and over how much audio. */
+    audio_duration_s: z.number().optional(),
+    audio_chunks: z.number().optional(),
     duration_ms: z.number(),
   }),
 });

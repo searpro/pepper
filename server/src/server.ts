@@ -34,6 +34,7 @@ import { modelRoutes } from './routes/models.js';
 import { downloadRoutes } from './routes/downloads.js';
 import { catalogueRoutes } from './routes/catalogue.js';
 import { jobRoutes } from './routes/jobs.js';
+import { videoRoutes } from './routes/videos.js';
 import { mediaRoutes } from './routes/media.js';
 import { logRoutes } from './routes/logs.js';
 import { textRoutes } from './routes/text.js';
@@ -235,6 +236,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   await app.register(downloadRoutes);
   await app.register(catalogueRoutes);
   await app.register(jobRoutes);
+  await app.register(videoRoutes);
   await app.register(mediaRoutes);
   await app.register(logRoutes);
   await app.register(textRoutes);
@@ -290,6 +292,12 @@ function registerExecutors(
         sampler: result.params.sampler,
         video_frames: result.params.video_frames,
         flow_shift: result.params.flow_shift,
+        fps: result.s2v?.fps ?? result.params.fps,
+        // Only present on a speech-driven run. How many chunks it took is the
+        // number that explains the runtime, so it belongs in the result rather
+        // than only in the logs.
+        audio_duration_s: result.s2v?.audioDurationSeconds,
+        audio_chunks: result.s2v?.chunks,
         duration_ms: result.durationMs,
         output_dir: paths.outputDir,
       },

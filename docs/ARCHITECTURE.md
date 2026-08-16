@@ -177,6 +177,16 @@ These cost real debugging time; the code comments carry the short version.
 - **sd-cli's video output only supports `.avi`, `.webm` or animated `.webp`.**
   Passing `.mp4` writes `<path>.avi` and exits 0, so the file check fails with
   nothing at the expected path. `.webm` is the one a browser `<video>` plays.
+- **A speech-to-video model can only condition on a few seconds of audio at a
+  time.** Both limits are hard: the audio cross-attention context is sized for
+  one window, and decoding a whole timeline's latents through the VAE at once
+  scales memory superlinearly — a three-minute clip asks for hundreds of
+  gigabytes and gets OOM-killed. So long audio is sliced into overlapping
+  windows, generated one at a time and stitched (`services/s2v.ts`). The
+  overlap exists so the seam lands mid-phoneme, the last frame of each window
+  seeds the next so the subject keeps its face, and the *original* audio is
+  muxed back on rather than the chunks — re-joining those would repeat the
+  overlap at every seam and drift out of sync.
 - **Exit 0 is not proof of output.** sd-cli reports success when it cannot
   encode to the requested container, so the output file is stat'd and
   size-checked before a job is called complete.

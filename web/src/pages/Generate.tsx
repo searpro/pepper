@@ -3,6 +3,7 @@ import {
   Ban,
   Download,
   Image as ImageIcon,
+  Mic,
   RefreshCw,
   Sparkles,
   Upload,
@@ -30,6 +31,9 @@ import {
   Slider,
   Spinner,
   Switch,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   Textarea,
 } from '@/components/ui';
 import { Page } from '@/components/layout';
@@ -71,6 +75,10 @@ interface FormState {
   increase_ref_index: boolean;
   video_frames: number;
   flow_shift: number;
+  audio?: string;
+  audio_name?: string;
+  audio_chunk_seconds: number;
+  audio_overlap_seconds: number;
 }
 
 const DEFAULTS: FormState = {
@@ -90,7 +98,12 @@ const DEFAULTS: FormState = {
   increase_ref_index: false,
   video_frames: 33,
   flow_shift: 3,
+  audio_chunk_seconds: 5,
+  audio_overlap_seconds: 0.5,
 };
+
+/** The video screen's tabs. Speech-to-video is its own entry point. */
+type VideoTab = 'prompt' | 'speech';
 
 /**
  * Image and video generation (requirement 10: a generation screen with a
@@ -106,18 +119,30 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
   const [error, setError] = React.useState<string>();
   const [submitting, setSubmitting] = React.useState(false);
   const [activeJobs, setActiveJobs] = React.useState<Job[]>([]);
+  const [tab, setTab] = React.useState<VideoTab>('prompt');
   const recent = useResource<{ outputs: MediaItem[] }>(`/v1/outputs?kind=${kind}&limit=12`);
 
-  const ready = React.useMemo(
-    () => (models.data?.models ?? []).filter((model) => model.ready),
-    [models.data],
-  );
+  const speech = kind === 'video' && tab === 'speech';
+
+  // The Speech to Video tab only offers models that declare the capability:
+  // the server rejects the rest, and a picker that lists a model the request
+  // cannot use is a worse way to find that out than not listing it.
+  const ready = React.useMemo(() => {
+    const usable = (models.data?.models ?? []).filter((model) => model.ready);
+    return speech ? usable.filter((model) => model.capabilities?.includes('s2v')) : usable;
+  }, [models.data, speech]);
 
   // Select the first usable model once they load, so a fresh install with one
-  // model installed does not make the user pick it before generating.
+  // model installed does not make the user pick it before generating. Switching
+  // tabs re-runs this: the previously selected model may not be in the new
+  // tab's list at all.
   React.useEffect(() => {
-    if (!form.model && ready.length > 0) setForm((state) => ({ ...state, model: ready[0].id }));
-  }, [ready, form.model]);
+    setForm((state) =>
+      state.model && ready.some((model) => model.id === state.model)
+        ? state
+        : { ...state, model: ready[0]?.id ?? '' },
+    );
+  }, [ready]);
 
   // Live job updates. Everything on this screen that moves — progress bars,
   // the result appearing — comes from here rather than from polling.
@@ -173,8 +198,16 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
         if (form.increase_ref_index) body.increase_ref_index = true;
       }
       if (kind === 'video') {
-        body.video_frames = form.video_frames;
         body.flow_shift = form.flow_shift;
+        if (speech) {
+          // The audio's length decides the frame count, chunk by chunk, so
+          // sending `video_frames` here would only fight the orchestrator.
+          body.audio = form.audio;
+          body.audio_chunk_seconds = form.audio_chunk_seconds;
+          body.audio_overlap_seconds = form.audio_overlap_seconds;
+        } else {
+          body.video_frames = form.video_frames;
+        }
       }
 
       await api.post('/v1/jobs', body);
@@ -189,6 +222,17 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
     try {
       const result = await api.upload<{ name: string }>('/v1/inputs', file);
       update('init_image', result.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const uploadAudio = async (file: File) => {
+    try {
+      const result = await api.upload<{ name: string }>('/v1/inputs', file);
+      // The stored name is a generated one; keeping the original alongside it
+      // is what lets the user tell two uploads apart in the UI.
+      setForm((state) => ({ ...state, audio: result.name, audio_name: file.name }));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -217,13 +261,75 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
       title={kind === 'video' ? 'Video generation' : 'Image generation'}
       description={
         kind === 'video'
-          ? 'Wan text-to-video and image-to-video. Runs take considerably longer than an image.'
+          ? 'Wan text-to-video, image-to-video and speech-to-video. Runs take considerably longer than an image.'
           : 'Text-to-image and image-to-image through stable-diffusion.cpp.'
       }
     >
+      {/* Speech to video is a distinct entry point, not a hidden mode: it takes
+          a different input and only some video models can do it. */}
+      {kind === 'video' ? (
+        <Tabs value={tab} onValueChange={(value) => setTab(value as VideoTab)} className="mb-4">
+          <TabsList>
+            <TabsTrigger value="prompt">
+              <Video className="size-3.5" />
+              Prompt to video
+            </TabsTrigger>
+            <TabsTrigger value="speech">
+              <Mic className="size-3.5" />
+              Speech to video
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      ) : null}
+
       <div className="grid gap-4 xl:grid-cols-[minmax(320px,380px)_1fr]">
         {/* Controls */}
         <Card className="flex h-fit flex-col gap-4 p-4">
+          {speech ? (
+            <Field
+              label="Speech"
+              hint="WAV or MP3. Longer clips are rendered in chunks and joined, so runtime scales with length."
+            >
+              <div className="flex items-center gap-2">
+                <label className="flex-1">
+                  <input
+                    type="file"
+                    accept="audio/wav,audio/mpeg,audio/x-wav,.wav,.mp3,.flac,.ogg"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void uploadAudio(file);
+                      event.target.value = '';
+                    }}
+                  />
+                  <span className="flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-input px-3 text-xs text-muted-foreground hover:bg-accent">
+                    <Upload className="size-3.5" />
+                    {form.audio ? 'Replace audio' : 'Upload audio'}
+                  </span>
+                </label>
+                {form.audio ? (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Remove audio"
+                    onClick={() =>
+                      setForm((state) => ({ ...state, audio: undefined, audio_name: undefined }))
+                    }
+                  >
+                    <Ban />
+                  </Button>
+                ) : null}
+              </div>
+            </Field>
+          ) : null}
+
+          {speech && form.audio ? (
+            <div className="flex flex-col gap-2">
+              <audio src={inputUrl(form.audio)} controls className="w-full" preload="metadata" />
+              <p className="truncate text-[11px] text-muted-foreground">{form.audio_name}</p>
+            </div>
+          ) : null}
+
           <Field label="Model">
             {models.loading ? (
               <div className="flex h-9 items-center gap-2 text-xs text-muted-foreground">
@@ -231,7 +337,17 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
               </div>
             ) : ready.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                No {kind} models installed yet. Open <strong>Models</strong> in the top bar to install one.
+                {speech ? (
+                  <>
+                    No speech-to-video models installed yet. Open <strong>Models</strong> in the top
+                    bar and install one whose capabilities include <code>s2v</code>.
+                  </>
+                ) : (
+                  <>
+                    No {kind} models installed yet. Open <strong>Models</strong> in the top bar to
+                    install one.
+                  </>
+                )}
               </p>
             ) : (
               <Select
@@ -313,13 +429,16 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
 
           {kind === 'video' ? (
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Frames">
-                <Input
-                  type="number"
-                  value={form.video_frames}
-                  onChange={(event) => update('video_frames', Number(event.target.value))}
-                />
-              </Field>
+              {/* With speech, the audio's length sets the frame count. */}
+              {speech ? null : (
+                <Field label="Frames">
+                  <Input
+                    type="number"
+                    value={form.video_frames}
+                    onChange={(event) => update('video_frames', Number(event.target.value))}
+                  />
+                </Field>
+              )}
               <Field label="Flow shift">
                 <Input
                   type="number"
@@ -341,8 +460,49 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
             </Field>
           )}
 
+          {speech ? (
+            <details className="rounded-md border border-border px-3 py-2">
+              <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                Advanced
+              </summary>
+              <div className="mt-3 flex flex-col gap-3">
+                <Field
+                  label={`Chunk length · ${form.audio_chunk_seconds}s`}
+                  hint="Seconds of speech per generated segment. Past the model's trained window this degrades lip-sync rather than erroring."
+                >
+                  <Slider
+                    value={form.audio_chunk_seconds}
+                    onValueChange={(value) => update('audio_chunk_seconds', value)}
+                    min={1}
+                    max={15}
+                    step={0.5}
+                  />
+                </Field>
+                <Field
+                  label={`Overlap · ${form.audio_overlap_seconds}s`}
+                  hint="How much each segment replays from the previous one, to blend the seam. Trimmed back out when the segments are joined."
+                >
+                  <Slider
+                    value={form.audio_overlap_seconds}
+                    onValueChange={(value) => update('audio_overlap_seconds', value)}
+                    min={0}
+                    max={2}
+                    step={0.1}
+                  />
+                </Field>
+              </div>
+            </details>
+          ) : null}
+
           <Field
-            label={kind === 'video' ? 'Conditioning image (image-to-video)' : 'Init image (image-to-image)'}
+            label={
+              speech
+                ? 'Speaker image (optional)'
+                : kind === 'video'
+                  ? 'Conditioning image (image-to-video)'
+                  : 'Init image (image-to-image)'
+            }
+            hint={speech ? 'Seeds the first segment; later segments chain from the previous one.' : undefined}
           >
             <div className="flex items-center gap-2">
               <label className="flex-1">
@@ -470,7 +630,10 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
 
           {error ? <ErrorNote>{error}</ErrorNote> : null}
 
-          <Button onClick={() => void submit()} disabled={!form.prompt || !form.model || submitting}>
+          <Button
+            onClick={() => void submit()}
+            disabled={!form.prompt || !form.model || submitting || (speech && !form.audio)}
+          >
             {submitting ? <Spinner className="size-4" /> : <Sparkles />}
             Generate
           </Button>

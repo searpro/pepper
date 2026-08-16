@@ -13,6 +13,7 @@ import type { ModelManager } from '../models/manager.js';
 import type { BackendManager } from '../backends/manager.js';
 import { loaderEnv } from '../backends/process.js';
 import { buildImageArgs } from './image-args.js';
+import { generateSpeechVideo } from './s2v.js';
 import type { GenerateParams } from '../schemas/generate.js';
 
 /**
@@ -34,6 +35,8 @@ export interface GenerateResult {
   durationMs: number;
   /** Request values merged with the bundle's manifest defaults. */
   params: GenerateParams;
+  /** Speech-to-video only: how the run was split. */
+  s2v?: { audioDurationSeconds: number; chunks: number; fps: number };
 }
 
 export interface GenerateOptions {
@@ -101,6 +104,7 @@ export class ImageService {
       sampler: params.sampler ?? (bundle.defaults.sampler as GenerateParams['sampler']),
       video_frames: params.video_frames ?? bundle.defaults.video_frames,
       flow_shift: params.flow_shift ?? bundle.defaults.flow_shift,
+      fps: params.fps ?? bundle.defaults.fps,
     };
 
     const images = {
@@ -117,6 +121,29 @@ export class ImageService {
     // the one a browser <video> tag actually plays.
     const outputName = uniqueOutputName(bundle.mode === 'video' ? 'webm' : 'png');
     const outputPath = safeResolve(this.paths.outputDir, outputName);
+
+    const timeoutMs =
+      bundle.mode === 'video' ? this.config.sdcppVideoTimeoutMs : this.config.sdcppTimeoutMs;
+
+    // Speech conditioning takes a different path entirely: one spawn per audio
+    // chunk, stitched afterwards. Everything above it — bundle resolution,
+    // defaults, upload resolution — is shared, which is why the fork is here
+    // and not at the route.
+    if (params.audio) {
+      return this.generateFromSpeech({
+        params: effective,
+        bundle,
+        binaryPath,
+        audioPath: await this.resolveUpload(params.audio),
+        initImagePath: images.init,
+        outputPath,
+        outputName,
+        timeoutMs,
+        onProgress,
+        onLog,
+        signal,
+      });
+    }
 
     const args = buildImageArgs({
       params: effective,
@@ -137,9 +164,6 @@ export class ImageService {
       'resolved model bundle',
     );
 
-    const timeoutMs =
-      bundle.mode === 'video' ? this.config.sdcppVideoTimeoutMs : this.config.sdcppTimeoutMs;
-
     return this.run({
       binaryPath,
       args,
@@ -152,6 +176,90 @@ export class ImageService {
       onLog,
       signal,
     });
+  }
+
+  /**
+   * Speech-to-video: slice, render each chunk, stitch.
+   *
+   * The chunk runner handed to the orchestrator is `run()` with the model
+   * flags already bound, so every chunk spawns through exactly the same code
+   * path — and the same cancellation, timeout and log plumbing — as an
+   * ordinary single generation.
+   */
+  private async generateFromSpeech(input: {
+    params: GenerateParams;
+    bundle: Awaited<ReturnType<ModelManager['resolveImage']>>;
+    binaryPath: string;
+    audioPath: string;
+    initImagePath?: string;
+    outputPath: string;
+    outputName: string;
+    timeoutMs: number;
+    onProgress?: (progress: StepProgress) => void;
+    onLog?: (line: string) => void;
+    signal?: AbortSignal;
+  }): Promise<GenerateResult> {
+    const { bundle, params, outputPath, outputName, timeoutMs, binaryPath } = input;
+    const started = Date.now();
+
+    if (bundle.mode !== 'video') {
+      throw errors.validation(
+        `Model "${bundle.id}" is an image model; audio input requires a video model.`,
+      );
+    }
+
+    const audioFlag = bundle.s2v?.audioFlag;
+
+    const summary = await generateSpeechVideo({
+      params,
+      bundle,
+      audioPath: input.audioPath,
+      initImagePath: input.initImagePath,
+      outputPath,
+      timeoutMs,
+      log: this.log,
+      onProgress: input.onProgress,
+      signal: input.signal,
+      runChunk: async (chunk) => {
+        const args = buildImageArgs({
+          params: chunk.params,
+          bundle,
+          outputPath: chunk.outputPath,
+          images: { init: chunk.initImagePath, initFlag: chunk.initImageFlag },
+          audio: { path: chunk.audioPath, flag: audioFlag! },
+          backendArgs: this.backends.argv('sdcpp'),
+        });
+
+        await this.run({
+          binaryPath,
+          args,
+          outputPath: chunk.outputPath,
+          outputName: chunk.outputPath,
+          kind: 'video',
+          params: chunk.params,
+          // Each chunk gets the full video budget: the ceiling is meant to
+          // catch a wedged process, and a forty-chunk run legitimately takes
+          // forty times as long as a one-chunk one.
+          timeoutMs,
+          onProgress: chunk.onProgress,
+          onLog: input.onLog,
+          signal: input.signal,
+        });
+      },
+    });
+
+    return {
+      outputPath,
+      outputName,
+      kind: 'video',
+      durationMs: Date.now() - started,
+      params,
+      s2v: {
+        audioDurationSeconds: summary.audioDurationSeconds,
+        chunks: summary.chunks,
+        fps: summary.fps,
+      },
+    };
   }
 
   private async resolveBinary(signal?: AbortSignal): Promise<string> {

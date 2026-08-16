@@ -144,6 +144,8 @@ export async function catalogueRoutes(fastify: FastifyInstance): Promise<void> {
         mode: model.mode,
         defaults: model.defaults as ModelManifest['defaults'],
         extra_args: model.extraArgs,
+        capabilities: model.capabilities,
+        s2v: model.s2v as ModelManifest['s2v'],
         family: model.family,
         task: model.task,
         audio_mode: model.audioMode,

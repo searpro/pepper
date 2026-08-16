@@ -48,10 +48,16 @@ WORKDIR /app
 # (every ggml build), libvulkan1 covers Vulkan builds, and the CUDA runtime
 # itself comes from the host through the NVIDIA container runtime — which is
 # why this is a slim image and not a multi-gigabyte CUDA base.
+#
+# ffmpeg is for speech-to-video: audio longer than one model window is sliced,
+# generated a window at a time and stitched back together. Installed rather
+# than left optional because a deployment discovering it is missing halfway
+# through a multi-minute render is the worst time to find out.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libgomp1 \
         libvulkan1 \
+        ffmpeg \
         ca-certificates \
         curl \
         git \

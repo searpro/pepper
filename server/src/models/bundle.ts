@@ -90,11 +90,64 @@ export const manifestSchema = z.object({
   load: z.enum(['auto', 'model', 'diffusion-model']).optional(),
   /** `video` switches sd-cli into `-M vid_gen` and writes .webm. */
   mode: z.enum(['image', 'video']).optional(),
+  /**
+   * What this bundle can do beyond plain generation, e.g. `s2v` for a model
+   * that conditions on speech. Declared rather than inferred: whether a
+   * checkpoint accepts audio is a property of how it was trained, and guessing
+   * from the filename would offer the Speech to Video tab a model that silently
+   * ignores the audio it is given.
+   */
+  capabilities: z.array(z.string()).optional(),
+  /** Speech-to-video wiring. Only read when `capabilities` includes "s2v". */
+  s2v: z
+    .object({
+      /**
+       * The backend flag the audio file is passed under. Configurable because
+       * this is the one part of S2V that differs per model family — sd-cli
+       * exposes MiniMax-H3's as `--ref-audio`, and a future Wan S2V may well
+       * land under another name. Keeping it in the manifest means supporting
+       * that model is a catalogue edit, not a release.
+       */
+      audio_flag: z.string().optional(),
+      /** Frames the model emits per chunk. Wan's window is 81. */
+      frames_per_chunk: z.number().optional(),
+      /** Seconds of audio per chunk, including the overlap. */
+      chunk_seconds: z.number().optional(),
+      /** Seconds each chunk replays from the previous one, to blend seams. */
+      overlap_seconds: z.number().optional(),
+      /**
+       * The flag the chained frame is passed under. Defaults to `-i`
+       * (init image), but MiniMax-H3's Ref2VA rejects `--init-img` outright
+       * when reference conditioning is in play and takes `-r` instead, so this
+       * cannot be a constant.
+       */
+      chain_flag: z.string().optional(),
+      /**
+       * Round each chunk's frame count up to `stride * k + offset`. MiniMax-H3
+       * aligns to a 17k+5 grid and silently rounds up on its own, which would
+       * make every segment slightly longer than the audio it covers and drift
+       * the stitch out of sync.
+       */
+      frame_grid: z.object({ stride: z.number(), offset: z.number() }).optional(),
+      /** Resample chunks to what the audio encoder expects. */
+      sample_rate: z.number().optional(),
+      /**
+       * Whether the trailing frame of chunk N seeds chunk N+1 as an init
+       * image. Keeps a subject from being re-imagined at every seam, but only
+       * works on a model that accepts image conditioning.
+       */
+      chain_frames: z.boolean().optional(),
+    })
+    .optional(),
   /** Explicit component filenames, overriding auto-detection. */
   components: z
     .object({
       checkpoint: z.string().optional(),
+      /** Wan 2.2's high-noise expert, loaded alongside the low-noise one. */
+      checkpoint_high_noise: z.string().optional(),
       vae: z.string().optional(),
+      /** Separate audio VAE, for models that decode a soundtrack (MiniMax-H3). */
+      audio_vae: z.string().optional(),
       clip_l: z.string().optional(),
       clip_g: z.string().optional(),
       clip_vision: z.string().optional(),
@@ -114,6 +167,7 @@ export const manifestSchema = z.object({
       negative_prompt: z.string().optional(),
       video_frames: z.number().optional(),
       flow_shift: z.number().optional(),
+      fps: z.number().optional(),
     })
     .optional(),
   /** Raw backend flags appended verbatim. */
@@ -171,6 +225,8 @@ export interface BundleInfo {
   mode: GenerationMode;
   components: ComponentFile[];
   partials: PartialFile[];
+  /** Declared extras such as `s2v`. Surfaced so the UI can filter on them. */
+  capabilities: string[];
   size: number;
   modified: string;
   /** Whether the bundle has enough on disk to generate with. */
@@ -178,6 +234,31 @@ export interface BundleInfo {
   /** Why it is not ready, when it is not. */
   readyReason?: string;
 }
+
+/** Resolved speech-to-video settings, with every default already applied. */
+export interface S2vConfig {
+  audioFlag: string;
+  framesPerChunk: number;
+  chunkSeconds: number;
+  overlapSeconds: number;
+  sampleRate?: number;
+  chainFrames: boolean;
+  chainFlag: string;
+  frameGrid?: { stride: number; offset: number };
+}
+
+/**
+ * Wan's published S2V window: 81 frames at 16fps is a little over five
+ * seconds, and the 0.5s overlap is what the seam blend consumes.
+ */
+export const S2V_DEFAULTS: S2vConfig = {
+  audioFlag: '--ref-audio',
+  framesPerChunk: 81,
+  chunkSeconds: 5,
+  overlapSeconds: 0.5,
+  chainFrames: true,
+  chainFlag: '-i',
+};
 
 /** Everything the image/video generator needs, with absolute paths. */
 export interface ResolvedImageBundle {
@@ -187,10 +268,41 @@ export interface ResolvedImageBundle {
   loadMode: LoadMode;
   mode: GenerationMode;
   checkpointPath: string;
-  weights: Partial<Record<ClipRole | 'vae', string>>;
+  /** Wan 2.2's high-noise expert, when the bundle ships one. */
+  highNoisePath?: string;
+  weights: Partial<Record<ClipRole | 'vae' | 'audio_vae', string>>;
   defaults: NonNullable<ModelManifest['defaults']>;
   extraArgs: string[];
   loraDir?: string;
+  capabilities: string[];
+  /** Populated only when `capabilities` includes "s2v". */
+  s2v?: S2vConfig;
+}
+
+/** Does a checkpoint filename mark it as the high-noise expert? */
+export function isHighNoiseCheckpoint(filename: string): boolean {
+  return /high[_-]?noise|highnoise|[_-]high[_.-]/i.test(filename);
+}
+
+export function resolveS2vConfig(manifest: ModelManifest | null): S2vConfig {
+  const declared = manifest?.s2v;
+  return {
+    audioFlag: declared?.audio_flag ?? S2V_DEFAULTS.audioFlag,
+    framesPerChunk: declared?.frames_per_chunk ?? S2V_DEFAULTS.framesPerChunk,
+    chunkSeconds: declared?.chunk_seconds ?? S2V_DEFAULTS.chunkSeconds,
+    overlapSeconds: declared?.overlap_seconds ?? S2V_DEFAULTS.overlapSeconds,
+    sampleRate: declared?.sample_rate,
+    chainFrames: declared?.chain_frames ?? S2V_DEFAULTS.chainFrames,
+    chainFlag: declared?.chain_flag ?? S2V_DEFAULTS.chainFlag,
+    frameGrid: declared?.frame_grid,
+  };
+}
+
+/** Round a frame count up onto a model's permitted grid. */
+export function alignFrames(frames: number, grid?: { stride: number; offset: number }): number {
+  if (!grid || grid.stride <= 0) return frames;
+  const k = Math.max(0, Math.ceil((frames - grid.offset) / grid.stride));
+  return grid.stride * k + grid.offset;
 }
 
 export async function readManifest(dir: string): Promise<ModelManifest | null> {
@@ -326,6 +438,7 @@ export async function inspectBundle(
     mode: manifest?.mode ?? (kind === 'video' ? 'video' : 'image'),
     components,
     partials,
+    capabilities: manifest?.capabilities ?? [],
     size,
     modified,
     ready: readiness.ready,
@@ -385,12 +498,40 @@ export async function resolveImageBundle(
 
   const bySlot = (slot: ComponentSlot) => info.components.filter((c) => c.slot === slot);
 
-  const checkpoint = pickFile(bySlot('checkpoint'), info.manifest?.components?.checkpoint);
+  // Wan 2.2 ships two experts in one bundle. The high-noise one is separated
+  // out first so the ordinary "largest file wins" pick below cannot land on
+  // it — loading the high-noise expert as the only diffusion model produces
+  // noise, not a picture, and does so without erroring.
+  const checkpoints = bySlot('checkpoint');
+  const declaredHigh = info.manifest?.components?.checkpoint_high_noise;
+  const highNoise = declaredHigh
+    ? (checkpoints.find((file) => file.name === declaredHigh) ?? null)
+    : checkpoints.length > 1
+      ? (checkpoints.find((file) => isHighNoiseCheckpoint(file.name)) ?? null)
+      : null;
+
+  const lowNoise = checkpoints.filter((file) => file !== highNoise);
+  const checkpoint = pickFile(lowNoise, info.manifest?.components?.checkpoint);
   if (!checkpoint) throw errors.invalidModel(`Model "${id}" has no checkpoint file`);
 
-  const weights: Partial<Record<ClipRole | 'vae', string>> = {};
-  const vae = pickFile(bySlot('vae'), info.manifest?.components?.vae);
+  const weights: Partial<Record<ClipRole | 'vae' | 'audio_vae', string>> = {};
+
+  // A model that decodes its own soundtrack (MiniMax-H3) ships two VAEs in one
+  // slot. They are separated by name before the pick, for the same reason the
+  // high-noise expert is: "largest wins" would otherwise hand the video VAE
+  // flag an audio decoder.
+  const vaeFiles = bySlot('vae');
+  const declaredAudioVae = info.manifest?.components?.audio_vae;
+  const audioVae = declaredAudioVae
+    ? (vaeFiles.find((file) => file.name === declaredAudioVae) ?? null)
+    : (vaeFiles.find((file) => /audio/i.test(file.name)) ?? null);
+
+  const vae = pickFile(
+    vaeFiles.filter((file) => file !== audioVae),
+    info.manifest?.components?.vae,
+  );
   if (vae) weights.vae = join(bundlePath, 'vae', vae.name);
+  if (audioVae) weights.audio_vae = join(bundlePath, 'vae', audioVae.name);
 
   for (const file of bySlot('clip')) {
     const role = file.role;
@@ -401,6 +542,7 @@ export async function resolveImageBundle(
   }
 
   const loras = bySlot('lora');
+  const capabilities = info.capabilities;
 
   return {
     id,
@@ -409,10 +551,13 @@ export async function resolveImageBundle(
     loadMode: info.loadMode,
     mode: info.mode,
     checkpointPath: join(bundlePath, 'checkpoint', checkpoint.name),
+    highNoisePath: highNoise ? join(bundlePath, 'checkpoint', highNoise.name) : undefined,
     weights,
     defaults: info.manifest?.defaults ?? {},
     extraArgs: info.manifest?.extra_args ?? [],
     loraDir: loras.length > 0 ? join(bundlePath, 'lora') : undefined,
+    capabilities,
+    s2v: capabilities.includes('s2v') ? resolveS2vConfig(info.manifest) : undefined,
   };
 }
 

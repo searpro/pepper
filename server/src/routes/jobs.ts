@@ -28,9 +28,19 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
   const statusEnum = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']);
 
   /** Image and video share one request shape; the bundle decides which it is. */
-  async function jobKindFor(model: string): Promise<JobKind> {
+  async function jobKindFor(model: string, audio?: string): Promise<JobKind> {
     const bundle = await app.models.find(model, ['image', 'video']);
     if (!bundle) throw errors.modelNotFound(model);
+
+    // Rejecting an audio request against a model that cannot use it here means
+    // a clear 400 in milliseconds, rather than a job that queues, loads
+    // several gigabytes of weights and produces a video ignoring the speech.
+    if (audio && !bundle.capabilities.includes('s2v')) {
+      throw errors.validation(
+        `Model "${model}" does not support speech-to-video. Choose a model whose ` +
+          'capabilities include "s2v".',
+      );
+    }
     return bundle.mode === 'video' ? 'video' : 'image';
   }
 
@@ -48,7 +58,7 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (req, reply) => {
       validateDimensions(req.body, 8192);
-      const kind = await jobKindFor(req.body.model);
+      const kind = await jobKindFor(req.body.model, req.body.audio);
 
       // `batch` fans out to one job per image rather than one job producing
       // several: each gets its own progress, its own abort, and its own retry,
@@ -245,7 +255,7 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (req) => {
       validateDimensions(req.body, 8192);
-      const kind = await jobKindFor(req.body.model);
+      const kind = await jobKindFor(req.body.model, req.body.audio);
       const { batch: _batch, ...params } = req.body;
       const job = app.jobs.create(kind, params);
 

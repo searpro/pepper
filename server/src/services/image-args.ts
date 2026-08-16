@@ -20,11 +20,13 @@ export const FLAG_MAP = {
   sampler: '--sampling-method',
   video_frames: '--video-frames',
   flow_shift: '--flow-shift',
+  fps: '--fps',
 } as const;
 
 /** The flag each resolved weight component is passed under. */
-export const WEIGHT_FLAG: Record<ClipRole | 'vae', string> = {
+export const WEIGHT_FLAG: Record<ClipRole | 'vae' | 'audio_vae', string> = {
   vae: '--vae',
+  audio_vae: '--audio-vae',
   clip_l: '--clip_l',
   clip_g: '--clip_g',
   clip_vision: '--clip_vision',
@@ -35,8 +37,17 @@ export const WEIGHT_FLAG: Record<ClipRole | 'vae', string> = {
 
 export interface InputImages {
   init?: string;
+  /** Flag `init` is passed under. Defaults to `-i`. */
+  initFlag?: string;
   mask?: string;
   refs?: string[];
+}
+
+export interface AudioConditioning {
+  /** Absolute path to the WAV the model conditions on. */
+  path: string;
+  /** The flag it is passed under, from the bundle's `s2v.audio_flag`. */
+  flag: string;
 }
 
 export interface BuildArgsInput {
@@ -45,6 +56,8 @@ export interface BuildArgsInput {
   bundle: ResolvedImageBundle;
   outputPath: string;
   images?: InputImages;
+  /** Speech conditioning, for a single speech-to-video chunk. */
+  audio?: AudioConditioning;
   /**
    * Process-wide flags from the user's backend settings (threads, VAE tiling,
    * flash attention). Appended before the manifest's own extras so a
@@ -54,7 +67,7 @@ export interface BuildArgsInput {
 }
 
 export function buildImageArgs(input: BuildArgsInput): string[] {
-  const { params, bundle, outputPath, images, backendArgs = [] } = input;
+  const { params, bundle, outputPath, images, audio, backendArgs = [] } = input;
   const args: string[] = [];
 
   // Switches sd-cli into video generation. Must come before the model flags.
@@ -68,12 +81,29 @@ export function buildImageArgs(input: BuildArgsInput): string[] {
     args.push('-m', bundle.checkpointPath);
   }
 
-  for (const [role, flag] of Object.entries(WEIGHT_FLAG) as [ClipRole | 'vae', string][]) {
+  // Wan 2.2 splits denoising across two experts: the high-noise one runs the
+  // early steps, the low-noise one the rest. sd-cli takes the low-noise expert
+  // as the ordinary diffusion model and the other under its own flag.
+  if (bundle.highNoisePath) {
+    args.push('--high-noise-diffusion-model', bundle.highNoisePath);
+  }
+
+  for (const [role, flag] of Object.entries(WEIGHT_FLAG) as [
+    ClipRole | 'vae' | 'audio_vae',
+    string,
+  ][]) {
     const path = bundle.weights[role];
     if (path) args.push(flag, path);
   }
 
-  if (images?.init) args.push('-i', images.init);
+  // The flag name comes from the bundle rather than a constant here, because
+  // it is the one piece of S2V wiring that varies between model families.
+  if (audio) args.push(audio.flag, audio.path);
+
+  // `initFlag` lets the speech path route the chained frame to `-r` instead:
+  // MiniMax-H3's Ref2VA rejects `--init-img` when reference conditioning is in
+  // play, so the same conceptual input needs a different flag per model.
+  if (images?.init) args.push(images.initFlag ?? '-i', images.init);
   if (images?.mask) args.push('--mask', images.mask);
   for (const ref of images?.refs ?? []) args.push('-r', ref);
   if (params.strength !== undefined) args.push('--strength', String(params.strength));
@@ -100,6 +130,7 @@ export function buildImageArgs(input: BuildArgsInput): string[] {
     args.push(FLAG_MAP.video_frames, String(params.video_frames));
   }
   if (params.flow_shift !== undefined) args.push(FLAG_MAP.flow_shift, String(params.flow_shift));
+  if (params.fps !== undefined) args.push(FLAG_MAP.fps, String(params.fps));
 
   args.push(...backendArgs);
   args.push(...bundle.extraArgs);
