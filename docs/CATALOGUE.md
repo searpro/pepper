@@ -210,6 +210,7 @@ so a model that matches Wan's window needs only the capability flag.
   "sample_rate": 16000,         // resample chunks to what the audio encoder expects
   "chain_frames": true,         // seed each window with the last frame of the previous
   "chain_flag": "-i",           // the flag that chained frame is passed under
+  "audio_encoder_flag": null,   // flag a separate speech encoder is passed under, if any
   "frame_grid": { "stride": 17, "offset": 5 }  // round frame counts to stride*k + offset
 }
 ```
@@ -260,9 +261,10 @@ single consumer card without them.
 
 ### Wan 2.2 S2V
 
-Wan 2.2 splits denoising across two experts. Both go in `checkpoint/`; the
-high-noise one is recognised by its filename, or named explicitly through the
-bundle manifest's `components.checkpoint_high_noise`.
+(Wan 2.2 *T2V* and *I2V* A14B do split denoising across two experts. Both go in
+`checkpoint/`, and the high-noise one is recognised by its filename or named
+explicitly through the manifest's `components.checkpoint_high_noise`. S2V does
+not work that way.)
 
 ```jsonc
 {
@@ -275,7 +277,7 @@ bundle manifest's `components.checkpoint_high_noise`.
   "loadMode": "diffusion-model",
   "mode": "video",
   "capabilities": ["s2v"],
-  "s2v": { "frames_per_chunk": 81, "chunk_seconds": 5, "overlap_seconds": 0.5 },
+  "s2v": { "audio_flag": "--ref-audio", "frames_per_chunk": 81, "chunk_seconds": 5, "overlap_seconds": 0.5, "sample_rate": 16000 },
   "defaults": { "steps": 20, "cfg_scale": 3.5, "width": 640, "height": 640, "fps": 16, "flow_shift": 5 },
   "components": [
     {
@@ -283,14 +285,7 @@ bundle manifest's `components.checkpoint_high_noise`.
       "label": "Diffusion model (low noise)",
       "required": true,
       "quantizable": true,
-      "source": { "repo": "QuantStack/Wan2.2-S2V-14B-GGUF", "match": "low_noise" }
-    },
-    {
-      "slot": "checkpoint",
-      "label": "Diffusion model (high noise)",
-      "required": true,
-      "quantizable": true,
-      "source": { "repo": "QuantStack/Wan2.2-S2V-14B-GGUF", "match": "high_noise" }
+      "source": { "repo": "QuantStack/Wan2.2-S2V-14B-GGUF", "extensions": [".gguf"] }
     },
     {
       "slot": "vae",
@@ -310,10 +305,35 @@ bundle manifest's `components.checkpoint_high_noise`.
 }
 ```
 
-> **Not yet runnable.** As of this writing `stable-diffusion.cpp` has no Wan
-> S2V implementation — `docs/wan.md` upstream covers T2V, I2V and FLF2V only,
-> and there is no Wan audio-conditioning flag. This entry is the wiring that
-> lights up when it lands; publishing it before then would put a model in the
-> catalogue that installs 15GB and then fails at generation. Keep it out of the
-> published `pepper-catalogue.json` until upstream support exists, then confirm
-> `s2v.audio_flag` against the flag sd-cli actually registers.
+Published as `wan2.2-s2v-14b`. It is driven through sd-cli exactly like the
+other Wan models — `-M vid_gen`, `--diffusion-model`, `--vae`, `--t5xxl` — with
+the speech chunk added as `--ref-audio`:
+
+```sh
+sd-cli -M vid_gen \
+  --diffusion-model .../Wan2.2-S2V-14B-Q4_K_M.gguf \
+  --vae .../wan_2.1_vae.safetensors \
+  --t5xxl .../umt5_xxl_fp8_e4m3fn_scaled.safetensors \
+  --ref-audio .../chunk-0000.wav \
+  -o .../segment-0000.webm \
+  -p "Close-up portrait of a person talking, high detail, moving lips" \
+  --steps 20 --cfg-scale 4.5 -W 832 -H 480 --sampling-method euler \
+  --video-frames 81 --flow-shift 5 --fps 16 --diffusion-fa --offload-to-cpu
+```
+
+Chunks after the first add `-i <last frame of the previous segment>`.
+
+Two things to know before the first run on a GPU host:
+
+- **sd-cli has no Wan S2V implementation as of this writing.** Upstream
+  `docs/wan.md` covers T2V, I2V and FLF2V, and `--ref-audio` is registered for
+  MiniMax-H3's Ref2VA. Whether it reaches Wan's audio conditioning is the thing
+  the first run answers. If sd-cli rejects the flag or ignores the audio, the
+  fix is `s2v.audio_flag` here, not a code change.
+- **The wav2vec2 speech encoder is downloaded but not passed.** Wan 2.2 S2V
+  needs it, and sd-cli registers no flag that takes it. It installs into `aux/`
+  so the weights are already local; set `s2v.audio_encoder_flag` once the flag
+  exists and it is emitted automatically.
+
+Unlike Wan 2.2 T2V/I2V A14B, S2V is a **single** 14B model — there is no
+high-noise expert, so `--high-noise-diffusion-model` does not appear.

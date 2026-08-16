@@ -98,7 +98,15 @@ export function buildImageArgs(input: BuildArgsInput): string[] {
 
   // The flag name comes from the bundle rather than a constant here, because
   // it is the one piece of S2V wiring that varies between model families.
-  if (audio) args.push(audio.flag, audio.path);
+  if (audio) {
+    args.push(audio.flag, audio.path);
+    // Wan 2.2 S2V needs its wav2vec2 speech encoder passed alongside the audio.
+    // Emitted only when the manifest names a flag for it: passing a path under
+    // a guessed flag would fail the whole run rather than degrade.
+    if (bundle.s2v?.audioEncoderFlag && bundle.audioEncoderPath) {
+      args.push(bundle.s2v.audioEncoderFlag, bundle.audioEncoderPath);
+    }
+  }
 
   // `initFlag` lets the speech path route the chained frame to `-r` instead:
   // MiniMax-H3's Ref2VA rejects `--init-img` when reference conditioning is in

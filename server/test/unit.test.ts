@@ -638,6 +638,45 @@ describe('speech-to-video', () => {
     expect(args[args.indexOf('--audio-vae') + 1]).toBe('/models/audio_vae.safetensors');
   });
 
+  it('emits the speech encoder only once a flag is named for it', () => {
+    const bundle = {
+      id: 'wan22-s2v',
+      mode: 'video',
+      loadMode: 'diffusion-model',
+      checkpointPath: '/models/wan.gguf',
+      audioEncoderPath: '/models/aux/wav2vec2.safetensors',
+      weights: {},
+      extraArgs: [],
+      defaults: {},
+      capabilities: ['s2v'],
+    };
+    const params = { prompt: 'x', model: 'wan22-s2v' };
+    const audio = { path: '/tmp/c0.wav', flag: '--ref-audio' };
+
+    // No flag configured: the file is on disk but stays out of the command,
+    // because a guessed flag fails the run rather than degrading it.
+    const without = buildImageArgs({
+      params,
+      bundle: { ...bundle, s2v: { audioFlag: '--ref-audio' } } as never,
+      outputPath: '/out/s.webm',
+      audio,
+    });
+    expect(without).not.toContain('/models/aux/wav2vec2.safetensors');
+
+    const withFlag = buildImageArgs({
+      params,
+      bundle: {
+        ...bundle,
+        s2v: { audioFlag: '--ref-audio', audioEncoderFlag: '--audio-encoder' },
+      } as never,
+      outputPath: '/out/s.webm',
+      audio,
+    });
+    expect(withFlag[withFlag.indexOf('--audio-encoder') + 1]).toBe(
+      '/models/aux/wav2vec2.safetensors',
+    );
+  });
+
   it('passes audio and the high-noise expert under their own flags', () => {
     const args = buildImageArgs({
       params: { prompt: 'a person speaking', model: 'wan22-s2v', video_frames: 81, fps: 16 },

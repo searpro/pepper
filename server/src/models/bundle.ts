@@ -123,6 +123,13 @@ export const manifestSchema = z.object({
        */
       chain_flag: z.string().optional(),
       /**
+       * The flag a separate speech encoder is passed under. Wan 2.2 S2V needs
+       * a wav2vec2 encoder alongside the diffusion model, and sd-cli does not
+       * register a flag for one yet — so the file is downloaded into `aux/`
+       * and stays unused until this names the flag that consumes it.
+       */
+      audio_encoder_flag: z.string().optional(),
+      /**
        * Round each chunk's frame count up to `stride * k + offset`. MiniMax-H3
        * aligns to a 17k+5 grid and silently rounds up on its own, which would
        * make every segment slightly longer than the audio it covers and drift
@@ -148,6 +155,8 @@ export const manifestSchema = z.object({
       vae: z.string().optional(),
       /** Separate audio VAE, for models that decode a soundtrack (MiniMax-H3). */
       audio_vae: z.string().optional(),
+      /** Speech encoder in `aux/`, e.g. Wan 2.2 S2V's wav2vec2. */
+      audio_encoder: z.string().optional(),
       clip_l: z.string().optional(),
       clip_g: z.string().optional(),
       clip_vision: z.string().optional(),
@@ -244,6 +253,7 @@ export interface S2vConfig {
   sampleRate?: number;
   chainFrames: boolean;
   chainFlag: string;
+  audioEncoderFlag?: string;
   frameGrid?: { stride: number; offset: number };
 }
 
@@ -275,6 +285,8 @@ export interface ResolvedImageBundle {
   extraArgs: string[];
   loraDir?: string;
   capabilities: string[];
+  /** A separate speech encoder in `aux/`, for models that need one. */
+  audioEncoderPath?: string;
   /** Populated only when `capabilities` includes "s2v". */
   s2v?: S2vConfig;
 }
@@ -294,6 +306,7 @@ export function resolveS2vConfig(manifest: ModelManifest | null): S2vConfig {
     sampleRate: declared?.sample_rate,
     chainFrames: declared?.chain_frames ?? S2V_DEFAULTS.chainFrames,
     chainFlag: declared?.chain_flag ?? S2V_DEFAULTS.chainFlag,
+    audioEncoderFlag: declared?.audio_encoder_flag,
     frameGrid: declared?.frame_grid,
   };
 }
@@ -544,6 +557,11 @@ export async function resolveImageBundle(
   const loras = bySlot('lora');
   const capabilities = info.capabilities;
 
+  // Wan 2.2 S2V's wav2vec2 speech encoder. Picked up whether or not a flag is
+  // configured to consume it: the download is what takes twenty minutes, and
+  // having it already on disk is what makes enabling it a config change.
+  const audioEncoder = pickFile(bySlot('aux'), info.manifest?.components?.audio_encoder);
+
   return {
     id,
     dir: bundlePath,
@@ -557,6 +575,7 @@ export async function resolveImageBundle(
     extraArgs: info.manifest?.extra_args ?? [],
     loraDir: loras.length > 0 ? join(bundlePath, 'lora') : undefined,
     capabilities,
+    audioEncoderPath: audioEncoder ? join(bundlePath, 'aux', audioEncoder.name) : undefined,
     s2v: capabilities.includes('s2v') ? resolveS2vConfig(info.manifest) : undefined,
   };
 }
