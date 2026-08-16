@@ -140,26 +140,36 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const file = await req.file();
-      if (!file) throw errors.validation('Expected a multipart file upload');
+      // sd-api accepted any number of files per request and answered with an
+      // `inputs` array; clients index it (`inputs[0].name`) rather than reading
+      // top-level keys. Returning only the flat object broke every one of them,
+      // so the array is the contract and the first entry's fields are mirrored
+      // at the top level for anything written against this rewrite.
+      const uploaded: Array<Record<string, unknown>> = [];
 
-      const ext = extname(file.filename || '').toLowerCase() || '.bin';
-      // The client's filename is never used as the stored name: it is
-      // attacker-controlled, may collide with an existing upload, and would
-      // let one request overwrite another's reference image.
-      const name = uniqueOutputName(ext.replace(/^\./, ''), 'upload');
-      const path = safeResolve(app.paths.uploadsDir, name);
+      for await (const file of req.files()) {
+        const ext = extname(file.filename || '').toLowerCase() || '.bin';
+        // The client's filename is never used as the stored name: it is
+        // attacker-controlled, may collide with an existing upload, and would
+        // let one request overwrite another's reference image.
+        const name = uniqueOutputName(ext.replace(/^\./, ''), 'upload');
+        const path = safeResolve(app.paths.uploadsDir, name);
 
-      await writeFile(path, await file.toBuffer());
-      const size = (await stat(path)).size;
+        await writeFile(path, await file.toBuffer());
+        const size = (await stat(path)).size;
 
-      return reply.code(201).send({
-        name,
-        originalName: file.filename,
-        kind: mediaKind(name),
-        size,
-        url: `/v1/inputs/${encodeURIComponent(name)}`,
-      });
+        uploaded.push({
+          name,
+          originalName: file.filename,
+          kind: mediaKind(name),
+          size,
+          url: `/v1/inputs/${encodeURIComponent(name)}`,
+        });
+      }
+
+      if (uploaded.length === 0) throw errors.validation('Expected a multipart file upload');
+
+      return reply.code(201).send({ ...uploaded[0], inputs: uploaded });
     },
   );
 

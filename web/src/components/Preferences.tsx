@@ -25,7 +25,7 @@ import {
   TabsTrigger,
   Tooltip,
 } from '@/components/ui';
-import { formatBytes } from '@/lib/utils';
+import { backendState, formatBytes } from '@/lib/utils';
 import type { Theme } from '@/components/layout';
 
 /**
@@ -173,14 +173,9 @@ function BackendPanel({ backend, onChanged }: { backend: BackendStatus; onChange
     }
   };
 
-  const statusVariant =
-    backend.status === 'ready'
-      ? ('success' as const)
-      : backend.status === 'failed'
-        ? ('destructive' as const)
-        : backend.status === 'starting' || backend.status === 'installing'
-          ? ('warning' as const)
-          : ('outline' as const);
+  // Shared with the header pills, so a CLI backend cannot read "ready" up
+  // there and "stopped" down here — sd-cli has no process to be either.
+  const state = backendState(backend);
 
   return (
     <Card className="overflow-hidden">
@@ -188,7 +183,11 @@ function BackendPanel({ backend, onChanged }: { backend: BackendStatus; onChange
         <div className="flex min-w-0 flex-col gap-1">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">{backend.label}</span>
-            <Badge variant={statusVariant}>{backend.status}</Badge>
+            <Tooltip label={state.label}>
+              <Badge variant={state.variant} className="cursor-default">
+                {state.state}
+              </Badge>
+            </Tooltip>
             {backend.installed ? (
               <Tooltip label={backend.binaryPath ?? ''}>
                 <Badge variant="outline">{backend.releaseTag}</Badge>
@@ -209,25 +208,28 @@ function BackendPanel({ backend, onChanged }: { backend: BackendStatus; onChange
         </div>
 
         <div className="flex items-center gap-1">
+          {/* Outline rather than ghost: these were invisible until hovered, so
+              a backend that needed installing looked like it had no controls. */}
           <Tooltip label="Install or update to the latest release">
-            <Button variant="ghost" size="icon-sm" onClick={() => void act('install')}>
+            <Button variant="outline" size="sm" onClick={() => void act('install')}>
               <Download />
+              {backend.installed ? 'Update' : 'Install'}
             </Button>
           </Tooltip>
           {backend.kind === 'server' ? (
             <>
               <Tooltip label="Start">
-                <Button variant="ghost" size="icon-sm" onClick={() => void act('start')}>
+                <Button variant="outline" size="icon-sm" onClick={() => void act('start')}>
                   <Play />
                 </Button>
               </Tooltip>
               <Tooltip label="Stop">
-                <Button variant="ghost" size="icon-sm" onClick={() => void act('stop')}>
+                <Button variant="outline" size="icon-sm" onClick={() => void act('stop')}>
                   <Square />
                 </Button>
               </Tooltip>
               <Tooltip label="Restart">
-                <Button variant="ghost" size="icon-sm" onClick={() => void act('restart')}>
+                <Button variant="outline" size="icon-sm" onClick={() => void act('restart')}>
                   <RefreshCw />
                 </Button>
               </Tooltip>

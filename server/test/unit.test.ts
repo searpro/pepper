@@ -11,6 +11,7 @@ import { LogBuffer } from '../src/logs/buffer.js';
 import { buildArgv, effectiveArgs, LLAMACPP_ARGS, renderArgs } from '../src/backends/args.js';
 import { inspectBundle, parseSlot, detectClipRole } from '../src/models/bundle.js';
 import { Semaphore } from '../src/util/semaphore.js';
+import { buildImageArgs } from '../src/services/image-args.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -375,5 +376,47 @@ describe('semaphore', () => {
     await expect(waiting).rejects.toThrow();
     await held;
     expect(semaphore.inUse).toBe(0);
+  });
+});
+
+describe('image generation arguments', () => {
+  const bundle = {
+    id: 'kontext',
+    mode: 'image' as const,
+    loadMode: 'diffusion-model' as const,
+    checkpointPath: '/models/kontext.gguf',
+    weights: {},
+    extraArgs: [],
+    defaults: {},
+  };
+
+  it('passes editing inputs through as their own flags', () => {
+    const args = buildImageArgs({
+      params: {
+        prompt: 'make it snow',
+        model: 'kontext',
+        strength: 0.6,
+        img_cfg_scale: 1.5,
+        increase_ref_index: true,
+      },
+      // The manifest surface is wider than this test needs; only the fields
+      // the editing path reads are populated.
+      bundle: bundle as never,
+      outputPath: '/out/x.png',
+      images: { init: '/in/init.png', mask: '/in/mask.png', refs: ['/in/a.png', '/in/b.png'] },
+    });
+
+    expect(args).toContain('--increase-ref-index');
+    for (const [flag, value] of [
+      ['-i', '/in/init.png'],
+      ['--mask', '/in/mask.png'],
+      ['--strength', '0.6'],
+      ['--img-cfg-scale', '1.5'],
+    ] as const) {
+      expect(args[args.indexOf(flag) + 1]).toBe(value);
+    }
+    // Each reference gets its own -r, in the order the client sent them.
+    expect(args.filter((arg) => arg === '-r')).toHaveLength(2);
+    expect(args[args.indexOf('-r') + 1]).toBe('/in/a.png');
   });
 });

@@ -29,6 +29,7 @@ import {
   Select,
   Slider,
   Spinner,
+  Switch,
   Textarea,
 } from '@/components/ui';
 import { Page } from '@/components/layout';
@@ -49,6 +50,9 @@ const SAMPLERS = [
   'tcd',
 ];
 
+/** Where an uploaded input is served from, for the thumbnails. */
+const inputUrl = (name: string) => `/v1/inputs/${encodeURIComponent(name)}`;
+
 interface FormState {
   prompt: string;
   negative_prompt: string;
@@ -62,6 +66,9 @@ interface FormState {
   batch: number;
   init_image?: string;
   strength: number;
+  ref_images: string[];
+  img_cfg_scale: number;
+  increase_ref_index: boolean;
   video_frames: number;
   flow_shift: number;
 }
@@ -78,6 +85,9 @@ const DEFAULTS: FormState = {
   sampler: 'euler_a',
   batch: 1,
   strength: 0.75,
+  ref_images: [],
+  img_cfg_scale: 1,
+  increase_ref_index: false,
   video_frames: 33,
   flow_shift: 3,
 };
@@ -154,6 +164,14 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
         body.init_image = form.init_image;
         body.strength = form.strength;
       }
+      // Edit models (Kontext, Qwen-Image-Edit) take their subject as reference
+      // images rather than as an init image, and are the whole point of
+      // `--img-cfg-scale`; without these the edit screen could only do t2i.
+      if (form.ref_images.length > 0) {
+        body.ref_images = form.ref_images;
+        body.img_cfg_scale = form.img_cfg_scale;
+        if (form.increase_ref_index) body.increase_ref_index = true;
+      }
       if (kind === 'video') {
         body.video_frames = form.video_frames;
         body.flow_shift = form.flow_shift;
@@ -171,6 +189,22 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
     try {
       const result = await api.upload<{ name: string }>('/v1/inputs', file);
       update('init_image', result.name);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const uploadRefs = async (files: File[]) => {
+    try {
+      const uploaded = await Promise.all(
+        files.map((file) => api.upload<{ name: string }>('/v1/inputs', file)),
+      );
+      // The server caps `ref_images` at 16; trimming here means a slip of the
+      // file picker is a shorter list rather than a rejected generation.
+      setForm((state) => ({
+        ...state,
+        ref_images: [...state.ref_images, ...uploaded.map((item) => item.name)].slice(0, 16),
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -335,15 +369,103 @@ export function GeneratePage({ kind }: { kind: 'image' | 'video' }) {
           </Field>
 
           {form.init_image ? (
-            <Field label={`Denoising strength · ${form.strength}`}>
-              <Slider
-                value={form.strength}
-                onValueChange={(value) => update('strength', value)}
-                min={0}
-                max={1}
-                step={0.05}
+            <>
+              <img
+                src={inputUrl(form.init_image)}
+                alt="Init image"
+                className="h-28 w-full rounded-md border border-border object-contain bg-muted"
               />
+              <Field label={`Denoising strength · ${form.strength}`}>
+                <Slider
+                  value={form.strength}
+                  onValueChange={(value) => update('strength', value)}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                />
+              </Field>
+            </>
+          ) : null}
+
+          {/* Edit models take their subject here, not as an init image. */}
+          {kind === 'image' ? (
+            <Field
+              label="Reference images (editing)"
+              hint="For edit models such as FLUX.1 Kontext and Qwen-Image-Edit. Ignored by plain text-to-image models."
+            >
+              <div className="flex flex-col gap-2">
+                <label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      const files = Array.from(event.target.files ?? []);
+                      if (files.length > 0) void uploadRefs(files);
+                      event.target.value = '';
+                    }}
+                  />
+                  <span className="flex h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-input px-3 text-xs text-muted-foreground hover:bg-accent">
+                    <Upload className="size-3.5" />
+                    Add reference image
+                  </span>
+                </label>
+
+                {form.ref_images.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    {form.ref_images.map((name, index) => (
+                      <div key={name} className="group relative">
+                        <img
+                          src={inputUrl(name)}
+                          alt={`Reference ${index + 1}`}
+                          className="aspect-square w-full rounded-md border border-border object-cover"
+                        />
+                        <button
+                          type="button"
+                          aria-label={`Remove reference ${index + 1}`}
+                          onClick={() =>
+                            setForm((state) => ({
+                              ...state,
+                              ref_images: state.ref_images.filter((item) => item !== name),
+                            }))
+                          }
+                          className="absolute right-1 top-1 rounded bg-black/60 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                        >
+                          <Ban className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </Field>
+          ) : null}
+
+          {form.ref_images.length > 0 ? (
+            <>
+              <Field
+                label={`Image CFG scale · ${form.img_cfg_scale}`}
+                hint="How closely the result follows the reference images."
+              >
+                <Slider
+                  value={form.img_cfg_scale}
+                  onValueChange={(value) => update('img_cfg_scale', value)}
+                  min={0}
+                  max={10}
+                  step={0.1}
+                />
+              </Field>
+              <Field
+                label="Increase reference index"
+                hint="Numbers the references from 1 instead of 0 — what Qwen-Image-Edit's multi-image prompts expect."
+              >
+                <Switch
+                  checked={form.increase_ref_index}
+                  onCheckedChange={(value) => update('increase_ref_index', value)}
+                />
+              </Field>
+            </>
           ) : null}
 
           {error ? <ErrorNote>{error}</ErrorNote> : null}

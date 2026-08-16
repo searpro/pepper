@@ -44,3 +44,37 @@ export function formatTime(epochMs: number): string {
     second: '2-digit',
   });
 }
+
+/**
+ * What a backend's status pill should say, and how it should be coloured.
+ *
+ * A CLI backend has no long-running process, so its `status` is permanently
+ * `stopped` — sd-cli is spawned per generation and exits. Reading a pill
+ * straight off that made stable-diffusion.cpp look broken whenever it was
+ * merely idle, which is always. For a CLI, being installed *is* being ready.
+ * Both the header pills and the Preferences panel go through this, so the two
+ * cannot disagree again.
+ */
+export function backendState(backend: {
+  kind: 'server' | 'cli';
+  status: string;
+  installed: boolean;
+}): { state: string; label: string; variant: 'success' | 'destructive' | 'warning' | 'outline' } {
+  const state =
+    backend.kind === 'cli' ? (backend.installed ? 'ready' : 'not installed') : backend.status;
+  const label =
+    backend.kind === 'cli'
+      ? backend.installed
+        ? 'installed — runs per generation'
+        : 'not installed'
+      : backend.status;
+  const variant =
+    state === 'ready'
+      ? ('success' as const)
+      : state === 'failed' || state === 'unhealthy'
+        ? ('destructive' as const)
+        : state === 'starting' || state === 'installing'
+          ? ('warning' as const)
+          : ('outline' as const);
+  return { state, label, variant };
+}

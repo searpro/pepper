@@ -16,7 +16,7 @@ import {
   Video,
 } from 'lucide-react';
 import { Badge, Button, Tooltip } from '@/components/ui';
-import { cn } from '@/lib/utils';
+import { backendState, cn } from '@/lib/utils';
 import type { SystemStatus } from '@/lib/api';
 
 /**
@@ -201,24 +201,6 @@ export function AppShell({
 function BackendPills({ status }: { status: SystemStatus | undefined }) {
   if (!status) return null;
 
-  const variantFor = (state: string) =>
-    state === 'ready'
-      ? ('success' as const)
-      : state === 'failed' || state === 'unhealthy'
-        ? ('destructive' as const)
-        : state === 'starting' || state === 'installing'
-          ? ('warning' as const)
-          : ('outline' as const);
-
-  /**
-   * A CLI backend has no long-running process, so its `status` is permanently
-   * `stopped` — sd-cli is spawned per generation and exits. Reading the pill off
-   * that made stable-diffusion.cpp look broken whenever it was merely idle,
-   * which is always. For these, being installed *is* being ready.
-   */
-  const stateOf = (backend: SystemStatus['backends'][number]) =>
-    backend.kind === 'cli' ? (backend.installed ? 'ready' : 'stopped') : backend.status;
-
   return (
     <div className="hidden items-center gap-1.5 md:flex">
       {status.backends
@@ -229,14 +211,7 @@ function BackendPills({ status }: { status: SystemStatus | undefined }) {
             label={
               <div className="flex flex-col gap-0.5">
                 <span className="font-medium">{backend.label}</span>
-                <span>
-                  Status:{' '}
-                  {backend.kind === 'cli'
-                    ? backend.installed
-                      ? 'installed — runs per generation'
-                      : 'not installed'
-                    : backend.status}
-                </span>
+                <span>Status: {backendState(backend).label}</span>
                 {backend.releaseTag ? <span>Release: {backend.releaseTag}</span> : null}
                 {backend.restarts > 0 ? <span>Restarts: {backend.restarts}</span> : null}
                 {backend.lastRestartReason ? <span>Last: {backend.lastRestartReason}</span> : null}
@@ -244,7 +219,7 @@ function BackendPills({ status }: { status: SystemStatus | undefined }) {
               </div>
             }
           >
-            <Badge variant={variantFor(stateOf(backend))} className="cursor-default">
+            <Badge variant={backendState(backend).variant} className="cursor-default">
               <Activity className="size-2.5" />
               {backend.backend}
             </Badge>

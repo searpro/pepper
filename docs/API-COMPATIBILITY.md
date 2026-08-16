@@ -33,7 +33,7 @@ python3 docs/check-compat.py     # prints MISSING: none
 | `/v1/llm/chat/completions`, `/completions`, `/embeddings`, `/models` | Byte-for-byte proxy, streaming intact. |
 | `/v1/audio/speech`, `/transcriptions`, `/voices`, `/models`, `/tasks/run` | As before. |
 | `GET`/`DELETE /v1/audio-voice-refs/:name` | Also available at `/v1/audio/voice-refs/:name`. |
-| `POST /v1/inputs`, `GET /v1/inputs/:name` | Upload now returns `kind` and `url` in addition to `name`. |
+| `POST /v1/inputs`, `GET /v1/inputs/:name` | Upload still accepts any number of files and still answers with an `inputs` array; each entry now carries `kind` and `url` alongside `name`, and the first entry's fields are also mirrored at the top level. |
 | `GET /v1/outputs/:name` | Adds long-lived cache headers, since outputs are immutable. |
 | `GET /v1/auth/hf`, `POST /v1/auth/hf/verify` | Unchanged. |
 | `GET /v1/logs`, `GET /v1/logs/stream` | Filters gain `source` and `minLevel`; the old query still works. |
