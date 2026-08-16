@@ -150,6 +150,18 @@ export const AUDIOCPP_ARGS: BackendArgSpec = {
     },
     { key: 'port', flag: '--port', label: 'Port', type: 'number', locked: true },
     {
+      // audiocpp_server defaults `--backend` to cuda, so every non-CUDA host
+      // fails at startup ("CUDA backend requested but it is not registered in
+      // this build") even when the correct Metal/Vulkan asset was installed.
+      // The value is derived from ACCEL rather than left to the binary.
+      key: 'backend',
+      flag: '--backend',
+      label: 'Compute backend',
+      description: 'Derived from ACCEL. Must match the installed build.',
+      type: 'string',
+      locked: true,
+    },
+    {
       key: 'threads',
       flag: '-t',
       label: 'Threads',

@@ -26,6 +26,7 @@ import { DownloadManager } from './downloads/manager.js';
 import { JobManager } from './jobs/manager.js';
 import { ImageService } from './services/image.js';
 import { writeAudioServerConfig } from './services/audio-config.js';
+import { writeLlmScanDir } from './services/llm-scan-dir.js';
 import { systemRoutes } from './routes/system.js';
 import { modelRoutes } from './routes/models.js';
 import { downloadRoutes } from './routes/downloads.js';
@@ -110,6 +111,13 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   // it is regenerated before every spawn. An empty registry means the backend
   // is skipped entirely: it exits 1 on a zero-model config, and "no audio
   // models installed yet" is a normal state on a fresh deployment.
+  // llama.cpp scans a directory one level deep, which is one level shallower
+  // than pepper's bundle layout. The scan directory bridges the two.
+  backends.setPrepare('llamacpp', async () => {
+    const { path } = await writeLlmScanDir(paths, models, app.log);
+    return { managed: { models_dir: path } };
+  });
+
   backends.setPrepare('audiocpp', async () => {
     const { path, modelIds } = await writeAudioServerConfig(paths, models, app.log);
     if (modelIds.length === 0) {

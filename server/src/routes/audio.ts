@@ -97,7 +97,15 @@ export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
         backend: 'audiocpp',
         upstreamPath: '/v1/audio/transcriptions',
         method: 'POST',
-        headers: { 'Content-Type': req.headers['content-type'] ?? 'multipart/form-data' },
+        headers: {
+          'Content-Type': req.headers['content-type'] ?? 'multipart/form-data',
+          // audio.cpp's multipart parser needs a declared length: without this
+          // undici sends the upload chunked and the parser sees no `file`
+          // field at all, failing with "requires a non-empty 'file' field".
+          ...(req.headers['content-length']
+            ? { 'Content-Length': req.headers['content-length'] }
+            : {}),
+        },
         body: Readable.toWeb(req.raw) as unknown as ProxyBody,
         timeoutMs: app.config.audiocppTimeoutMs,
       }),

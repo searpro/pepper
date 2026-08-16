@@ -265,6 +265,9 @@ export class BackendManager {
           config: join(this.paths.cacheDir, 'audio-server-config.generated.json'),
           host: '127.0.0.1',
           port: this.config.audiocppPort,
+          // Every Accel value is a name audiocpp_server accepts verbatim
+          // (it treats rocm as an alias for hip), so no mapping is needed.
+          backend: this.config.accel,
         };
       case 'python':
         return { listen: '127.0.0.1', port: this.config.pythonPort };
