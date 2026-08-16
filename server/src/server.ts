@@ -27,6 +27,8 @@ import { JobManager } from './jobs/manager.js';
 import { ImageService } from './services/image.js';
 import { writeAudioServerConfig } from './services/audio-config.js';
 import { writeLlmScanDir } from './services/llm-scan-dir.js';
+import { AudioService } from './services/audio-gen.js';
+import { TextService } from './services/text-gen.js';
 import { systemRoutes } from './routes/system.js';
 import { modelRoutes } from './routes/models.js';
 import { downloadRoutes } from './routes/downloads.js';
@@ -106,11 +108,9 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 
   const jobs = new JobManager(config, db, app.log, logs);
   const images = new ImageService(config, paths, models, backends, app.log, logs);
+  const speech = new AudioService(config, paths, backends, app.log, logs);
+  const text = new TextService(config, backends, app.log, logs);
 
-  // audio.cpp loads an explicit registry rather than scanning a directory, so
-  // it is regenerated before every spawn. An empty registry means the backend
-  // is skipped entirely: it exits 1 on a zero-model config, and "no audio
-  // models installed yet" is a normal state on a fresh deployment.
   // llama.cpp scans a directory one level deep, which is one level shallower
   // than pepper's bundle layout. The scan directory bridges the two.
   backends.setPrepare('llamacpp', async () => {
@@ -118,6 +118,10 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     return { managed: { models_dir: path } };
   });
 
+  // audio.cpp loads an explicit registry rather than scanning a directory, so
+  // it is regenerated before every spawn. An empty registry means the backend
+  // is skipped entirely: it exits 1 on a zero-model config, and "no audio
+  // models installed yet" is a normal state on a fresh deployment.
   backends.setPrepare('audiocpp', async () => {
     const { path, modelIds } = await writeAudioServerConfig(paths, models, app.log);
     if (modelIds.length === 0) {
@@ -126,7 +130,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     return { managed: { config: path } };
   });
 
-  registerExecutors(jobs, images, paths);
+  registerExecutors(jobs, images, speech, text, paths);
 
   app.decorate('config', config);
   app.decorate('paths', paths);
@@ -257,6 +261,8 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 function registerExecutors(
   jobs: JobManager,
   images: ImageService,
+  speech: AudioService,
+  text: TextService,
   paths: ReturnType<typeof buildPaths>,
 ): void {
   const generate: Parameters<JobManager['registerExecutor']>[1] = async (context) => {
@@ -292,4 +298,47 @@ function registerExecutors(
 
   jobs.registerExecutor('image', generate);
   jobs.registerExecutor('video', generate);
+
+  jobs.registerExecutor('audio', async (context) => {
+    const result = await speech.generate({
+      params: context.job.params as never,
+      signal: context.signal,
+      onLog: context.onLog,
+    });
+
+    return {
+      audio_path: result.outputPath,
+      audio_url: `/v1/outputs/${encodeURIComponent(result.outputName)}`,
+      metadata: {
+        kind: 'audio',
+        model: result.params.model,
+        input: result.params.input,
+        voice: result.params.voice,
+        voice_ref: result.params.voice_ref,
+        instructions: result.params.instructions,
+        duration_ms: result.durationMs,
+        output_dir: paths.outputDir,
+      },
+    };
+  });
+
+  // Text is the one kind whose result is not a file — see services/text-gen.ts.
+  jobs.registerExecutor('text', async (context) => {
+    const result = await text.generate({
+      params: context.job.params as never,
+      signal: context.signal,
+      onLog: context.onLog,
+    });
+
+    return {
+      text: result.text,
+      metadata: {
+        kind: 'text',
+        model: result.params.model,
+        usage: result.usage,
+        finish_reason: result.finishReason,
+        duration_ms: result.durationMs,
+      },
+    };
+  });
 }

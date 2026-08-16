@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import type { Paths } from '../paths.js';
+import { safeResolve, type Paths } from '../paths.js';
 import type { ModelManager } from '../models/manager.js';
 
 /**
@@ -34,6 +34,15 @@ interface AudioModelEntry {
   path: string;
   /** Absolute paths to auxiliary files (vocoder, tokenizer, speaker embeddings). */
   aux?: string[];
+  /**
+   * Named voice presets, which `GET /v1/audio/voices` lists and a request
+   * selects with `"voice": "<name>"`. Each value is a preset object audio.cpp
+   * understands — `{ "voice_id": "alba" }` for a packaged speaker, or
+   * `{ "voice_ref": "/abs/path.wav" }` for a stored reference clip.
+   */
+  voice_presets?: Record<string, Record<string, unknown>>;
+  /** Preset applied when a request names no voice. */
+  default_voice_preset?: string;
 }
 
 export interface WriteConfigResult {
@@ -72,12 +81,37 @@ export async function writeAudioServerConfig(
     const primary = [...weights].sort((a, b) => b.size - a.size)[0];
     const bundlePath = join(paths.modelsDir, 'audio', bundle.id);
 
+    // A preset's `voice_ref` names an uploaded clip, the same way a request
+    // does. audio.cpp opens whatever path it is given, so the name is resolved
+    // against the uploads directory here rather than forwarded verbatim.
+    const presets = manifest.voicePresets
+      ? Object.fromEntries(
+          Object.entries(manifest.voicePresets).map(([name, preset]) => [
+            name,
+            typeof preset.voice_ref === 'string'
+              ? { ...preset, voice_ref: safeResolve(paths.uploadsDir, preset.voice_ref) }
+              : preset,
+          ]),
+        )
+      : undefined;
+
+    if (manifest.defaultVoicePreset && !presets?.[manifest.defaultVoicePreset]) {
+      log.warn(
+        { bundle: bundle.id, preset: manifest.defaultVoicePreset },
+        'defaultVoicePreset names a preset the bundle does not define',
+      );
+    }
+
     entries.push({
       id: bundle.id,
       family: manifest.family,
       task: manifest.task,
       mode: manifest.audio_mode,
       path: join(bundlePath, 'weights', primary.name),
+      ...(presets ? { voice_presets: presets } : {}),
+      ...(manifest.defaultVoicePreset && presets?.[manifest.defaultVoicePreset]
+        ? { default_voice_preset: manifest.defaultVoicePreset }
+        : {}),
       aux: [
         ...weights.filter((w) => w.name !== primary.name).map((w) => join(bundlePath, 'weights', w.name)),
         ...bundle.components.filter((c) => c.slot === 'aux').map((c) => join(bundlePath, 'aux', c.name)),

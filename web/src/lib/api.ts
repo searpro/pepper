@@ -235,6 +235,22 @@ export interface Job {
   finishedAt?: string;
 }
 
+/**
+ * Wait for a queued job to reach a terminal state.
+ *
+ * Audio and text screens submit a job and then need the one result, unlike the
+ * image screen which watches a whole fleet of them over SSE. Polling a single
+ * id is the smaller tool for that: no stream to tear down when the component
+ * unmounts mid-generation, and the job survives the wait regardless.
+ */
+export async function waitForJob(id: string, intervalMs = 700): Promise<Job> {
+  for (;;) {
+    const job = await api.get<Job>(`/v1/jobs/${encodeURIComponent(id)}`);
+    if (job.status !== 'queued' && job.status !== 'running') return job;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 export interface LogRecord {
   seq: number;
   time: number;

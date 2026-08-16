@@ -83,6 +83,39 @@ export const generateResultSchema = z.object({
   }),
 });
 
+/**
+ * Audio and text job bodies.
+ *
+ * These are the queued counterparts of the OpenAI-compatible `/v1/audio/speech`
+ * and `/v1/llm/*` routes, which stay synchronous proxies for sd-api clients and
+ * for token streaming. Both pass through unknown keys, because the sampling
+ * knobs each backend accepts are its own business and change upstream faster
+ * than a schema here could track.
+ */
+export const audioJobSchema = z
+  .object({
+    model: z.string().min(1, 'model is required'),
+    input: z.string().min(1, 'input is required'),
+    /** A configured preset name, or a model-native built-in speaker id. */
+    voice: z.string().optional(),
+    /** Name of an uploaded reference clip, for voice cloning. */
+    voice_ref: z.string().optional(),
+    /** Voice direction. Required by voice-design models. */
+    instructions: z.string().optional(),
+  })
+  .passthrough();
+
+export const textJobSchema = z
+  .object({
+    model: z.string().min(1, 'model is required'),
+    messages: z.array(z.unknown()).min(1).optional(),
+    prompt: z.string().min(1).optional(),
+  })
+  .passthrough()
+  .refine((body) => Boolean(body.messages) !== Boolean(body.prompt), {
+    message: 'Provide exactly one of "messages" or "prompt"',
+  });
+
 export const errorResponseSchema = z.object({
   error: z.object({
     code: z.string(),

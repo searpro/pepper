@@ -126,13 +126,19 @@ backend can be updated without republishing it.
 
 OpenAPI lives at `/docs`. The surface is grouped as:
 
-- `/v1/jobs`, `/v1/generate` — generation and the job queue
+- `/v1/jobs`, `/v1/generate` — image and video generation and the job queue
+- `/v1/jobs/audio`, `/v1/jobs/text` — the queued paths for speech and completions
 - `/v1/models/:kind/...` — installed bundles
 - `/v1/catalogue`, `/v1/downloads` — the remote catalogue and weight downloads
 - `/v1/llm/*`, `/v1/audio/*` — OpenAI-shaped text and audio endpoints
 - `/v1/outputs`, `/v1/inputs` — media and uploads
 - `/v1/backends`, `/v1/config`, `/v1/system/status` — process and configuration
 - `/v1/logs`, `/v1/logs/stream` — log query and live tail
+
+All four generation kinds run through one queue, so `MAX_CONCURRENT_JOBS` bounds
+every path that loads a model. The OpenAI-shaped endpoints stay synchronous —
+they return the audio or the completion inline, and `/v1/llm/*` still streams —
+because sd-api clients depend on those shapes. The UI uses the queued paths.
 
 Every sd-api path still works and returns its original response shape; see
 [`docs/API-COMPATIBILITY.md`](docs/API-COMPATIBILITY.md).

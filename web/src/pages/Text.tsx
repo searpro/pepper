@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { MessageSquareText, SendHorizontal, Square } from 'lucide-react';
-import { useResource, type BundleInfo } from '@/lib/api';
+import { api, useResource, waitForJob, type BundleInfo } from '@/lib/api';
 import { Button, Card, EmptyState, ErrorNote, Field, Select, Spinner, Textarea } from '@/components/ui';
 import { Page } from '@/components/layout';
 import { cn } from '@/lib/utils';
@@ -11,12 +11,14 @@ interface Message {
 }
 
 /**
- * Text generation (requirement 3), streaming.
+ * Text generation (requirement 3), through the job queue.
  *
- * Streaming is read from the raw `fetch` body rather than an `EventSource`,
- * because `EventSource` can only issue GET requests and a chat completion is a
- * POST with a body. The frames are still SSE, so they are split on the blank
- * line and each `data:` payload is parsed as it arrives.
+ * Completions are enqueued rather than streamed: a job is what puts them in the
+ * queue view with every other generation, bounds them by `MAX_CONCURRENT_JOBS`
+ * so a chat cannot load a second model alongside a running image job, and gives
+ * Stop something real to cancel. The cost is token-by-token streaming — the
+ * reply lands whole. `POST /v1/llm/chat/completions` still streams for API
+ * clients that want it.
  */
 export function TextPage() {
   const models = useResource<{ models: BundleInfo[] }>('/v1/models?kind=llm');
@@ -25,7 +27,7 @@ export function TextPage() {
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [streaming, setStreaming] = React.useState(false);
   const [error, setError] = React.useState<string>();
-  const abortRef = React.useRef<AbortController | null>(null);
+  const jobRef = React.useRef<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   const ready = (models.data?.models ?? []).filter((entry) => entry.ready);
@@ -48,73 +50,39 @@ export function TextPage() {
     setStreaming(true);
     setError(undefined);
 
-    const controller = new AbortController();
-    abortRef.current = controller;
-
     try {
-      const response = await fetch('/v1/llm/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages: history, stream: true }),
-        signal: controller.signal,
+      const job = await api.post<{ id: string }>('/v1/jobs/text', {
+        model,
+        messages: history,
       });
+      jobRef.current = job.id;
 
-      if (!response.ok || !response.body) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error?.message ?? `${response.status} ${response.statusText}`);
+      const finished = await waitForJob(job.id);
+      if (finished.status === 'cancelled') {
+        setMessages((current) => current.slice(0, -1));
+        return;
+      }
+      if (finished.status === 'failed') {
+        throw new Error(finished.error?.message ?? 'Text generation failed');
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        // Frames are separated by a blank line; a partial frame stays in the
-        // buffer until the rest of it arrives.
-        const frames = buffer.split('\n\n');
-        buffer = frames.pop() ?? '';
-
-        for (const frame of frames) {
-          const line = frame.split('\n').find((part) => part.startsWith('data:'));
-          if (!line) continue;
-          const payload = line.slice(5).trim();
-          if (payload === '[DONE]') continue;
-
-          try {
-            const chunk = JSON.parse(payload) as {
-              choices?: { delta?: { content?: string } }[];
-            };
-            const delta = chunk.choices?.[0]?.delta?.content;
-            if (!delta) continue;
-            setMessages((current) => {
-              const next = [...current];
-              next[next.length - 1] = {
-                role: 'assistant',
-                content: next[next.length - 1].content + delta,
-              };
-              return next;
-            });
-          } catch {
-            // A malformed frame is not worth aborting the stream over.
-          }
-        }
-      }
+      const reply = (finished.result?.text as string) ?? '';
+      setMessages((current) => {
+        const next = [...current];
+        next[next.length - 1] = { role: 'assistant', content: reply };
+        return next;
+      });
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      setError(err instanceof Error ? err.message : String(err));
+      setMessages((current) => current.slice(0, -1));
     } finally {
       setStreaming(false);
-      abortRef.current = null;
+      jobRef.current = null;
     }
   };
 
   return (
-    <Page title="Text" description="Chat completions through llama.cpp, streamed as they generate.">
+    <Page title="Text" description="Chat completions through llama.cpp, queued alongside every other generation.">
       {models.loading ? (
         <Spinner className="size-4" />
       ) : ready.length === 0 ? (
@@ -152,7 +120,7 @@ export function TextPage() {
                 <EmptyState
                   icon={MessageSquareText}
                   title="Start a conversation"
-                  description="Responses stream token by token as the model produces them."
+                  description="Each reply is queued as a job, so it appears in Jobs alongside every other generation."
                 />
               </div>
             ) : (
@@ -199,7 +167,14 @@ export function TextPage() {
               className="min-h-0 flex-1 resize-none"
             />
             {streaming ? (
-              <Button variant="secondary" onClick={() => abortRef.current?.abort()}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  // Cancelling the job stops llama.cpp too, rather than just
+                  // hanging up on a generation that keeps running.
+                  if (jobRef.current) void api.post(`/v1/jobs/${jobRef.current}/cancel`);
+                }}
+              >
                 <Square />
                 Stop
               </Button>

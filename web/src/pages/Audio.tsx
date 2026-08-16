@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AudioLines, Mic, Play, Upload, Volume2 } from 'lucide-react';
-import { api, useResource, type BundleInfo } from '@/lib/api';
+import { api, useResource, waitForJob, type BundleInfo } from '@/lib/api';
 import {
   Button,
   Card,
@@ -28,10 +28,13 @@ interface VoiceRef {
  * Speech, voice design and transcription (requirement 2), with the player the
  * generation screens are required to have.
  *
- * Speech is requested synchronously rather than through the job queue: audio
- * generation returns in seconds and the response *is* the audio, so routing it
- * through a job would mean writing a file, polling, and fetching it back to
- * play something the request already had in hand.
+ * Speech goes through the job queue like every other generation. audio.cpp
+ * holds a whole model in memory per request, so leaving it outside the queue
+ * meant `MAX_CONCURRENT_JOBS` only ever bounded images and a clip could load a
+ * second model alongside a running image job. The clip is fetched back from
+ * `OUTPUT_DIR` afterwards, which is also what puts it in the media library.
+ *
+ * `POST /v1/audio/speech` still returns audio inline for API clients.
  */
 export function AudioPage() {
   const models = useResource<{ models: BundleInfo[] }>('/v1/models?kind=audio');
@@ -91,6 +94,8 @@ function SpeechPanel({
   const [model, setModel] = React.useState('');
   const [text, setText] = React.useState('');
   const [voiceRef, setVoiceRef] = React.useState<string>();
+  const [voice, setVoice] = React.useState<string>();
+  const [instructions, setInstructions] = React.useState('');
   const [audioUrl, setAudioUrl] = React.useState<string>();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
@@ -99,30 +104,48 @@ function SpeechPanel({
     if (!model && models.length > 0) setModel(models[0].id);
   }, [models, model]);
 
-  // The object URL owns a blob in memory until it is revoked; without this a
-  // long session leaks every clip it ever generated.
-  React.useEffect(() => () => {
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
-  }, [audioUrl]);
+  const selected = models.find((entry) => entry.id === model);
+
+  /**
+   * Voice design synthesises a speaker from an instruction instead of cloning
+   * one from audio. The server does not reject a `vdes` request that omits it —
+   * it falls back to some default speaker — which is precisely why the field is
+   * surfaced: without it the model's entire point is silently skipped, and the
+   * user gets an arbitrary voice with nothing indicating why.
+   */
+  const isVoiceDesign =
+    (selected?.manifest?.task as string) === 'vdes' ||
+    (selected?.manifest?.task as string) === 'voice-design';
+
+  // Packaged speakers and configured presets, which only some families ship.
+  const voices = useResource<{ voices: string[] }>(
+    model ? `/v1/audio/voices?model=${encodeURIComponent(model)}` : null,
+  );
+  const builtInVoices = voices.data?.voices ?? [];
+
+  // A voice picked for one model means nothing to the next.
+  React.useEffect(() => setVoice(undefined), [model]);
 
   const generate = async () => {
     setBusy(true);
     setError(undefined);
     try {
-      const response = await fetch('/v1/audio/speech', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, input: text, ...(voiceRef ? { voice_ref: voiceRef } : {}) }),
+      const job = await api.post<{ id: string }>('/v1/jobs/audio', {
+        model,
+        input: text,
+        ...(voice ? { voice } : {}),
+        ...(voiceRef ? { voice_ref: voiceRef } : {}),
+        ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
       });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error?.message ?? `${response.status} ${response.statusText}`);
+
+      // The queue is the point — the clip is fetched from OUTPUT_DIR once the
+      // job lands, so it also appears in Jobs and in the media library.
+      const finished = await waitForJob(job.id);
+      if (finished.status === 'failed') {
+        throw new Error(finished.error?.message ?? 'Speech generation failed');
       }
-      const blob = await response.blob();
-      setAudioUrl((previous) => {
-        if (previous) URL.revokeObjectURL(previous);
-        return URL.createObjectURL(blob);
-      });
+      const url = finished.result?.audio_url as string | undefined;
+      if (url) setAudioUrl(url);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -172,9 +195,40 @@ function SpeechPanel({
           />
         </Field>
 
+        {isVoiceDesign ? (
+          <Field
+            label="Voice direction"
+            hint="Describe the voice to synthesise — age, tone, pace, accent. Without it this model picks an arbitrary speaker."
+          >
+            <Textarea
+              value={instructions}
+              onChange={(event) => setInstructions(event.target.value)}
+              rows={2}
+              placeholder="A warm adult narrator, unhurried, slightly gravelly."
+            />
+          </Field>
+        ) : null}
+
+        {builtInVoices.length > 0 ? (
+          <Field
+            label="Speaker"
+            hint="Voices packaged with this model, plus any presets its manifest defines."
+          >
+            <Select
+              value={voice ?? ''}
+              onValueChange={(value) => setVoice(value || undefined)}
+              options={[
+                { value: '', label: 'Model default' },
+                ...builtInVoices.map((name) => ({ value: name, label: name })),
+              ]}
+              placeholder="Model default"
+            />
+          </Field>
+        ) : null}
+
         <Field
           label="Voice reference"
-          hint="For voice cloning and voice design. Upload clips in the Voice references tab."
+          hint="For voice cloning. Upload clips in the Voice references tab."
         >
           <Select
             value={voiceRef ?? ''}
@@ -189,7 +243,10 @@ function SpeechPanel({
 
         {error ? <ErrorNote>{error}</ErrorNote> : null}
 
-        <Button onClick={() => void generate()} disabled={!text || !model || busy}>
+        <Button
+          onClick={() => void generate()}
+          disabled={!text || !model || busy}
+        >
           {busy ? <Spinner className="size-4" /> : <Play />}
           Generate speech
         </Button>

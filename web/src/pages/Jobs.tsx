@@ -126,9 +126,21 @@ function JobRow({
   onToggle: () => void;
 }) {
   const active = job.status === 'queued' || job.status === 'running';
-  const prompt = String(job.params.prompt ?? job.params.input ?? '');
+  // Each kind names its input differently: images have `prompt`, speech has
+  // `input`, and a chat job has a message array whose last user turn is the
+  // only part worth showing in a one-line summary.
+  const lastUserMessage = Array.isArray(job.params.messages)
+    ? [...(job.params.messages as { role?: string; content?: string }[])]
+        .reverse()
+        .find((message) => message?.role === 'user')?.content
+    : undefined;
+  const prompt = String(job.params.prompt ?? job.params.input ?? lastUserMessage ?? '');
   const duration = (job.result?.metadata as { duration_ms?: number } | undefined)?.duration_ms;
-  const resultUrl = (job.result?.image_url ?? job.result?.video_url) as string | undefined;
+  const resultUrl = (job.result?.image_url ?? job.result?.video_url ?? job.result?.audio_url) as
+    | string
+    | undefined;
+  // Text is the one kind whose result is the payload rather than a file.
+  const resultText = job.result?.text as string | undefined;
 
   return (
     <Card className="overflow-hidden">
@@ -226,10 +238,16 @@ function JobRow({
             <div className="flex w-full justify-center lg:w-56">
               {job.kind === 'video' ? (
                 <video src={resultUrl} controls className="max-h-48 rounded-md" preload="metadata" />
+              ) : job.kind === 'audio' ? (
+                <audio src={resultUrl} controls className="w-full self-center" preload="metadata" />
               ) : (
                 <img src={resultUrl} alt="" className="max-h-48 rounded-md object-contain" />
               )}
             </div>
+          ) : resultText ? (
+            <pre className="max-h-48 w-full overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs lg:w-56">
+              {resultText}
+            </pre>
           ) : null}
         </div>
       ) : null}

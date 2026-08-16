@@ -1,7 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { errorResponseSchema, generateSchema, jobSchema, validateDimensions } from '../schemas/generate.js';
+import {
+  audioJobSchema,
+  errorResponseSchema,
+  generateSchema,
+  jobSchema,
+  textJobSchema,
+  validateDimensions,
+} from '../schemas/generate.js';
 import { errors } from '../errors.js';
 import { startSse } from '../util/sse.js';
 import type { JobKind } from '../jobs/manager.js';
@@ -51,6 +58,52 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
       const created = Array.from({ length: count }, () => app.jobs.create(kind, params));
 
       return reply.code(202).send(count === 1 ? created[0] : { jobs: created });
+    },
+  );
+
+  /**
+   * Audio and text get their own enqueue routes rather than a discriminated
+   * union on `POST /v1/jobs`: their bodies share no field with the image shape
+   * beyond `model`, so one schema covering all four would validate almost
+   * nothing and produce unusable errors on a typo.
+   */
+  app.post(
+    '/v1/jobs/audio',
+    {
+      schema: {
+        tags: ['jobs'],
+        summary: 'Enqueue a speech generation job',
+        description:
+          'The queued counterpart of POST /v1/audio/speech, which stays synchronous. ' +
+          'Voice-design models require `instructions`; models with packaged speakers take `voice`.',
+        body: audioJobSchema,
+        response: { 202: jobSchema, 400: errorResponseSchema },
+      },
+    },
+    async (req, reply) => {
+      const bundle = await app.models.find(req.body.model, ['audio']);
+      if (!bundle) throw errors.modelNotFound(req.body.model);
+      return reply.code(202).send(app.jobs.create('audio', req.body));
+    },
+  );
+
+  app.post(
+    '/v1/jobs/text',
+    {
+      schema: {
+        tags: ['jobs'],
+        summary: 'Enqueue a text generation job',
+        description:
+          'The queued counterpart of POST /v1/llm/chat/completions. Non-streaming: ' +
+          'a job collects a whole result, so `stream` is ignored.',
+        body: textJobSchema,
+        response: { 202: jobSchema, 400: errorResponseSchema },
+      },
+    },
+    async (req, reply) => {
+      const bundle = await app.models.find(req.body.model, ['llm']);
+      if (!bundle) throw errors.modelNotFound(req.body.model);
+      return reply.code(202).send(app.jobs.create('text', req.body));
     },
   );
 
