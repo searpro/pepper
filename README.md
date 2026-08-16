@@ -30,6 +30,24 @@ Everything is environment-driven. `DATA_DIR` is the only storage setting that
 matters — every persisted path derives from it, so a deployment cannot end up
 with models on the volume and binaries on ephemeral disk.
 
+For local development, copy the example env file and edit it:
+
+```bash
+cp server/.env.example server/.env
+```
+
+`server/.env` is gitignored and loaded automatically by `npm start` and
+`npm run dev` — both run with `server/` as their working directory, which is
+where it has to live. Every setting in `.env.example` is commented out and
+annotated with its default, so an empty file behaves exactly like no file.
+
+One override is worth knowing about before the first run: `SDCPP_RELEASE_REPO`
+defaults to a fork that currently publishes a single Linux x64 CUDA prerelease,
+so image generation has no binary to install on macOS, on Windows, or on
+non-CUDA Linux. The checked-in example points local development at upstream
+`leejet/stable-diffusion.cpp`, which builds the same commit for every platform
+and acceleration.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DATA_DIR` | `./data` | Binaries, models, uploads and the database. Mount the persistent volume here. |
