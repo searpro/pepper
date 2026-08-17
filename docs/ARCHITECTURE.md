@@ -10,9 +10,9 @@ HTTP (server/src/routes/*)
   ↓
 Services decorated on the Fastify instance
   ↓
-BackendManager ──► ManagedProcess ──► llama-server / audiocpp_server / python
+BackendManager ──► ManagedProcess ──► llama-server / audiocpp_server / python / vllm
   │                                    (long-running, supervised)
-  ├──► BinaryInstaller ──────────────► GitHub releases
+  ├──► BinaryInstaller ──────────────► GitHub releases (vllm: baked into the image, not installed)
   └──► ImageService ─────────────────► sd-cli (one-shot, per generation)
 
 JobManager · DownloadManager · ModelManager · CatalogueManager · LogBuffer
@@ -155,6 +155,60 @@ Filtering happens server-side, including on the live SSE stream: a running
 generation emits thousands of lines a minute, and shipping all of them so the
 browser can hide most is what makes a log viewer stutter.
 
+### vLLM / vLLM-Omni is a backend, not a rewrite
+
+vLLM slides into the same `BackendManager`/`ManagedProcess` table as the
+other three — it is data (an `ArgDefinition[]` in `backends/args.ts`, a
+`healthUrl`/`baseUrl` case in `manager.ts`), not a parallel system. Three
+places it genuinely differs, and why:
+
+- **Installed, not downloaded.** The other backends fetch a release archive
+  from `*_RELEASE_REPO` at first boot. vLLM has no equivalent — it is a
+  PyTorch + CUDA wheel chain whose versions must match exactly, which is
+  precisely what vLLM-Omni's own published Docker image already gets right.
+  So the Dockerfile's runtime stage is rebased onto `vllm/vllm-omni` instead,
+  and `BackendManager.checkVllmBinary()` just verifies `vllm` is on `PATH` —
+  there is no install step to run. (The `better-sqlite3` native binding is
+  compiled in a *builder* stage on that same base image, not
+  `node:22-slim`, to avoid a glibc ABI mismatch between where it is built
+  and where it runs.)
+- **Model choice is a setting, not a request field.** vLLM serves exactly
+  one model per process and cannot hot-swap. `backend.vllm.activeModel`
+  (SQLite) holds the selected bundle id; the `vllm` prepare hook
+  (`server.ts`) resolves it and computes the locked `--model`/
+  `--served-model-name`/`--model-class-name` args from the bundle's
+  manifest, restarting the process the same way any other locked-arg change
+  does. `--model` prefers a local snapshot directory over the bare
+  HuggingFace id when one is on disk — see below.
+- **Snapshot downloads bypass `DownloadManager`.** vLLM repos are typically
+  dozens of files (config, tokenizer, sharded safetensors) with no single
+  weight file to point a component slot at — the opposite of what
+  `DownloadManager` models (one row per file, byte-range resume). Rather
+  than teach it multi-file resume, `downloads/snapshot.ts`'s
+  `SnapshotDownloader` shells out to `huggingface-cli download --local-dir`
+  (backed by `hf_transfer`, already a vLLM dependency in the image) and
+  tracks the process in memory only. A retry after a restart just
+  re-invokes the CLI, which resumes from its own HF cache rather than
+  anything pepper tracks.
+
+The manifest/catalogue schemas gained `backend` (which backend serves this
+bundle), `huggingfaceId`/`huggingface_id`, and `vllmPipelineClass`/
+`vllm_pipeline_class` to carry this. A model with `backend: "vllm"` has no
+`checkpoint/` file in the usual sense — it loads from `huggingface_id`
+directly.
+
+**API surface.** vLLM-Omni's own endpoints (`/v1/images/generations`,
+`/v1/audio/generate`, `/v1/videos[/sync]`) are proxied directly under a
+`/v1/vllm/*` namespace (`routes/vllm.ts`) rather than folded into pepper's
+existing `/v1/images`-and `/v1/videos`-shaped routes — those are pepper's
+own sd-cli-job-queue-backed surfaces, and the path shapes collide with
+different semantics underneath (e.g. pepper's `/v1/videos` takes an
+uploaded-file name and is always async; vLLM-Omni's takes multipart with an
+audio reference and can run sync). Chat completions are the one exception:
+llama.cpp and vLLM speak the identical shape, so
+`/v1/llm/chat/completions` (`routes/text.ts`) routes to whichever backend
+the requested model's manifest names, instead of duplicating the endpoint.
+
 ## Gotchas worth keeping
 
 These cost real debugging time; the code comments carry the short version.
@@ -202,6 +256,17 @@ These cost real debugging time; the code comments carry the short version.
   every JS module request fell through to the SPA fallback and returned
   `index.html` with a `text/html` MIME type. The page renders blank with one
   console error about strict MIME checking.
+- **The vLLM-Omni Dockerfile build needs a fast, stable connection.** The
+  `vllm/vllm-omni` base image is several GB (CUDA + PyTorch), and on a slow
+  or flaky link the NodeSource `apt-get install nodejs` step that follows it
+  can fail with a connection reset partway through — confirmed on a local
+  Mac build, where both stages independently hit the same transient error
+  after the (successful) base-image pull. It is not a Dockerfile bug: the
+  base image pulled fine and apt/NodeSource ran to that point on both
+  Ubuntu-based stages, confirming the "assume apt + NodeSource works"
+  assumption in the Dockerfile's own comment. Build on something with
+  better bandwidth (a cloud VM, not a laptop on residential internet) if
+  this recurs.
 
 ## Conventions
 
