@@ -1,0 +1,26 @@
+{
+  "name": "Pepper",
+  "install": "./.cursor/install.sh",
+  "ports": [
+    {
+      "name": "API",
+      "port": 3000
+    },
+    {
+      "name": "Web dev server",
+      "port": 5173
+    }
+  ],
+  "terminals": [
+    {
+      "name": "pepper-api",
+      "command": "npm run dev",
+      "description": "Pepper API server with hot reload on port 3000"
+    },
+    {
+      "name": "pepper-web",
+      "command": "npm run dev:web",
+      "description": "Vite dev server for the React SPA on port 5173"
+    }
+  ]
+}
