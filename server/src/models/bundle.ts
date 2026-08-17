@@ -86,6 +86,18 @@ export const manifestSchema = z.object({
   name: z.string().optional(),
   /** Which generation surface this bundle belongs to. */
   kind: z.enum(['image', 'video', 'audio', 'llm']).optional(),
+  /**
+   * Which backend serves this bundle. Undefined means the historical .cpp
+   * default for `kind`. `vllm` bundles are loaded directly from
+   * `huggingface_id` — most have no `checkpoint/` file at all, since vLLM
+   * reads the HF snapshot from its own cache dir rather than pepper's bundle
+   * layout.
+   */
+  backend: z.enum(['sdcpp', 'llamacpp', 'audiocpp', 'vllm']).optional(),
+  /** HuggingFace repo id vLLM loads directly, e.g. "Wan-AI/Wan2.2-S2V-14B". */
+  huggingface_id: z.string().optional(),
+  /** vLLM-Omni pipeline class, e.g. "WanS2VPipeline". Only read when `backend` is "vllm". */
+  vllm_pipeline_class: z.string().optional(),
   /** Force the checkpoint load flag; otherwise auto-detected. */
   load: z.enum(['auto', 'model', 'diffusion-model']).optional(),
   /** `video` switches sd-cli into `-M vid_gen` and writes .webm. */
@@ -202,6 +214,8 @@ export const manifestSchema = z.object({
       catalogueId: z.string().optional(),
       repo: z.string().optional(),
       quant: z.string().optional(),
+      /** Whether this bundle was installed via a whole-repo snapshot download. */
+      snapshot: z.boolean().optional(),
     })
     .optional(),
 });

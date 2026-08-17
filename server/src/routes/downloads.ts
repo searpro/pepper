@@ -178,4 +178,70 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async () => ({ downloads: app.downloads.resumeAll() }),
   );
+
+  // --- HuggingFace snapshot downloads (vLLM models) --------------------------
+  //
+  // A whole-repo pull, not a single component file — see
+  // `downloads/snapshot.ts` for why this is a separate, simpler tracker
+  // rather than a `DownloadManager` task.
+
+  app.get(
+    '/v1/downloads/snapshot',
+    {
+      schema: {
+        tags: ['downloads'],
+        summary: 'List HuggingFace snapshot downloads',
+        response: { 200: z.object({ downloads: z.array(z.unknown()) }) },
+      },
+    },
+    async () => ({ downloads: app.snapshotDownloads.list() }),
+  );
+
+  app.post(
+    '/v1/downloads/snapshot',
+    {
+      schema: {
+        tags: ['downloads'],
+        summary: 'Queue a whole-repo HuggingFace snapshot download into a model bundle',
+        description:
+          'For vLLM models: pulls the full repo (config, tokenizer, sharded weights) via ' +
+          'huggingface-cli, rather than picking one component file.',
+        body: z.object({
+          kind: z.enum(MODEL_KINDS),
+          bundle: z.string().min(1),
+          repo: z.string().min(1),
+        }),
+        response: { 202: z.unknown() },
+      },
+    },
+    async (req, reply) => {
+      const task = await app.snapshotDownloads.enqueue(req.body.kind, req.body.bundle, req.body.repo);
+      return reply.code(202).send(task);
+    },
+  );
+
+  app.get(
+    '/v1/downloads/snapshot/:id',
+    {
+      schema: {
+        tags: ['downloads'],
+        summary: 'One snapshot download',
+        params: idParam,
+        response: { 200: z.unknown() },
+      },
+    },
+    async (req) => app.snapshotDownloads.require(req.params.id),
+  );
+
+  app.get(
+    '/v1/downloads/snapshot/stream',
+    { schema: { tags: ['downloads'], summary: 'Live progress for all snapshot downloads (SSE)' } },
+    async (req, reply) => {
+      const stream = startSse(req, reply);
+      for (const task of app.snapshotDownloads.list()) {
+        if (task.status === 'downloading') stream.send('task', task);
+      }
+      stream.onClose(app.snapshotDownloads.subscribe(null, (event, task) => stream.send(event, task)));
+    },
+  );
 }

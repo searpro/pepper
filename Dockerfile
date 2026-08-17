@@ -1,7 +1,7 @@
 # Pepper — CUDA image for RunPod (requirement 11).
 #
 # Follows the pattern of the sd-api image that is already working in
-# production, with two differences that the new architecture forces:
+# production, with differences the new architecture forces:
 #
 #  * The SPA is built here rather than committed, so `server/public` is a build
 #    artifact and never drifts from the source it was built from.
@@ -9,18 +9,42 @@
 #    toolchain and the production `npm ci` reuses the compiled binding rather
 #    than rebuilding it in a runtime image that has no compiler.
 #
-# Backend binaries are NOT baked in. They are downloaded at first boot from
-# each backend's configured *_RELEASE_REPO into DATA_DIR/bin, which is on the
-# persistent volume — so the image stays small and a backend can be updated
-# without republishing it. Set AUTO_INSTALL_BACKENDS=false to manage them by
-# hand.
+# Backend binaries for sd-cpp/llama-cpp/audio-cpp are NOT baked in. They are
+# downloaded at first boot from each backend's configured *_RELEASE_REPO into
+# DATA_DIR/bin, which is on the persistent volume — so the image stays small
+# and a backend can be updated without republishing it. Set
+# AUTO_INSTALL_BACKENDS=false to manage them by hand.
+#
+# vLLM / vLLM-Omni is the one backend that IS baked in, both stages. Two
+# reasons this is the exception rather than following the same pattern:
+#
+#  1. vLLM has no equivalent of "download one archive from a GitHub release" —
+#     it's a PyTorch + CUDA wheel chain whose versions must match each other
+#     exactly, which is precisely what vLLM-Omni's own published image already
+#     gets right. Reassembling that at first boot on every deployment is the
+#     version-skew risk the upstream image exists to avoid.
+#  2. `better-sqlite3`'s native binding is glibc-ABI-sensitive: build it in a
+#     Debian-based builder and run it in an Ubuntu-based CUDA image (or vice
+#     versa) and a `GLIBC_x.xx not found` crash at startup is a real
+#     possibility. Building it inside the *same* base as the runtime image
+#     removes that risk entirely, at the cost of a heavier builder stage —
+#     which is fine, since the builder stage is never shipped.
+#
+# NOTE: `vllm/vllm-omni` is assumed Ubuntu/Debian-based (apt available,
+# NodeSource's Node 22 setup script works). Verify this against the actual
+# image on the first build of this Dockerfile and adjust the `apt-get`
+# invocations if it turns out to be a different base.
+ARG VLLM_OMNI_IMAGE=vllm/vllm-omni:latest
 
-FROM node:22-bookworm-slim AS builder
+FROM ${VLLM_OMNI_IMAGE} AS builder
 WORKDIR /app
 
-# python3/make/g++ are needed only to compile better-sqlite3's binding.
+# Node.js 22 (for the build itself) plus python3/make/g++ (to compile
+# better-sqlite3's binding against *this* image's glibc/Node ABI).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg python3 make g++ \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
@@ -41,31 +65,31 @@ RUN npm run build --workspace web \
 RUN npm prune --omit=dev --workspace server
 
 
-FROM node:22-bookworm-slim
+FROM ${VLLM_OMNI_IMAGE}
 WORKDIR /app
 
-# Runtime libraries the backend binaries link against. libgomp1 is OpenMP
-# (every ggml build), libvulkan1 covers Vulkan builds, and the CUDA runtime
-# itself comes from the host through the NVIDIA container runtime — which is
-# why this is a slim image and not a multi-gigabyte CUDA base.
+# Node.js 22 to run the server itself. vLLM, PyTorch and CUDA come from the
+# base image — this is the whole point of building on top of it rather than a
+# slim Node base (see the note above the builder stage).
 #
 # ffmpeg is for speech-to-video: audio longer than one model window is sliced,
-# generated a window at a time and stitched back together. Installed rather
-# than left optional because a deployment discovering it is missing halfway
-# through a multi-minute render is the worst time to find out.
+# generated a window at a time and stitched back together. libvulkan1 covers
+# Vulkan builds of the .cpp backends (llama.cpp/audio.cpp still run
+# CPU/Vulkan/CUDA per ACCEL, same as before — only vLLM is CUDA-only). git is
+# used by the Python backend installer for git-sourced packages.
 RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends \
+        nodejs \
         libgomp1 \
         libvulkan1 \
         ffmpeg \
-        ca-certificates \
-        curl \
         git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/server/node_modules ./server/node_modules
 COPY --from=builder /app/server/package.json ./server/package.json
 COPY --from=builder /app/server/dist ./server/dist
 COPY --from=builder /app/server/public ./server/public
@@ -75,7 +99,8 @@ ENV NODE_ENV=production \
     PORT=3000 \
     DATA_DIR=/data \
     ACCEL=cuda \
-    AUTO_INSTALL_BACKENDS=true
+    AUTO_INSTALL_BACKENDS=true \
+    VLLM_WORKER_MULTIPROC_METHOD=spawn
 
 # The persistent volume mounts here: binaries, models, uploads and the
 # database all live under it, so a redeploy keeps every gigabyte already

@@ -278,7 +278,7 @@ export interface ArgDefinition {
 }
 
 export interface BackendStatus {
-  backend: 'sdcpp' | 'llamacpp' | 'audiocpp' | 'python';
+  backend: 'sdcpp' | 'llamacpp' | 'audiocpp' | 'python' | 'vllm';
   label: string;
   kind: 'server' | 'cli';
   status: 'stopped' | 'installing' | 'starting' | 'ready' | 'unhealthy' | 'failed';

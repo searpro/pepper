@@ -1,11 +1,16 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
+import type { BackendId } from '../config.js';
 import { proxyToBackend } from '../services/proxy.js';
 
 /**
  * Text generation (requirement 3): an OpenAI-shaped reverse proxy onto
- * llama.cpp's server.
+ * llama.cpp's server — or, for a model tagged `backend: "vllm"` in its
+ * manifest, onto vLLM instead. The two speak the identical
+ * `/v1/chat/completions` shape, so this is the one modality where routing by
+ * model rather than duplicating the endpoint under `/v1/vllm/*` makes sense
+ * (see routes/vllm.ts for why image/audio/video stay separate).
  *
  * Only `model` (plus the endpoint's own required field) is validated; every
  * other key rides through via `.passthrough()`. Without it,
@@ -17,17 +22,26 @@ import { proxyToBackend } from '../services/proxy.js';
 export async function textRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
-  /** Forward a validated JSON body to llama.cpp unchanged. */
+  /** Which backend serves a given "model" value in a request body. */
+  async function resolveTextBackend(modelName: unknown): Promise<BackendId> {
+    if (typeof modelName !== 'string' || !modelName) return 'llamacpp';
+    const bundle = await app.models.find(modelName, ['llm']).catch(() => null);
+    return bundle?.manifest?.backend === 'vllm' ? 'vllm' : 'llamacpp';
+  }
+
+  /** Forward a validated JSON body to the model's backend unchanged. */
   const forward = (upstreamPath: string) =>
-    async (req: FastifyRequest, reply: FastifyReply) =>
-      proxyToBackend(app.backends, req, reply, {
-        backend: 'llamacpp',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const backend = await resolveTextBackend((req.body as Record<string, unknown> | undefined)?.model);
+      return proxyToBackend(app.backends, req, reply, {
+        backend,
         upstreamPath,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req.body),
         timeoutMs: app.config.llamacppTimeoutMs,
       });
+    };
 
   app.post(
     '/v1/llm/chat/completions',

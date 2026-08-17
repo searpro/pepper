@@ -5,6 +5,7 @@ import {
   useResource,
   type ArgDefinition,
   type BackendStatus,
+  type BundleInfo,
   type SystemStatus,
 } from '@/lib/api';
 import {
@@ -72,6 +73,15 @@ export function PreferencesDialog({
           </div>
 
           <TabsContent value="backends" className="flex flex-col gap-3 p-5">
+            <p className="mb-1 text-xs text-muted-foreground">
+              sd.cpp, llama.cpp and audio.cpp are lightweight native servers; vLLM-Omni is the
+              heavier CUDA backend for production GPU deployments. Model choice — and which of
+              these serves a request — is made here, not on the generation screens: those exist to
+              verify a backend works, not as the API's real consumer.
+            </p>
+            {status?.backends.some((b) => b.backend === 'vllm') ? (
+              <VllmModelPanel onChanged={onChanged} />
+            ) : null}
             {status?.backends.map((backend) => (
               <BackendPanel key={backend.backend} backend={backend} onChanged={onChanged} />
             ))}
@@ -355,6 +365,79 @@ function ArgControl({
       }}
       placeholder={arg.defaultValue === null ? 'backend default' : String(arg.defaultValue ?? '')}
     />
+  );
+}
+
+/**
+ * vLLM cannot hot-swap models, so "which model" is a setting here rather than
+ * a per-request choice (see `routes/vllm.ts`). Only bundles tagged
+ * `backend: "vllm"` in their manifest are offered — anything else has no
+ * `huggingface_id` for vLLM to load.
+ */
+function VllmModelPanel({ onChanged }: { onChanged: () => void }) {
+  const models = useResource<{ models: BundleInfo[] }>('/v1/models');
+  const current = useResource<{ modelId: string | null }>('/v1/vllm/model');
+  const gpu = useResource<{ gpuCount: number }>('/v1/vllm/gpu-count');
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string>();
+
+  const vllmModels = (models.data?.models ?? []).filter(
+    (m) => (m.manifest as { backend?: string } | null)?.backend === 'vllm',
+  );
+
+  const select = async (modelId: string) => {
+    setSaving(true);
+    setError(undefined);
+    try {
+      await api.put('/v1/vllm/model', { modelId });
+      current.reload();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="flex flex-col gap-3 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-medium">vLLM-Omni model</span>
+        {gpu.data ? (
+          <Badge variant="outline">
+            {gpu.data.gpuCount} GPU{gpu.data.gpuCount === 1 ? '' : 's'} detected
+          </Badge>
+        ) : null}
+      </div>
+
+      {vllmModels.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No installed model is tagged for vLLM yet. Install one from the catalogue whose entry
+          declares a HuggingFace id — it will appear here once downloaded.
+        </p>
+      ) : (
+        <Field
+          label="Active model"
+          hint="vLLM serves one model per process and restarts on change — this is not a per-request choice."
+        >
+          <Select
+            value={current.data?.modelId ?? ''}
+            onValueChange={(value) => void select(value)}
+            options={vllmModels.map((m) => ({ value: m.id, label: m.name }))}
+            className="w-72"
+            disabled={saving}
+          />
+        </Field>
+      )}
+
+      <p className="text-[11px] text-muted-foreground">
+        Tensor parallel size, GPU memory utilization and other vLLM flags are in the vLLM-Omni
+        panel below. The GPU count above is a hint for setting tensor parallel size — it is not
+        applied automatically.
+      </p>
+
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+    </Card>
   );
 }
 

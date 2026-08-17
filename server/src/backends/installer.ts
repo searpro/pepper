@@ -49,6 +49,9 @@ export const BINARY_NAMES: Record<BackendId, string[]> = {
   audiocpp: ['audiocpp_server', 'audiocpp_server.exe', 'audio-server', 'audio-server.exe'],
   // The Python backend is not a release archive at all — see `PythonInstaller`.
   python: [],
+  // Not a release archive either — vLLM is baked into the image; see
+  // `BackendManager.checkVllmBinary`.
+  vllm: [],
 };
 
 /** Written next to an install so a restart knows what is already there. */

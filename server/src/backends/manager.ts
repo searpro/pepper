@@ -40,7 +40,7 @@ import { PythonInstaller } from './python.js';
  */
 
 /** Backends supervised as long-running processes. */
-const SERVER_BACKENDS: BackendId[] = ['llamacpp', 'audiocpp', 'python'];
+const SERVER_BACKENDS: BackendId[] = ['llamacpp', 'audiocpp', 'python', 'vllm'];
 
 export interface PrepareResult {
   /**
@@ -148,6 +148,7 @@ export class BackendManager {
     signal?: AbortSignal,
   ): Promise<InstalledBinary | null> {
     if (backend === 'python') return this.ensurePythonInstalled(signal);
+    if (backend === 'vllm') return this.checkVllmBinary();
 
     const installer = this.installers.get(backend)!;
 
@@ -185,6 +186,34 @@ export class BackendManager {
     return installed;
   }
 
+  /**
+   * vLLM has no release-archive install path: it is baked into the production
+   * image (see Dockerfile) rather than downloaded, so `vllm` on PATH is either
+   * there from the image or not there at all. A developer without it locally
+   * gets a clear "not found" rather than a pip-install attempt against
+   * whatever CUDA/PyTorch happens to be on their machine.
+   */
+  private async checkVllmBinary(): Promise<InstalledBinary | null> {
+    const cached = this.binaries.get('vllm');
+    if (cached) return cached;
+    if (!(await isExecutableAvailable('vllm'))) {
+      this.log.warn(
+        { backend: 'vllm' },
+        'vllm not found on PATH — expected to be baked into the image',
+      );
+      return null;
+    }
+    const found: InstalledBinary = {
+      backend: 'vllm',
+      binaryPath: 'vllm',
+      tag: 'image',
+      asset: 'vllm',
+      installedAt: new Date().toISOString(),
+    };
+    this.binaries.set('vllm', found);
+    return found;
+  }
+
   private async ensurePythonInstalled(signal?: AbortSignal): Promise<InstalledBinary | null> {
     const existing = await this.pythonInstaller.installed();
     if (existing) {
@@ -217,6 +246,18 @@ export class BackendManager {
 
   /** Force a reinstall from the latest release, restarting the backend after. */
   async reinstall(backend: BackendId, signal?: AbortSignal): Promise<InstalledBinary> {
+    if (backend === 'vllm') {
+      // No release archive to redownload — vLLM only ever comes from the
+      // image it was baked into. "Reinstall" just re-checks PATH.
+      this.binaries.delete('vllm');
+      const found = await this.checkVllmBinary();
+      if (!found) {
+        throw errors.backendBinaryNotFound('vllm', DEFAULT_COMMANDS.vllm ?? 'vllm');
+      }
+      const proc = this.processes.get('vllm');
+      if (proc && proc.status === 'ready') await proc.restart('backend reinstalled', signal);
+      return found;
+    }
     if (backend === 'python') {
       const runtime = await this.pythonInstaller.installRuntime(signal ?? AbortSignal.timeout(1_800_000));
       const record: InstalledBinary = {
@@ -271,6 +312,8 @@ export class BackendManager {
         };
       case 'python':
         return { listen: '127.0.0.1', port: this.config.pythonPort };
+      case 'vllm':
+        return { host: '127.0.0.1', port: this.config.vllmPort };
       default:
         return {};
     }
@@ -284,6 +327,8 @@ export class BackendManager {
         return `http://127.0.0.1:${this.config.audiocppPort}/health`;
       case 'python':
         return `http://127.0.0.1:${this.config.pythonPort}/system_stats`;
+      case 'vllm':
+        return `http://127.0.0.1:${this.config.vllmPort}/health`;
       default:
         return undefined;
     }
@@ -298,6 +343,8 @@ export class BackendManager {
         return `http://127.0.0.1:${this.config.audiocppPort}`;
       case 'python':
         return `http://127.0.0.1:${this.config.pythonPort}`;
+      case 'vllm':
+        return `http://127.0.0.1:${this.config.vllmPort}`;
       default:
         throw errors.unsupported(`${backend} is not an HTTP backend`);
     }
@@ -441,6 +488,10 @@ export class BackendManager {
             }
             return;
           }
+          if (backend === 'vllm') {
+            await this.checkVllmBinary();
+            return;
+          }
           const installed = await this.installers.get(backend)!.installed();
           if (installed) this.binaries.set(backend, installed);
         } catch (err) {
@@ -464,4 +515,5 @@ const DEFAULT_COMMANDS: Partial<Record<BackendId, string>> = {
   sdcpp: 'sd-cli',
   llamacpp: 'llama-server',
   audiocpp: 'audiocpp_server',
+  vllm: 'vllm',
 };

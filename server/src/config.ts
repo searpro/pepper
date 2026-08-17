@@ -22,7 +22,7 @@ export type Accel = 'cpu' | 'cuda' | 'metal' | 'vulkan' | 'rocm';
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
 /** Backends the process/binary managers know how to install and supervise. */
-export const BACKENDS = ['sdcpp', 'llamacpp', 'audiocpp', 'python'] as const;
+export const BACKENDS = ['sdcpp', 'llamacpp', 'audiocpp', 'python', 'vllm'] as const;
 export type BackendId = (typeof BACKENDS)[number];
 
 export interface Config {
@@ -85,6 +85,7 @@ export interface Config {
   llamacppPort: number;
   audiocppPort: number;
   pythonPort: number;
+  vllmPort: number;
 
   // --- Work limits ---
   maxConcurrentJobs: number;
@@ -108,6 +109,10 @@ const DEFAULT_RELEASE_REPOS: Record<BackendId, string> = {
   // No fork exists yet — the Python backend installs a runtime rather than a
   // release archive, and this is the hook for wherever that eventually lives.
   python: 'comfyanonymous/ComfyUI',
+  // Unused: vLLM is baked into the production image (see Dockerfile) rather
+  // than installed from a GitHub release. Kept only so `Record<BackendId, string>`
+  // stays total; `BackendManager` never reads it for this backend.
+  vllm: 'vllm-project/vllm-omni',
 };
 
 /**
@@ -128,6 +133,7 @@ const DEFAULTS = {
   llamacppPort: 8090,
   audiocppPort: 8091,
   pythonPort: 8092,
+  vllmPort: 8093,
 } as const;
 
 const accelSchema = z.enum(['cpu', 'cuda', 'metal', 'vulkan', 'rocm']);
@@ -209,6 +215,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       llamacpp: repo('LLAMACPP_RELEASE_REPO', env.LLAMACPP_RELEASE_REPO, DEFAULT_RELEASE_REPOS.llamacpp),
       audiocpp: repo('AUDIOCPP_RELEASE_REPO', env.AUDIOCPP_RELEASE_REPO, DEFAULT_RELEASE_REPOS.audiocpp),
       python: repo('PYTHON_RELEASE_REPO', env.PYTHON_RELEASE_REPO, DEFAULT_RELEASE_REPOS.python),
+      vllm: DEFAULT_RELEASE_REPOS.vllm,
     },
 
     sdcppTimeoutMs: positiveNum('SDCPP_TIMEOUT', env.SDCPP_TIMEOUT, DEFAULTS.sdcppTimeoutMs),
@@ -228,6 +235,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     llamacppPort: positiveNum('LLAMACPP_PORT', env.LLAMACPP_PORT, DEFAULTS.llamacppPort),
     audiocppPort: positiveNum('AUDIOCPP_PORT', env.AUDIOCPP_PORT, DEFAULTS.audiocppPort),
     pythonPort: positiveNum('PYTHON_PORT', env.PYTHON_PORT, DEFAULTS.pythonPort),
+    vllmPort: positiveNum('VLLM_PORT', env.VLLM_PORT, DEFAULTS.vllmPort),
 
     maxConcurrentJobs: positiveNum('MAX_CONCURRENT_JOBS', env.MAX_CONCURRENT_JOBS, DEFAULTS.maxConcurrentJobs),
     maxConcurrentDownloads: positiveNum(

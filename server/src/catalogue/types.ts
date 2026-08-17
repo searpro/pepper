@@ -35,6 +35,13 @@ export const catalogueSourceSchema = z.object({
   extensions: z.array(z.string()).optional(),
   /** A direct URL, for anything not hosted on HuggingFace. */
   url: z.string().url().optional(),
+  /**
+   * Pull the whole `repo`/`path` tree as one unit (huggingface-cli/`hf_transfer`
+   * snapshot download) instead of the usual single-file pick. vLLM models are
+   * typically multi-file HF repos (config.json, tokenizer, sharded
+   * safetensors) with no single weight file to offer a quant picker for.
+   */
+  snapshot: z.boolean().optional(),
 });
 
 export type CatalogueSource = z.infer<typeof catalogueSourceSchema>;
@@ -64,6 +71,18 @@ export const catalogueModelSchema = z
     reference: z.string().optional(),
     /** Free-form labels the UI filters on ("fast", "edit", "vision", …). */
     tags: z.array(z.string()).default([]),
+    /**
+     * Which backend serves this model. Undefined means "the .cpp backend for
+     * `kind`" (sd-cpp for image/video, llama.cpp for llm, audio.cpp for
+     * audio) — the historical default. Set to `vllm` to tag a catalogue entry
+     * as vLLM/vLLM-Omni-only: those entries carry `huggingfaceId` instead of
+     * (or alongside) `components[].source` weight URLs.
+     */
+    backend: z.enum(['sdcpp', 'llamacpp', 'audiocpp', 'vllm']).optional(),
+    /** HuggingFace repo id vLLM loads directly, e.g. "Wan-AI/Wan2.2-S2V-14B". */
+    huggingfaceId: z.string().optional(),
+    /** vLLM-Omni pipeline class, e.g. "WanS2VPipeline". Only meaningful when `backend: 'vllm'`. */
+    vllmPipelineClass: z.string().optional(),
 
     // --- image / video ---
     loadMode: z.enum(['model', 'diffusion-model']).optional(),

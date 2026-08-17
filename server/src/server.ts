@@ -20,9 +20,11 @@ import { openDb, type Db } from './db/client.js';
 import { SettingsStore } from './db/settings.js';
 import { LogBuffer } from './logs/buffer.js';
 import { BackendManager } from './backends/manager.js';
+import { vllmActiveModelKey, vllmManagedValues } from './backends/vllm.js';
 import { ModelManager } from './models/manager.js';
 import { CatalogueManager } from './catalogue/manager.js';
 import { DownloadManager } from './downloads/manager.js';
+import { SnapshotDownloader } from './downloads/snapshot.js';
 import { JobManager } from './jobs/manager.js';
 import { ImageService } from './services/image.js';
 import { writeAudioServerConfig } from './services/audio-config.js';
@@ -38,6 +40,7 @@ import { videoRoutes } from './routes/videos.js';
 import { mediaRoutes } from './routes/media.js';
 import { logRoutes } from './routes/logs.js';
 import { textRoutes } from './routes/text.js';
+import { vllmRoutes } from './routes/vllm.js';
 import { audioRoutes } from './routes/audio.js';
 import { compatRoutes } from './routes/compat.js';
 import './types.js';
@@ -107,6 +110,16 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     if (task.kind === 'audio') backends.scheduleRestart('audiocpp', 'audio model downloaded');
   });
 
+  const snapshotDownloads = new SnapshotDownloader(paths, models, config.hfToken, app.log);
+  snapshotDownloads.on('settled', (task) => {
+    if (task.status !== 'completed') return;
+    // A snapshot landing on disk can change what vLLM should be pointed at
+    // (repo id -> local path — see `vllmManagedValues`), so a currently
+    // running vLLM needs to pick that up the same way any other backend picks
+    // up a finished download.
+    backends.scheduleRestart('vllm', 'model snapshot downloaded');
+  });
+
   const jobs = new JobManager(config, db, app.log, logs);
   const images = new ImageService(config, paths, models, backends, app.log, logs);
   const speech = new AudioService(config, paths, backends, app.log, logs);
@@ -131,6 +144,23 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     return { managed: { config: path } };
   });
 
+  // vLLM serves one model per process and cannot hot-swap, so "which model"
+  // is a setting (Preferences), not something scanned off disk. An empty
+  // setting or a bundle missing `huggingface_id` skips the spawn rather than
+  // failing startup — both are ordinary states before a user has picked a
+  // vLLM model at all.
+  backends.setPrepare('vllm', async () => {
+    const modelId = settings.get(vllmActiveModelKey());
+    if (!modelId) return { skip: true, reason: 'no vLLM model selected' };
+    const bundle = await models.find(modelId).catch(() => null);
+    if (!bundle) return { skip: true, reason: `selected vLLM model "${modelId}" not found` };
+    try {
+      return { managed: await vllmManagedValues(paths, bundle) };
+    } catch (err) {
+      return { skip: true, reason: (err as Error).message };
+    }
+  });
+
   registerExecutors(jobs, images, speech, text, paths);
 
   app.decorate('config', config);
@@ -142,6 +172,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   app.decorate('models', models);
   app.decorate('catalogue', catalogue);
   app.decorate('downloads', downloads);
+  app.decorate('snapshotDownloads', snapshotDownloads);
   app.decorate('jobs', jobs);
   app.decorate('images', images);
   // `version` is taken by Fastify itself, so the app's own version needs a
@@ -240,6 +271,9 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   await app.register(mediaRoutes);
   await app.register(logRoutes);
   await app.register(textRoutes);
+  // Encapsulated: this scope also swaps in a no-op multipart parser (for
+  // vLLM-Omni's multipart video endpoint), which must not affect /v1/inputs.
+  await app.register(vllmRoutes);
   // Encapsulated: this scope swaps in a no-op multipart parser so transcription
   // uploads can be forwarded byte for byte, which must not affect /v1/inputs.
   await app.register(audioRoutes);
