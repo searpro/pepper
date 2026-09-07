@@ -9,6 +9,22 @@ It keeps that project's API contract intact and rebuilds what the POC left
 unfinished: process supervision, binary installation, a remote model catalogue,
 resumable downloads, a persistent job queue and a real UI.
 
+![Pepper — image generation](docs/media/image-generation.png)
+
+## Screenshots
+
+Running locally with four model bundles installed. No backend binaries are present in these shots,
+so nothing is generated — what they show is the console, the queue and the model management around
+the generation, which is the part of Pepper that sd-api did not have.
+
+| Model catalogue and installed bundles | Text (chat completions) |
+| --- | --- |
+| ![Models](docs/media/model-catalogue.png) | ![Text](docs/media/text.png) |
+
+The catalogue is a remote manifest rather than code, so adding a model is a pull request against
+[searpro/pepper-catalogue](https://github.com/searpro/pepper-catalogue) rather than a Pepper
+release — and a model can always be installed by URL when the catalogue is unreachable.
+
 ## Quick start
 
 ```bash
