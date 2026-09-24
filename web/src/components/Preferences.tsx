@@ -445,11 +445,15 @@ function VllmModelPanel({ onChanged }: { onChanged: () => void }) {
 }
 
 /**
- * Same shape as `VllmModelPanel`: the Python backend spawns one model per
- * process and cannot hot-swap, so "which model" is a setting here rather
- * than a per-request choice (see `routes/python.ts`). Only bundles tagged
- * `backend: "python"` are offered — anything else has no `python_package`/
- * `python_entrypoint` for it to run.
+ * The Python backend runs models two ways, and only one needs a setting here.
+ *
+ * Runner models (Wan 2.2 5B, LTX-Video, EchoMimicV3 — manifests with a
+ * `python_runner`) run once per job through Pepper's own runner, exactly like
+ * sd-cli: pick them on the Video page, nothing to select or start here.
+ *
+ * Server models (`python_package` + `python_entrypoint`, e.g. ComfyUI) are a
+ * long-running process serving one model, like vLLM — so "which model" is a
+ * setting rather than a per-request choice (see `routes/python.ts`).
  */
 function PythonModelPanel({ onChanged }: { onChanged: () => void }) {
   const models = useResource<{ models: BundleInfo[] }>('/v1/models');
@@ -457,9 +461,11 @@ function PythonModelPanel({ onChanged }: { onChanged: () => void }) {
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string>();
 
-  const pythonModels = (models.data?.models ?? []).filter(
-    (m) => (m.manifest as { backend?: string } | null)?.backend === 'python',
-  );
+  const manifestOf = (m: BundleInfo) =>
+    m.manifest as { backend?: string; python_runner?: string; python_entrypoint?: string } | null;
+  const pythonModels = (models.data?.models ?? []).filter((m) => manifestOf(m)?.backend === 'python');
+  const runnerModels = pythonModels.filter((m) => manifestOf(m)?.python_runner);
+  const serverModels = pythonModels.filter((m) => manifestOf(m)?.python_entrypoint);
 
   const select = async (modelId: string) => {
     setSaving(true);
@@ -477,34 +483,44 @@ function PythonModelPanel({ onChanged }: { onChanged: () => void }) {
 
   return (
     <Card className="flex flex-col gap-3 p-3">
-      <span className="text-sm font-medium">Python backend model</span>
+      <span className="text-sm font-medium">Python backend</span>
 
-      {pythonModels.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          No installed model is tagged for the Python backend yet. Install one from the catalogue
-          whose entry declares a <code className="text-foreground">python_package</code> — it will
-          appear here once downloaded.
-        </p>
-      ) : (
-        <Field
-          label="Active model"
-          hint="Restarts the Python backend on change. Its package must already be installed — use
-            Install below after selecting a model for the first time."
-        >
-          <Select
-            value={current.data?.modelId ?? ''}
-            onValueChange={(value) => void select(value)}
-            options={pythonModels.map((m) => ({ value: m.id, label: m.name }))}
-            className="w-72"
-            disabled={saving}
-          />
-        </Field>
-      )}
-
-      <p className="text-[11px] text-muted-foreground">
-        What a Python model actually exposes over HTTP is up to its own entrypoint script — pepper
-        reverse-proxies to it unmodified at <code className="text-foreground">/v1/python/proxy/*</code>.
+      <p className="text-xs text-muted-foreground">
+        {runnerModels.length > 0 ? (
+          <>
+            <strong className="text-foreground">{runnerModels.map((m) => m.name).join(', ')}</strong>{' '}
+            {runnerModels.length === 1 ? 'runs' : 'run'} per job from the Video page — nothing to
+            select here.{' '}
+          </>
+        ) : null}
+        Video models like Wan 2.2 5B, LTX-Video and EchoMimicV3 run once per job through
+        Pepper&apos;s Python runner. The runtime and its packages (torch, diffusers) install on the
+        first job, or ahead of time with Install above. Other resident backends (llama.cpp,
+        audio.cpp) are stopped during a Python video job to free memory, and restart on their next
+        request.
       </p>
+
+      {serverModels.length > 0 ? (
+        <>
+          <Field
+            label="Server model"
+            hint="For server-style Python packages (e.g. ComfyUI), which run as one resident process. Restarts the Python backend on change."
+          >
+            <Select
+              value={current.data?.modelId ?? ''}
+              onValueChange={(value) => void select(value)}
+              options={serverModels.map((m) => ({ value: m.id, label: m.name }))}
+              className="w-72"
+              disabled={saving}
+            />
+          </Field>
+          <p className="text-[11px] text-muted-foreground">
+            What a server model exposes over HTTP is up to its own entrypoint script — pepper
+            reverse-proxies to it unmodified at{' '}
+            <code className="text-foreground">/v1/python/proxy/*</code>.
+          </p>
+        </>
+      ) : null}
 
       {error ? <ErrorNote>{error}</ErrorNote> : null}
     </Card>

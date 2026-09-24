@@ -224,7 +224,12 @@ export class CatalogueManager {
       .filter((file) => {
         const filename = file.path.split('/').pop() ?? file.path;
         const lower = filename.toLowerCase();
-        if (!extensions.some((ext) => lower.endsWith(ext))) return false;
+    const include = source.include?.map(globToRegExp);
+        if (include) {
+          if (!include.some((re) => re.test(filename))) return false;
+        } else if (!extensions.some((ext) => lower.endsWith(ext))) {
+          return false;
+        }
         if (match && !lower.includes(match)) return false;
         if (SHARD_RE.test(lower)) return false;
         if (isDraftModel(lower)) return false;
@@ -249,6 +254,15 @@ export class CatalogueManager {
       })
       .sort((a, b) => a.size - b.size);
   }
+}
+
+/** `*.json` -> /^[^/]*\.json$/i, matched against a basename. */
+export function globToRegExp(glob: string): RegExp {
+  const escaped = glob
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(`^${escaped}$`, 'i');
 }
 
 const DEFAULT_EXTENSIONS = ['.gguf', '.safetensors', '.bin', '.pt', '.ckpt', '.json', '.txt'];

@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -966,5 +967,151 @@ describe('upscaler', () => {
     const empty = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
     expect(await service(empty).availableScales()).toEqual([]);
     expect(await service(join(empty, 'missing')).availableScales()).toEqual([]);
+  });
+});
+
+describe('Python video runners', () => {
+  async function runnerBundle(files: Record<string, string>): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), 'pepper-runner-'));
+    for (const [path, body] of Object.entries(files)) {
+      await mkdir(join(root, path, '..'), { recursive: true });
+      await writeFile(join(root, path), body);
+    }
+    await writeFile(
+      join(root, 'model.json'),
+      JSON.stringify({
+        name: 'Wan 2.2 TI2V-5B',
+        backend: 'python',
+        python_runner: 'wan22_ti2v',
+        mode: 'video',
+        required_slots: ['checkpoint', 'clip', 'vae', 'other:tokenizer'],
+      }),
+    );
+    return root;
+  }
+
+  it('judges a runner bundle ready only when every required slot has files', async () => {
+    const partial = await runnerBundle({
+      'checkpoint/wan.gguf': 'x',
+      'clip/umt5.gguf': 'x',
+      'vae/config.json': '{}',
+    });
+    const missing = await inspectBundle(partial, 'wan', 'video');
+    expect(missing.ready).toBe(false);
+    expect(missing.readyReason).toBe('Missing files for tokenizer/');
+
+    await mkdir(join(partial, 'tokenizer'), { recursive: true });
+    await writeFile(join(partial, 'tokenizer', 'spiece.model'), 'x');
+    expect((await inspectBundle(partial, 'wan', 'video')).ready).toBe(true);
+  });
+
+  it('keeps a runner bundle not ready while one of its files is still downloading', async () => {
+    // config.json landed, the weights beside it have not: loading it now would
+    // fail mid-job rather than up front.
+    const root = await runnerBundle({
+      'checkpoint/wan.gguf': 'x',
+      'clip/umt5.gguf': 'x',
+      'vae/config.json': '{}',
+      'vae/diffusion_pytorch_model.safetensors.part': 'x',
+      'tokenizer/spiece.model': 'x',
+    });
+    const info = await inspectBundle(root, 'wan', 'video');
+    expect(info.ready).toBe(false);
+    expect(info.readyReason).toBe('Still downloading vae/');
+  });
+
+  it('matches include globs against the basename, case-insensitively', async () => {
+    const { globToRegExp } = await import('../src/catalogue/manager.js');
+    expect(globToRegExp('config.json').test('config.json')).toBe(true);
+    expect(globToRegExp('config.json').test('configXjson')).toBe(false);
+    expect(globToRegExp('*.json').test('tokenizer_config.json')).toBe(true);
+    expect(globToRegExp('*.json').test('spiece.model')).toBe(false);
+    expect(globToRegExp('Wan2.1_VAE.pth').test('wan2.1_vae.pth')).toBe(true);
+  });
+
+  it('accepts pythonRunner and allFiles sources in the catalogue schema', async () => {
+    const { catalogueModelSchema } = await import('../src/catalogue/types.js');
+    const model = catalogueModelSchema.parse({
+      id: 'wan2.2-ti2v-5b-turbo',
+      kind: 'video',
+      name: 'Wan 2.2 TI2V-5B Turbo',
+      backend: 'python',
+      pythonRunner: 'wan22_ti2v',
+      components: [
+        {
+          slot: 'vae',
+          label: 'VAE',
+          required: true,
+          source: { repo: 'Wan-AI/Wan2.2-TI2V-5B-Diffusers', path: 'vae', allFiles: true, include: ['config.json'] },
+        },
+      ],
+    });
+    expect(model.pythonRunner).toBe('wan22_ti2v');
+    expect(model.components[0].source.allFiles).toBe(true);
+  });
+
+  it('does not try to serve a runner bundle as a long-running process', async () => {
+    const { PythonInstaller, pythonManagedValues } = await import('../src/backends/python.js');
+    const log = { info: () => {}, warn: () => {}, error: () => {} } as unknown as import('fastify').FastifyBaseLogger;
+    const installer = new PythonInstaller(await mkdtemp(join(tmpdir(), 'pepper-py-')), log);
+    await expect(
+      pythonManagedValues({} as never, installer, {
+        id: 'echomimic-v3',
+        kind: 'video',
+        name: 'EchoMimicV3',
+        manifest: { backend: 'python', python_runner: 'echomimic_v3' },
+      }),
+    ).rejects.toThrow(/runs per job/);
+  });
+
+  it('pins a package to a commit without it leaking into the checkout path', async () => {
+    const { PythonInstaller } = await import('../src/backends/python.js');
+    const log = { info: () => {} } as unknown as import('fastify').FastifyBaseLogger;
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-py-'));
+    const installer = new PythonInstaller(dir, log);
+    expect(installer.packageDir('https://github.com/antgroup/echomimic_v3#7e89489')).toBe(
+      join(dir, 'packages', 'echomimic_v3'),
+    );
+  });
+});
+
+describe('Python runner protocol', () => {
+  // Spawns the real `python -m pepper_runner` with whatever python3 is on the
+  // PATH. The protocol layer imports nothing beyond the standard library, so
+  // this needs no torch — only a Python.
+  const probe = spawnSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' });
+  const python = probe.status === 0 ? probe.stdout.trim() : null;
+
+  it.skipIf(!python)("surfaces a runner's error line as the job's error", async () => {
+    const { PythonVideoService } = await import('../src/services/python-video.js');
+    const { buildPaths } = await import('../src/paths.js');
+    const root = await mkdtemp(join(tmpdir(), 'pepper-proto-'));
+    const config = loadConfig({ DATA_DIR: root, OUTPUT_DIR: join(root, 'out'), PYTHON_EXECUTABLE: python! });
+    const paths = buildPaths(config);
+    await mkdir(paths.cacheDir, { recursive: true });
+
+    const log = { info: () => {}, warn: () => {}, error: () => {} } as unknown as import('fastify').FastifyBaseLogger;
+    const backends = { get: () => undefined } as unknown as import('../src/backends/manager.js').BackendManager;
+    const service = new PythonVideoService(config, paths, backends, log, new LogBuffer(100));
+
+    await expect(
+      service.generate({
+        bundle: {
+          id: 'fake',
+          kind: 'video',
+          name: 'Fake',
+          manifest: { backend: 'python', python_runner: 'no_such_runner' },
+          loadMode: 'model',
+          mode: 'video',
+          components: [],
+          partials: [],
+          capabilities: [],
+          size: 0,
+          modified: '',
+          ready: true,
+        },
+        params: { prompt: 'x', model: 'fake' },
+      }),
+    ).rejects.toThrow(/Unknown runner 'no_such_runner'/);
   });
 });

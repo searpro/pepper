@@ -70,6 +70,8 @@ and acceleration.
 | `OUTPUT_DIR` | OS temp dir | Generated outputs. Deliberately outside `DATA_DIR` — see below. |
 | `OUTPUT_RETENTION_MS` | `86400000` | How long an output survives before the sweep removes it. `0` disables it. |
 | `UPSCALE_MODELS_DIR` | `DATA_DIR/models/upscale` | ESRGAN weights for Upscale 2×/4× (e.g. `RealESRGAN_x4plus.safetensors`). Scale is read from the file name; 2× falls back to the 4× model plus a Lanczos resample when no 2× checkpoint loads. |
+| `PYTHON_EXECUTABLE` | unset | Run Python video jobs (Wan 2.2 5B, LTX-Video, EchoMimicV3) with this interpreter instead of the managed runtime Pepper installs under `DATA_DIR/bin/python`. |
+| `PYTHON_EXCLUSIVE_MEMORY` | `true` | Stop llama.cpp / audio.cpp / vLLM before a Python video job so the model has the memory to itself; they restart on their next request. |
 | `HOST` / `PORT` | `0.0.0.0` / `3000` | Public listener. |
 | `HTTP_SERVER_TIMEOUT` | `0` | Per-request ceiling. `0` means none, which synchronous generation needs. |
 | `ACCEL` | `metal` on macOS, else `cpu` | Selects release assets and backend flags: `cpu`, `cuda`, `metal`, `vulkan`, `rocm`. |

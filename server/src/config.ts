@@ -92,6 +92,18 @@ export interface Config {
   llamacppPort: number;
   audiocppPort: number;
   pythonPort: number;
+  /**
+   * Run Python jobs with this interpreter instead of the managed runtime —
+   * for development against an existing venv that already has torch. The
+   * managed runtime (and its runner environment) is used when unset.
+   */
+  pythonExecutable?: string;
+  /**
+   * Stop the other resident backends (llama.cpp, audio.cpp, vLLM) before a
+   * Python video job. On unified memory a video model and a resident LLM do
+   * not fit together; the stopped backends restart on their next request.
+   */
+  pythonExclusiveMemory: boolean;
   vllmPort: number;
 
   // --- Work limits ---
@@ -243,6 +255,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     llamacppPort: positiveNum('LLAMACPP_PORT', env.LLAMACPP_PORT, DEFAULTS.llamacppPort),
     audiocppPort: positiveNum('AUDIOCPP_PORT', env.AUDIOCPP_PORT, DEFAULTS.audiocppPort),
     pythonPort: positiveNum('PYTHON_PORT', env.PYTHON_PORT, DEFAULTS.pythonPort),
+    pythonExecutable: env.PYTHON_EXECUTABLE?.trim() ? path(env.PYTHON_EXECUTABLE.trim()) : undefined,
+    pythonExclusiveMemory: bool('PYTHON_EXCLUSIVE_MEMORY', env.PYTHON_EXCLUSIVE_MEMORY, true),
     vllmPort: positiveNum('VLLM_PORT', env.VLLM_PORT, DEFAULTS.vllmPort),
 
     maxConcurrentJobs: positiveNum('MAX_CONCURRENT_JOBS', env.MAX_CONCURRENT_JOBS, DEFAULTS.maxConcurrentJobs),

@@ -42,6 +42,21 @@ export const catalogueSourceSchema = z.object({
    * safetensors) with no single weight file to offer a quant picker for.
    */
   snapshot: z.boolean().optional(),
+  /**
+   * Install every file that matches, flat into the slot, through the normal
+   * download manager, instead of offering one to pick. For components that
+   * are a small set of files rather than one weight (a tokenizer, a diffusers
+   * `config.json` + weights pair, an audio encoder with its preprocessor
+   * config). Unlike `snapshot`, downloads are resumable and show progress
+   * like any other, and nothing outside `path` is pulled.
+   */
+  allFiles: z.boolean().optional(),
+  /**
+   * Filename globs (`*` wildcard, matched against the basename) the files must
+   * match. With `allFiles`, this is how a component names exactly the files it
+   * needs out of a larger folder. Replaces the `extensions` filter when set.
+   */
+  include: z.array(z.string()).optional(),
 });
 
 export type CatalogueSource = z.infer<typeof catalogueSourceSchema>;
@@ -93,6 +108,13 @@ export const catalogueModelSchema = z
      * installed automatically after the clone.
      */
     pythonPackage: z.string().optional(),
+    /**
+     * Pepper's own Python runner that generates with this model
+     * (`server/python/pepper_runner`: `wan22_ti2v`, `ltx_video`,
+     * `echomimic_v3`). Runner models run once per job, like sd-cli; with a
+     * runner, `pythonPackage` is only upstream model code the runner imports.
+     */
+    pythonRunner: z.string().optional(),
     /**
      * Script to run, relative to the cloned package's root, e.g.
      * "app_mm.py". Resolved and spawned as the venv interpreter's first

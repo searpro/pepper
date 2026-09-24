@@ -207,6 +207,9 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
           // keeps the Python backend a one-click install like every other
           // backend, rather than a second, undiscoverable step.
           if (backend !== 'python') return;
+          // torch, diffusers & co. for Pepper's runners, so the first video
+          // job does not spend its first minutes installing them.
+          await app.pythonVideo.prepare((line) => app.log.info(line));
           const modelId = app.settings.get(pythonActiveModelKey());
           if (!modelId) return;
           const bundle = await app.models.find(modelId).catch(() => null);

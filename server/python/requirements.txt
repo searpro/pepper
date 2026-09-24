@@ -1,0 +1,26 @@
+# Pepper's Python runner environment (server/python/pepper_runner).
+#
+# Pinned to the versions ai-video proved on an M4 (MPS) for Wan 2.2 5B and
+# LTX-Video through GGUF: diffusers keeps a GGUF transformer quantized, and
+# transformers loads the GGUF T5/umt5 encoders. Bump together and re-test —
+# the GGUF loaders move between releases.
+torch==2.14.0
+torchvision==0.29.0
+diffusers==0.40.0
+transformers==5.17.0
+accelerate>=1.15.0
+gguf>=0.19.0
+safetensors
+sentencepiece>=0.2.0
+protobuf
+ftfy
+einops
+imageio>=2.37
+imageio-ffmpeg>=0.6.0
+pillow
+numpy
+scipy
+# EchoMimicV3: audio features and upstream's model code (src/ imports cv2).
+librosa
+pyloudnorm
+opencv-python-headless

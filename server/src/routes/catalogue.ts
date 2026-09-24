@@ -143,6 +143,7 @@ export async function catalogueRoutes(fastify: FastifyInstance): Promise<void> {
         backend: model.backend,
         huggingface_id: model.huggingfaceId,
         vllm_pipeline_class: model.vllmPipelineClass,
+        python_runner: model.pythonRunner,
         python_package: model.pythonPackage,
         python_entrypoint: model.pythonEntrypoint,
         python_component_flags: model.pythonComponentFlags,
@@ -156,6 +157,12 @@ export async function catalogueRoutes(fastify: FastifyInstance): Promise<void> {
         family: model.family,
         task: model.task,
         audio_mode: model.audioMode,
+        // Runner bundles keep their weights in named slots rather than
+        // checkpoint/, so readiness is judged against what the catalogue
+        // marks required.
+        required_slots: model.pythonRunner
+          ? model.components.filter((c) => c.required).map((c) => c.slot)
+          : undefined,
         source: { catalogueId: model.id },
       };
 

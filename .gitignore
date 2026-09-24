@@ -8,3 +8,4 @@ data/
 server/public/
 web/dist/
 *.tsbuildinfo
+__pycache__/

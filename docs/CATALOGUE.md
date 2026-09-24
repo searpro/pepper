@@ -106,10 +106,20 @@ Each component is one file the user ends up with, and one slot in the bundle.
     "path": "split_files/diffusion_models",  // optional sub-folder
     "match": "z_image",            // optional case-insensitive filename filter
     "extensions": [".gguf", ".safetensors"],  // optional; defaults to weight formats
-    "url": null                    // optional: a fixed non-HuggingFace URL
+    "url": null,                   // optional: a fixed non-HuggingFace URL
+    "allFiles": false,             // install every matching file instead of one pick
+    "include": ["config.json"]     // optional basename globs; replaces `extensions`
   }
 }
 ```
+
+A component is normally one file picked from a list. With `"allFiles": true`
+it is a *set* — a tokenizer, a diffusers `config.json` + weights pair, an audio
+encoder with its preprocessor config — and every file matching `include` is
+installed flat into the slot through the normal download manager, resumable
+and with progress. The live validator fails the entry if any `include` glob
+matches nothing, since a set with a missing member installs fine and then
+fails to load.
 
 Slots by kind:
 
@@ -349,121 +359,93 @@ high-noise expert, so `--high-noise-diffusion-model` does not appear.
 
 ## The Python backend
 
-Requirement 5's forward-looking item: some models are not a native binary
-sd.cpp/llama.cpp/audio.cpp can load at all, only a Python package with its own
-inference script. `backend: "python"` (see `backend/backends/python.ts`) is
-for exactly those.
+Some models are not something sd.cpp can load: they exist only as PyTorch
+code. `backend: "python"` covers them, in two shapes.
 
-The mechanism, entirely data-driven so a new Python model is a catalogue edit
-rather than a pepper release:
+### Runner models (video: Wan 2.2 5B, LTX-Video, EchoMimicV3)
 
-1. **`pythonPackage`** is a git URL. `POST /v1/backends/python/install` clones
-   it into the standalone Python runtime's venv (`PythonInstaller`,
-   `DATA_DIR/bin/python/packages/`) and installs its `requirements.txt`, if it
-   has one. Already cloned, or no model selected yet — both are no-ops.
-2. **`pythonEntrypoint`** is a script path relative to that clone, e.g.
-   `"app.py"`. It becomes the spawned interpreter's first argument, ahead of
-   the backend's own `--listen`/`--port` flags (Preferences → Python backend).
-3. **`pythonComponentFlags`** maps a component slot to the CLI flag its
-   installed directory is passed under, e.g.
-   `{ "other:base_model": "--pretrained_wan_path" }`. A slot with nothing
-   downloaded into it is omitted from argv rather than passed as an empty
-   directory — same reasoning as an unmapped `clip` encoder being skipped
-   rather than guessed at.
-4. **`pythonHealthPath`** overrides the readiness path polled once the
-   entrypoint is spawned. The backend's default, `/system_stats`, is
-   ComfyUI's own endpoint (the original motivating case for this backend,
-   requirement 5: "a possible candidate is comfyui"); anything else installed
-   into the same venv almost certainly answers somewhere else, and a wrong
-   path leaves the backend stuck "starting" forever rather than erroring.
+`"pythonRunner"` names one of Pepper's own runners in
+`server/python/pepper_runner/runners/`. A runner model is run **once per job**,
+exactly like sd-cli: Pepper writes a JSON job spec, spawns
+`python -m pepper_runner <spec>`, reads `@@pepper {json}` progress lines from
+its stdout, and the process writes one MP4 and exits. Nothing stays resident —
+on a unified-memory machine a video model left loaded is memory the LLM does
+not have — and cancelling is a kill.
 
-Like vLLM, the Python backend spawns one model per process and cannot
-hot-swap: which bundle it serves is a Preferences setting
-(`PUT /v1/python/model`), not a per-request field.
+| `pythonRunner` | Model | Inputs |
+| --- | --- | --- |
+| `wan22_ti2v` | Wan 2.2 TI2V-5B (Turbo), diffusers + GGUF | prompt, optional first frame |
+| `ltx_video` | LTX-Video 0.9.8 2B distilled, multi-scale | prompt, optional first frame |
+| `echomimic_v3` | EchoMimicV3 Flash (antgroup's code) | reference image + speech + prompt |
 
-**There is no fixed request/response contract**, unlike vLLM's
-OpenAI-compatible surface. What the spawned entrypoint exposes — a Gradio
-app's routes, ComfyUI's `/prompt`, something else entirely — is a property of
-that script, and pepper does not attempt to translate it. `/v1/python/proxy/*`
-(`routes/python.ts`) forwards a request to the running process's own HTTP
-surface byte for byte, at whatever path the entrypoint itself defines.
+What the entry supplies:
 
-### EchoMimicV3
+- **Components**, each installed into a named slot (`checkpoint`, `clip`,
+  `vae`, `other:tokenizer`, …). The runner is handed slot → directory and
+  finds its files there, so slot names are part of the runner's contract —
+  see each runner's docstring. Every component marked `required` becomes the
+  bundle's `required_slots`, which is what decides the bundle is ready.
+- **`defaults`** — steps, cfg, size, frames, fps. These models are tuned very
+  differently (Wan Turbo: 4 steps at cfg 1; EchoMimicV3: 8 steps at cfg 6), and
+  the Video page loads them when the model is picked.
+- **`pythonPackage`** (optional) — `git-url#commit` of upstream model code the
+  runner imports. It is cloned at that commit *without* installing upstream's
+  `requirements.txt`: the runner's dependencies are Pepper's pinned runner
+  environment (`server/python/requirements.txt`).
+- **`capabilities: ["s2v"]`** for a speech-driven model, which puts it on the
+  Video page's Speech to video tab.
 
-[BadToBest/EchoMimicV3](https://huggingface.co/BadToBest/EchoMimicV3): "1.3B
-Parameters are All You Need for Unified Multi-Modal and Multi-Task Human
-Animation" (AAAI 2026) — a talking-head/full-body animation model conditioned
-on a reference image, an audio track and a text prompt. Not GGUF, not
-`diffusers`-servable through vLLM-Omni's pipeline registry: it is a Diffusers
-`transformers`/`accelerate` stack driven by its own inference scripts, the
-shape this backend exists for. Inference code:
-[antgroup/echomimic_v3](https://github.com/antgroup/echomimic_v3) (Apache 2.0).
+The runtime (standalone CPython), the runner environment (torch, diffusers,
+transformers, …) and any `pythonPackage` are installed on the first job, or
+ahead of time by Install in Preferences → Python backend. Before a job, Pepper
+stops llama.cpp, audio.cpp and vLLM (`PYTHON_EXCLUSIVE_MEMORY`, on by default);
+they restart on their next request. `PYTHON_EXECUTABLE` points jobs at an
+existing interpreter instead of the managed one.
 
-```jsonc
-{
-  "id": "echomimic-v3",
-  "kind": "video",
-  "name": "EchoMimicV3",
-  "description": "1.3B talking-head / full-body human animation from a reference image, audio and a text prompt.",
-  "reference": "https://huggingface.co/BadToBest/EchoMimicV3",
-  "tags": ["talking-head", "audio-driven", "human-animation"],
-  "backend": "python",
-  "mode": "video",
-  "pythonPackage": "https://github.com/antgroup/echomimic_v3",
-  "pythonEntrypoint": "infer_preview.py",
-  "pythonComponentFlags": {
-    "other:base_model": "--pretrained_wan_path",
-    "other:wav2vec": "--wav2vec_path",
-    "other:transformer": "--transformer_path"
-  },
-  "components": [
-    {
-      "slot": "other:base_model",
-      "label": "Wan2.1-Fun-V1.1-1.3B-InP (base model)",
-      "required": true,
-      "source": { "repo": "alibaba-pai/Wan2.1-Fun-V1.1-1.3B-InP", "snapshot": true }
-    },
-    {
-      "slot": "other:wav2vec",
-      "label": "wav2vec2-base-960h (audio encoder)",
-      "required": true,
-      "source": { "repo": "facebook/wav2vec2-base-960h", "snapshot": true }
-    },
-    {
-      "slot": "other:transformer",
-      "label": "EchoMimicV3 transformer weights",
-      "required": true,
-      "source": { "repo": "BadToBest/EchoMimicV3", "path": "transformer", "snapshot": true }
-    }
-  ]
-}
-```
+Adding a model of an architecture a runner already covers (another Wan 2.2 5B
+quant, a different LTX checkpoint) is a catalogue edit. A new architecture is
+a new runner module — a Pepper change, like a new sd.cpp flag would be.
 
-Three components rather than one checkpoint, because EchoMimicV3 is not a
-single-file model: it loads a base diffusion model (Wan2.1-Fun-V1.1-1.3B-InP),
-a separate audio encoder (wav2vec2), and its own transformer weights on top,
-each a small directory of files rather than one weight file. `snapshot: true`
-marks that — see the note on `source.snapshot` above.
+#### EchoMimicV3 Flash
 
-Two things this entry cannot verify without a real GPU run, in the same spirit
-as Wan 2.2 S2V's own "the first run answers" caveats above:
+Upstream's `infer_flash.py` wants the full Wan2.1-Fun-1.3B-InP folder: an
+11 GB `.pth` umt5-xxl encoder and a 4.8 GB open-clip checkpoint on top of the
+model itself. The `echomimic_v3` runner swaps both for equivalents that fit a
+24 GB Mac:
 
-- **The exact CLI flag names on `infer_preview.py`.** The upstream README
-  documents the directory layout (`Wan2.1-Fun-V1.1-1.3B-InP`,
-  `wav2vec2-base-960h`, `transformer/diffusion_pytorch_model.safetensors`
-  under a `./preview/` root) and that inference goes through
-  `python infer_preview.py`, but not its argument names. `pythonComponentFlags`
-  above is this project's best-effort guess at the shape (`--*_path` per
-  component); if the real flags differ, the fix is this manifest, not a
-  pepper release.
-- **Whether `infer_preview.py` is even the right entrypoint for the Python
-  backend's server model.** It is a one-shot inference script (closer to how
-  `sd-cli` is invoked than to a persistent server), while `app_mm.py`
-  (its Gradio UI, "Quantified UI version") is the one entrypoint that actually
-  listens on a port. Whichever fits, `pythonEntrypoint` is a manifest field —
-  changing it needs no code change.
+- the umt5-xxl **GGUF** through transformers' `UMT5EncoderModel` — the same
+  encoder diffusers' Wan pipelines use — encoded once and freed before sampling;
+- the ViT-H/14 **visual tower** in diffusers format (`Wan-AI/Wan2.1-I2V-14B-480P-Diffusers/image_encoder`,
+  1.3 GB), behind an adapter reproducing Wan's preprocessing and its
+  block-31-of-32 feature.
 
-Tested hardware per the upstream repo: 12G VRAM (flash), 16G–80G for the
-preview/full quality path (V100/RTX4090D/A100). CPU-only inference is not
-claimed to work and is likely impractically slow for a diffusion model of this
-size.
+Everything else is upstream's own code at a pinned commit: the audio-conditioned
+transformer, the Wan VAE, the UniPC flow scheduler, TeaCache, and the
+per-frame colour transfer. Audio is resampled to 16 kHz, loudness-normalised
+and encoded with chinese-wav2vec2-base at 25 fps.
+
+Speech of any length goes through the same orchestrator as sd-cli's S2V
+models (`services/s2v.ts`), configured by the entry's `s2v` block: overlapping
+81-frame (3.24 s) chunks, each seeded with the previous chunk's last frame,
+stitched and re-muxed with the whole recording. Shorter chunks are cheaper per
+second of speech — attention cost grows with the square of the chunk length —
+at the price of more seams.
+
+Getting upstream's CUDA code to run on Apple Silicon took four MPS-specific
+adjustments, all in the runner rather than the pinned upstream checkout: the
+text encoder runs on the CPU (see the memory note in `common.py`), the RoPE
+table and timestep sinusoid are computed in float32/complex64 (Metal has no
+float64), sampling runs under MPS autocast (upstream relies on CUDA autocast to
+reconcile float32 embeddings with bf16 weights; without it Metal aborts the
+process), and the wav2vec features are captured with layer hooks (upstream's
+wrapper returns none under transformers 5).
+
+### Server models (ComfyUI and the like)
+
+`"pythonPackage"` + `"pythonEntrypoint"` instead of a runner: the package is
+cloned (its `requirements.txt` installed) and the entrypoint spawned as a
+long-running process, supervised like llama-server. `pythonComponentFlags`
+maps component slots to CLI flags, and `pythonHealthPath` overrides the
+readiness path (default `/system_stats`, ComfyUI's). One model per process,
+selected in Preferences (`PUT /v1/python/model`); `/v1/python/proxy/*` forwards
+to whatever HTTP surface the entrypoint defines.

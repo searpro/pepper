@@ -327,6 +327,8 @@ export interface CatalogueModel {
     required: boolean;
     quantizable: boolean;
     files?: { path: string; filename: string; size: number; quant?: string; url: string }[];
+    /** `allFiles` components install every listed file rather than one pick. */
+    source?: { repo?: string; allFiles?: boolean };
     error?: string;
   }[];
 }

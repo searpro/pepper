@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
@@ -65,6 +66,16 @@ export interface PythonPackageSpec {
 }
 
 const RECEIPT = 'python-runtime.json';
+const RUNNER_RECEIPT = 'runner-env.json';
+
+/**
+ * Pepper's own Python package (`server/python/`): the `pepper_runner` module
+ * and its requirements. Resolved from this file, so it is the same directory
+ * whether the server runs from `src/` under tsx or from compiled `dist/`.
+ */
+export function runnerSourceDir(): string {
+  return fileURLToPath(new URL('../../python', import.meta.url));
+}
 
 interface GithubAsset {
   name: string;
@@ -202,6 +213,7 @@ export class PythonInstaller {
     runtime: PythonRuntime,
     spec: PythonPackageSpec,
     signal?: AbortSignal,
+    options: { requirements?: boolean } = {},
   ): Promise<string> {
     const packagesDir = resolve(this.installDir, 'packages');
     await mkdir(packagesDir, { recursive: true });
@@ -210,7 +222,8 @@ export class PythonInstaller {
       // ComfyUI is not a PyPI package: it is a repository you clone and run
       // in place, with its own requirements.txt. `pip install git+…` would
       // fail on it outright, so a source checkout is the only shape that works.
-      const name = repoName(spec.source);
+      const { url, ref } = splitRef(spec.source);
+      const name = repoName(url);
       const target = join(packagesDir, name);
 
       // Already cloned: skip re-cloning and re-installing requirements on
@@ -220,10 +233,20 @@ export class PythonInstaller {
       if (await exists(join(target, '.git'))) return target;
 
       await rm(target, { recursive: true, force: true });
-      await this.run('git', ['clone', '--depth', '1', spec.source, target], signal);
+      await this.run('git', ['clone', '--depth', '1', url, target], signal);
+      // `<url>#<commit>` pins the checkout: a runner written against one
+      // revision of upstream's model code should not meet another silently.
+      if (ref) {
+        await this.run('git', ['-C', target, 'fetch', '--depth', '1', 'origin', ref], signal);
+        await this.run('git', ['-C', target, 'checkout', '--detach', ref], signal);
+      }
 
+      // Runner-backed models clone upstream only for its model code: their
+      // dependencies are Pepper's runner environment, and upstream's own
+      // requirements.txt (EchoMimicV3's pins TensorFlow 2.15) may not even
+      // install on the runtime's Python.
       const requirements = join(target, 'requirements.txt');
-      if (await exists(requirements)) {
+      if (options.requirements !== false && (await exists(requirements))) {
         await this.run(runtime.pythonPath, ['-m', 'pip', 'install', '-r', requirements], signal);
       }
       return target;
@@ -235,15 +258,50 @@ export class PythonInstaller {
 
   /** Where `installPackage` places (or has placed) a git-sourced package. */
   packageDir(source: string): string {
-    return resolve(this.installDir, 'packages', repoName(source));
+    return resolve(this.installDir, 'packages', repoName(splitRef(source).url));
+  }
+
+  /**
+   * Install `pepper_runner`'s requirements (torch, diffusers, transformers…)
+   * into the venv. Skipped when the receipt says this exact requirements file
+   * is already installed, so it costs a hash on every job rather than a pip
+   * resolve; editing requirements.txt reinstalls on the next job.
+   */
+  async ensureRunnerEnvironment(runtime: PythonRuntime, signal?: AbortSignal): Promise<void> {
+    const requirements = join(runnerSourceDir(), 'requirements.txt');
+    const hash = createHash('sha256')
+      .update(await readFile(requirements))
+      .digest('hex');
+    const receiptPath = join(this.installDir, RUNNER_RECEIPT);
+    const receipt = await readFile(receiptPath, 'utf8')
+      .then((text) => JSON.parse(text) as { hash?: string; python?: string })
+      .catch(() => null);
+    if (receipt?.hash === hash && receipt.python === runtime.pythonPath) return;
+
+    this.log.info({ requirements }, 'installing Python runner environment (torch, diffusers, …)');
+    await this.run(runtime.pythonPath, ['-m', 'pip', 'install', '--upgrade', 'pip'], signal);
+    await this.run(runtime.pythonPath, ['-m', 'pip', 'install', '-r', requirements], signal);
+    await writeFile(
+      receiptPath,
+      JSON.stringify(
+        { hash, python: runtime.pythonPath, installedAt: new Date().toISOString() },
+        null,
+        2,
+      ),
+    );
+    this.log.info('Python runner environment ready');
   }
 
   private async run(command: string, args: string[], signal?: AbortSignal): Promise<void> {
     this.log.info({ command, args }, 'python installer step');
     try {
-      // Installs pull hundreds of megabytes of wheels; the default 10-minute
-      // ceiling is the realistic one, not the default buffer-sized timeout.
-      await execFileAsync(command, args, { signal, timeout: 600_000, maxBuffer: 32 * 1024 * 1024 });
+      // Installs pull gigabytes of wheels (torch alone is hundreds of MB), so
+      // the ceiling is generous; a stalled install still ends eventually.
+      await execFileAsync(command, args, {
+        signal,
+        timeout: 45 * 60_000,
+        maxBuffer: 64 * 1024 * 1024,
+      });
     } catch (err) {
       throw errors.backendInstallFailed(
         'python',
@@ -285,6 +343,11 @@ export async function pythonManagedValues(
   const manifest = bundle.manifest;
   const source = manifest?.python_package;
   const entrypointRel = manifest?.python_entrypoint;
+  if (manifest?.python_runner) {
+    throw new Error(
+      `Model "${bundle.id}" runs per job through Pepper's "${manifest.python_runner}" runner — there is no server to start`,
+    );
+  }
   if (!source || !entrypointRel) {
     throw new Error(
       `Model "${bundle.id}" has no python_package/python_entrypoint — required to serve it via the Python backend`,
@@ -339,11 +402,21 @@ export async function ensurePythonPackageInstalled(
   const source = manifest?.python_package;
   if (!source) return;
   const runtime = await installer.installRuntime(signal);
-  await installer.installPackage(runtime, { source }, signal);
+  // A runner bundle's package is upstream model code only; its dependencies
+  // are the runner environment, not upstream's requirements.txt.
+  await installer.installPackage(runtime, { source }, signal, {
+    requirements: !manifest?.python_runner,
+  });
 }
 
 function isGitSource(source: string): boolean {
   return source.startsWith('git+') || source.endsWith('.git') || /^https?:\/\/[^\s]+\/[^\s]+$/.test(source);
+}
+
+/** `https://github.com/org/repo#<commit>` -> url and optional pinned ref. */
+function splitRef(source: string): { url: string; ref?: string } {
+  const [url, ref] = source.split('#');
+  return { url, ref: ref || undefined };
 }
 
 function repoName(source: string): string {
@@ -369,7 +442,10 @@ async function findInterpreter(dir: string): Promise<string | null> {
     return null;
   }
   for (const name of names) {
-    if (entries.some((e) => e.isFile() && e.name === name)) return join(dir, name);
+    // python-build-standalone ships `bin/python3` as a symlink to
+    // `python3.12`, so a symlink counts as much as a regular file.
+    if (entries.some((e) => (e.isFile() || e.isSymbolicLink()) && e.name === name))
+      return join(dir, name);
   }
   for (const entry of entries) {
     if (entry.isDirectory()) {

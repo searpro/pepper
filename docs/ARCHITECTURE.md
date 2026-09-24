@@ -13,7 +13,8 @@ Services decorated on the Fastify instance
 BackendManager ──► ManagedProcess ──► llama-server / audiocpp_server / python / vllm
   │                                    (long-running, supervised)
   ├──► BinaryInstaller ──────────────► GitHub releases (vllm: baked into the image, not installed)
-  └──► ImageService ─────────────────► sd-cli (one-shot, per generation)
+  ├──► ImageService ─────────────────► sd-cli (one-shot, per generation)
+  └──► PythonVideoService ───────────► python -m pepper_runner (one-shot, per job)
 
 JobManager · DownloadManager · ModelManager · CatalogueManager · LogBuffer
   ↓
@@ -208,6 +209,31 @@ audio reference and can run sync). Chat completions are the one exception:
 llama.cpp and vLLM speak the identical shape, so
 `/v1/llm/chat/completions` (`routes/text.ts`) routes to whichever backend
 the requested model's manifest names, instead of duplicating the endpoint.
+
+### Python video models run like sd-cli, not like a server
+
+The first cut of the Python backend treated every Python model as a
+long-running server (entrypoint + health check + proxy), the ComfyUI shape. The
+first real model, EchoMimicV3, is a one-shot inference script — so it could
+never have passed a health check, and no job path routed video generation to
+it anyway.
+
+Video models now run through Pepper's own runners
+(`server/python/pepper_runner`): one process per job that loads the model,
+writes an MP4 and exits, driven by a JSON spec and reporting over
+`@@pepper {json}` stdout lines. That is sd-cli's shape for the same reasons:
+nothing stays resident between jobs on a machine where the video model and the
+LLM do not fit together, a crash cannot poison the next job, cancel is a kill.
+`PythonVideoService` also stops the resident backends before a job, because on
+a 24 GB Mac a video decode next to a loaded LLM once exhausted memory and swap
+and took the machine down.
+
+The runners pin their own environment (`server/python/requirements.txt`),
+installed into the managed CPython venv on first use, rather than each model's
+upstream requirements — EchoMimicV3's pins TensorFlow 2.15, which does not even
+install on the runtime's Python. Upstream model code is cloned at a pinned
+commit and imported. The server shape (entrypoint + proxy) remains for
+genuinely resident packages like ComfyUI.
 
 ## Gotchas worth keeping
 

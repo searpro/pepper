@@ -91,15 +91,26 @@ export const manifestSchema = z.object({
    * default for `kind`. `vllm` bundles are loaded directly from
    * `huggingface_id` — most have no `checkpoint/` file at all, since vLLM
    * reads the HF snapshot from its own cache dir rather than pepper's bundle
-   * layout. `python` bundles are loaded through the experimental Python
-   * backend — see `python_package`/`python_entrypoint`.
+   * layout. `python` bundles run through the Python backend: per job via
+   * one of Pepper's own runners (`python_runner`), or as a long-running
+   * server package (`python_package` + `python_entrypoint`, e.g. ComfyUI).
    */
   backend: z.enum(['sdcpp', 'llamacpp', 'audiocpp', 'python', 'vllm']).optional(),
   /** HuggingFace repo id vLLM loads directly, e.g. "Wan-AI/Wan2.2-S2V-14B". */
   huggingface_id: z.string().optional(),
   /** vLLM-Omni pipeline class, e.g. "WanS2VPipeline". Only read when `backend` is "vllm". */
   vllm_pipeline_class: z.string().optional(),
-  /** Git URL installed into the Python runtime's venv. Only read when `backend` is "python". */
+  /**
+   * Which `server/python/pepper_runner` runner generates with this bundle
+   * (`wan22_ti2v`, `ltx_video`, `echomimic_v3`). Runner bundles are run once
+   * per job, like sd-cli, rather than kept resident as a server.
+   */
+  python_runner: z.string().optional(),
+  /**
+   * Git URL (optionally `#<commit>`) cloned into the Python runtime. For a
+   * runner bundle it supplies upstream model code the runner imports; for a
+   * server bundle it is the thing that is run.
+   */
   python_package: z.string().optional(),
   /** Script run inside the installed package, relative to its root. Only read when `backend` is "python". */
   python_entrypoint: z.string().optional(),
@@ -107,6 +118,13 @@ export const manifestSchema = z.object({
   python_component_flags: z.record(z.string()).optional(),
   /** Health-check path once spawned, e.g. "/". Defaults to ComfyUI's "/system_stats". Only read when `backend` is "python". */
   python_health_path: z.string().optional(),
+  /**
+   * Component slots that must hold files before the bundle is usable. Written
+   * at install from the catalogue's required components; bundles whose weights
+   * do not live in `checkpoint/` (Python runner bundles) need it to be judged
+   * ready at all.
+   */
+  required_slots: z.array(z.string()).optional(),
   /** Force the checkpoint load flag; otherwise auto-detected. */
   load: z.enum(['auto', 'model', 'diffusion-model']).optional(),
   /** `video` switches sd-cli into `-M vid_gen` and writes .webm. */
@@ -463,7 +481,7 @@ export async function inspectBundle(
     // Bundle vanished mid-scan.
   }
 
-  const readiness = assessReadiness(kind, components, manifest);
+  const readiness = assessReadiness(kind, components, manifest, partials);
 
   return {
     id,
@@ -486,8 +504,24 @@ function assessReadiness(
   kind: ModelKind,
   components: ComponentFile[],
   manifest: ModelManifest | null,
+  partials: PartialFile[] = [],
 ): { ready: boolean; reason?: string } {
   const has = (slot: ComponentSlot) => components.some((c) => c.slot === slot);
+
+  // Declared requirements win over the per-kind default: a runner bundle's
+  // weights are spread across named slots, none of which need be checkpoint/.
+  if (manifest?.required_slots?.length) {
+    const missing = manifest.required_slots.filter((slot) => !has(slot as ComponentSlot));
+    if (missing.length) {
+      return { ready: false, reason: `Missing files for ${missing.map(slotLabel).join(', ')}` };
+    }
+    // A multi-file slot can have its config.json done while its weights are
+    // still arriving; that bundle would load and then fail mid-job.
+    const downloading = [...new Set(partials.map((p) => p.slot))];
+    return downloading.length
+      ? { ready: false, reason: `Still downloading ${downloading.map(slotLabel).join(', ')}` }
+      : { ready: true };
+  }
 
   if (kind === 'image' || kind === 'video') {
     return has('checkpoint')
@@ -505,6 +539,10 @@ function assessReadiness(
     return { ready: false, reason: 'model.json must declare "family" and "task" for audio models' };
   }
   return { ready: true };
+}
+
+function slotLabel(slot: string): string {
+  return `${slot.startsWith('other:') ? slot.slice('other:'.length) : slot}/`;
 }
 
 function resolveLoadMode(manifest: ModelManifest | null, components: ComponentFile[]): LoadMode {

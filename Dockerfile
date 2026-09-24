@@ -93,6 +93,9 @@ COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/server/package.json ./server/package.json
 COPY --from=builder /app/server/dist ./server/dist
 COPY --from=builder /app/server/public ./server/public
+# The Python video runners (pepper_runner) and their pinned requirements. The
+# runtime and packages install into DATA_DIR on first use; this is the code.
+COPY --from=builder /app/server/python ./server/python
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \

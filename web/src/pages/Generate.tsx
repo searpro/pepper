@@ -69,6 +69,7 @@ interface FormState {
   strength: number;
   video_frames: number;
   flow_shift: number;
+  fps: number;
   audio?: string;
   audio_name?: string;
   audio_chunk_seconds: number;
@@ -88,6 +89,7 @@ const DEFAULTS: FormState = {
   strength: 0.75,
   video_frames: 33,
   flow_shift: 3,
+  fps: 24,
   audio_chunk_seconds: 5,
   audio_overlap_seconds: 0.5,
 };
@@ -115,7 +117,12 @@ export function GeneratePage() {
   // cannot use is a worse way to find that out than not listing it.
   const ready = React.useMemo(() => {
     const usable = (models.data?.models ?? []).filter((model) => model.ready);
-    return speech ? usable.filter((model) => model.capabilities?.includes('s2v')) : usable;
+    if (speech) return usable.filter((model) => model.capabilities?.includes('s2v'));
+    // A Python runner model that declares s2v is audio-driven only
+    // (EchoMimicV3): it has nothing to do without a speech clip.
+    return usable.filter(
+      (model) => !(model.manifest?.backend === 'python' && model.capabilities?.includes('s2v')),
+    );
   }, [models.data, speech]);
 
   // Select the first usable model once they load, so a fresh install with one
@@ -129,6 +136,28 @@ export function GeneratePage() {
         : { ...state, model: ready[0]?.id ?? '' },
     );
   }, [ready]);
+
+  const selected = ready.find((model) => model.id === form.model);
+  // Python-runner models (Wan 2.2 5B, LTX, EchoMimicV3) take no sampler or
+  // flow shift, and are tuned to very different step counts and CFG than
+  // sd-cli's video models — so each model's own defaults are loaded when it
+  // is picked, rather than sending this form's generic ones over them.
+  const pythonRunner = selected?.manifest?.backend === 'python';
+  React.useEffect(() => {
+    const defaults = (selected?.manifest as { defaults?: Partial<FormState> } | null)?.defaults;
+    if (!defaults) return;
+    setForm((state) => ({
+      ...state,
+      steps: defaults.steps ?? DEFAULTS.steps,
+      cfg_scale: defaults.cfg_scale ?? DEFAULTS.cfg_scale,
+      width: defaults.width ?? DEFAULTS.width,
+      height: defaults.height ?? DEFAULTS.height,
+      video_frames: defaults.video_frames ?? DEFAULTS.video_frames,
+      fps: defaults.fps ?? DEFAULTS.fps,
+      sampler: defaults.sampler ?? DEFAULTS.sampler,
+      flow_shift: defaults.flow_shift ?? DEFAULTS.flow_shift,
+    }));
+  }, [selected?.id, selected?.manifest]);
 
   // Live job updates. Everything on this screen that moves — progress bars,
   // the result appearing — comes from here rather than from polling.
@@ -164,8 +193,9 @@ export function GeneratePage() {
         cfg_scale: form.cfg_scale,
         width: form.width,
         height: form.height,
-        sampler: form.sampler,
       };
+      if (pythonRunner) body.fps = form.fps;
+      else body.sampler = form.sampler;
       if (form.negative_prompt) body.negative_prompt = form.negative_prompt;
       // -1 means "random" to sd-cli, but omitting it entirely is what actually
       // gives a different image each run.
@@ -174,13 +204,18 @@ export function GeneratePage() {
         body.init_image = form.init_image;
         body.strength = form.strength;
       }
-      body.flow_shift = form.flow_shift;
+      if (!pythonRunner) body.flow_shift = form.flow_shift;
       if (speech) {
         // The audio's length decides the frame count, chunk by chunk, so
         // sending `video_frames` here would only fight the orchestrator.
         body.audio = form.audio;
-        body.audio_chunk_seconds = form.audio_chunk_seconds;
-        body.audio_overlap_seconds = form.audio_overlap_seconds;
+        // A Python runner model's window is fixed by what it was trained on
+        // and declared in its manifest; overriding it here would size chunks
+        // longer than the frames the model renders for them.
+        if (!pythonRunner) {
+          body.audio_chunk_seconds = form.audio_chunk_seconds;
+          body.audio_overlap_seconds = form.audio_overlap_seconds;
+        }
       } else {
         body.video_frames = form.video_frames;
       }
@@ -362,13 +397,25 @@ export function GeneratePage() {
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Sampler">
-              <Select
-                value={form.sampler}
-                onValueChange={(value) => update('sampler', value)}
-                options={SAMPLERS.map((sampler) => ({ value: sampler, label: sampler }))}
-              />
-            </Field>
+            {pythonRunner ? (
+              <Field label="FPS">
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={form.fps}
+                  onChange={(event) => update('fps', Number(event.target.value))}
+                />
+              </Field>
+            ) : (
+              <Field label="Sampler">
+                <Select
+                  value={form.sampler}
+                  onValueChange={(value) => update('sampler', value)}
+                  options={SAMPLERS.map((sampler) => ({ value: sampler, label: sampler }))}
+                />
+              </Field>
+            )}
             <Field label="Seed" hint="-1 for random">
               <Input
                 type="number"
@@ -389,16 +436,19 @@ export function GeneratePage() {
                 />
               </Field>
             )}
-            <Field label="Flow shift">
-              <Input
-                type="number"
-                step={0.1}
-                value={form.flow_shift}
-                onChange={(event) => update('flow_shift', Number(event.target.value))}
-              />
-            </Field>
+            {pythonRunner ? null : (
+              <Field label="Flow shift">
+                <Input
+                  type="number"
+                  step={0.1}
+                  value={form.flow_shift}
+                  onChange={(event) => update('flow_shift', Number(event.target.value))}
+                />
+              </Field>
+            )}
           </div>
-          {speech ? (
+          {/* A Python runner model chunks speech by its own manifest's window. */}
+          {speech && !pythonRunner ? (
             <details className="rounded-md border border-border px-3 py-2">
               <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
                 Advanced

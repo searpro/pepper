@@ -29,6 +29,8 @@ import { SnapshotDownloader } from './downloads/snapshot.js';
 import { JobManager } from './jobs/manager.js';
 import { ImageService } from './services/image.js';
 import { UpscaleService } from './services/upscale.js';
+import { PythonVideoService } from './services/python-video.js';
+import type { GenerateParams } from './schemas/generate.js';
 import { writeAudioServerConfig } from './services/audio-config.js';
 import { writeLlmScanDir } from './services/llm-scan-dir.js';
 import { AudioService } from './services/audio-gen.js';
@@ -126,6 +128,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   const jobs = new JobManager(config, db, app.log, logs);
   const images = new ImageService(config, paths, models, backends, app.log, logs);
   const upscaler = new UpscaleService(config, paths, images, app.log);
+  const pythonVideo = new PythonVideoService(config, paths, backends, app.log, logs);
   const speech = new AudioService(config, paths, backends, app.log, logs);
   const text = new TextService(config, backends, app.log, logs);
 
@@ -182,7 +185,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     }
   });
 
-  registerExecutors(jobs, images, upscaler, speech, text, paths);
+  registerExecutors(jobs, images, upscaler, pythonVideo, models, speech, text, paths);
 
   app.decorate('config', config);
   app.decorate('paths', paths);
@@ -197,6 +200,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   app.decorate('jobs', jobs);
   app.decorate('images', images);
   app.decorate('upscaler', upscaler);
+  app.decorate('pythonVideo', pythonVideo);
   // `version` is taken by Fastify itself, so the app's own version needs a
   // distinct name rather than shadowing the framework's.
   app.decorate('appVersion', VERSION);
@@ -321,6 +325,8 @@ function registerExecutors(
   jobs: JobManager,
   images: ImageService,
   upscaler: UpscaleService,
+  pythonVideo: PythonVideoService,
+  models: ModelManager,
   speech: AudioService,
   text: TextService,
   paths: ReturnType<typeof buildPaths>,
@@ -329,6 +335,41 @@ function registerExecutors(
     // Upscales ride the image queue: they hold the same GPU, show up in the
     // same job list, and produce an image output like any other.
     if (context.job.params.task === 'upscale') return runUpscale(context);
+
+    // Bundles served by the Python backend run through Pepper's own runners
+    // (server/python/pepper_runner); everything else is sd-cli.
+    const params = context.job.params as GenerateParams;
+    const bundle = await models.find(params.model, ['image', 'video']).catch(() => null);
+    if (bundle?.manifest?.backend === 'python') {
+      const run = await pythonVideo.generate({
+        bundle,
+        params,
+        signal: context.signal,
+        onProgress: context.onProgress,
+        onLog: context.onLog,
+      });
+      return {
+        video_path: run.outputPath,
+        video_url: `/v1/outputs/${encodeURIComponent(run.outputName)}`,
+        metadata: {
+          kind: 'video',
+          backend: 'python',
+          runner: bundle.manifest.python_runner,
+          prompt: run.params.prompt,
+          negative_prompt: run.params.negative_prompt,
+          model: run.params.model,
+          steps: run.params.steps ?? bundle.manifest.defaults?.steps,
+          cfg_scale: run.params.cfg_scale ?? bundle.manifest.defaults?.cfg_scale,
+          seed: run.params.seed,
+          init_image: run.params.init_image,
+          audio: run.params.audio,
+          ...run.runner,
+          video_frames: run.runner.frames,
+          duration_ms: run.durationMs,
+          output_dir: paths.outputDir,
+        },
+      };
+    }
 
     const result = await images.generate({
       params: context.job.params as never,

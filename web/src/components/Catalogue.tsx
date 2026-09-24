@@ -259,7 +259,13 @@ function CatalogueTab({ installedIds }: { installedIds: Set<string> }) {
  * The component/quantization picker. One selection per component, defaulting
  * to the smallest file — which for a quantized model is the one most likely to
  * fit, and the safest thing to pre-select on hardware we know nothing about.
+ *
+ * An `allFiles` component (a tokenizer, a config + weights pair) is not a
+ * choice between files but a set: it offers "all N files" or, when optional,
+ * skip.
  */
+const ALL_FILES = '__all__';
+
 function InstallDialog({ modelId, onClose }: { modelId: string; onClose: () => void }) {
   const files = useResource<{ components: CatalogueModel['components'] }>(
     `/v1/catalogue/${encodeURIComponent(modelId)}/files`,
@@ -274,7 +280,8 @@ function InstallDialog({ modelId, onClose }: { modelId: string; onClose: () => v
     const defaults: Record<string, string> = {};
     for (const component of files.data.components) {
       const first = component.files?.[0];
-      if (first && component.required) defaults[component.slot + component.label] = first.url;
+      if (!first || !component.required) continue;
+      defaults[component.slot + component.label] = component.source?.allFiles ? ALL_FILES : first.url;
     }
     setSelections(defaults);
   }, [files.data]);
@@ -283,12 +290,14 @@ function InstallDialog({ modelId, onClose }: { modelId: string; onClose: () => v
     setBusy(true);
     setError(undefined);
     try {
-      const chosen = (files.data?.components ?? [])
-        .map((component) => {
-          const url = selections[component.slot + component.label];
-          return url ? { slot: component.slot, url } : null;
-        })
-        .filter((value): value is { slot: string; url: string } => value !== null);
+      const chosen = (files.data?.components ?? []).flatMap((component) => {
+        const url = selections[component.slot + component.label];
+        if (!url) return [];
+        if (url === ALL_FILES) {
+          return (component.files ?? []).map((file) => ({ slot: component.slot, url: file.url }));
+        }
+        return [{ slot: component.slot, url }];
+      });
 
       if (chosen.length === 0) throw new Error('Select at least one component to install');
       await api.post(`/v1/catalogue/${encodeURIComponent(modelId)}/install`, {
@@ -335,14 +344,27 @@ function InstallDialog({ modelId, onClose }: { modelId: string; onClose: () => v
                   onValueChange={(value) =>
                     setSelections((current) => ({ ...current, [component.slot + component.label]: value }))
                   }
-                  options={[
-                    { value: '', label: component.required ? 'Choose a file' : 'Skip' },
-                    ...(component.files ?? []).map((file) => ({
-                      value: file.url,
-                      label: `${file.quant ? `${file.quant} · ` : ''}${file.filename}`,
-                      description: formatBytes(file.size),
-                    })),
-                  ]}
+                  options={
+                    component.source?.allFiles
+                      ? [
+                          ...(component.required ? [] : [{ value: '', label: 'Skip' }]),
+                          {
+                            value: ALL_FILES,
+                            label: `All ${component.files?.length ?? 0} files`,
+                            description: `${formatBytes(
+                              (component.files ?? []).reduce((total, file) => total + file.size, 0),
+                            )} · ${(component.files ?? []).map((file) => file.filename).join(', ')}`,
+                          },
+                        ]
+                      : [
+                          { value: '', label: component.required ? 'Choose a file' : 'Skip' },
+                          ...(component.files ?? []).map((file) => ({
+                            value: file.url,
+                            label: `${file.quant ? `${file.quant} · ` : ''}${file.filename}`,
+                            description: formatBytes(file.size),
+                          })),
+                        ]
+                  }
                 />
               </Field>
             ))

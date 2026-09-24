@@ -49,6 +49,7 @@ async function main(): Promise<void> {
     try {
       await app.close();
       app.images.killAll();
+      app.pythonVideo.killAll();
       await app.backends.stopAll();
       closeDb();
     } catch (err) {
