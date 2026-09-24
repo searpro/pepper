@@ -28,6 +28,7 @@ import { DownloadManager } from './downloads/manager.js';
 import { SnapshotDownloader } from './downloads/snapshot.js';
 import { JobManager } from './jobs/manager.js';
 import { ImageService } from './services/image.js';
+import { UpscaleService } from './services/upscale.js';
 import { writeAudioServerConfig } from './services/audio-config.js';
 import { writeLlmScanDir } from './services/llm-scan-dir.js';
 import { AudioService } from './services/audio-gen.js';
@@ -124,6 +125,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 
   const jobs = new JobManager(config, db, app.log, logs);
   const images = new ImageService(config, paths, models, backends, app.log, logs);
+  const upscaler = new UpscaleService(config, paths, images, app.log);
   const speech = new AudioService(config, paths, backends, app.log, logs);
   const text = new TextService(config, backends, app.log, logs);
 
@@ -180,7 +182,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     }
   });
 
-  registerExecutors(jobs, images, speech, text, paths);
+  registerExecutors(jobs, images, upscaler, speech, text, paths);
 
   app.decorate('config', config);
   app.decorate('paths', paths);
@@ -194,6 +196,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   app.decorate('snapshotDownloads', snapshotDownloads);
   app.decorate('jobs', jobs);
   app.decorate('images', images);
+  app.decorate('upscaler', upscaler);
   // `version` is taken by Fastify itself, so the app's own version needs a
   // distinct name rather than shadowing the framework's.
   app.decorate('appVersion', VERSION);
@@ -317,11 +320,16 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 function registerExecutors(
   jobs: JobManager,
   images: ImageService,
+  upscaler: UpscaleService,
   speech: AudioService,
   text: TextService,
   paths: ReturnType<typeof buildPaths>,
 ): void {
   const generate: Parameters<JobManager['registerExecutor']>[1] = async (context) => {
+    // Upscales ride the image queue: they hold the same GPU, show up in the
+    // same job list, and produce an image output like any other.
+    if (context.job.params.task === 'upscale') return runUpscale(context);
+
     const result = await images.generate({
       params: context.job.params as never,
       signal: context.signal,
@@ -352,6 +360,53 @@ function registerExecutors(
         // than only in the logs.
         audio_duration_s: result.s2v?.audioDurationSeconds,
         audio_chunks: result.s2v?.chunks,
+        // Everything else needed to reproduce the image from the Media page.
+        negative_prompt: result.params.negative_prompt,
+        init_image: result.params.init_image,
+        strength: result.params.init_image ? result.params.strength : undefined,
+        ref_images: result.params.ref_images,
+        img_cfg_scale: result.params.ref_images?.length ? result.params.img_cfg_scale : undefined,
+        increase_ref_index: result.params.increase_ref_index,
+        duration_ms: result.durationMs,
+        output_dir: paths.outputDir,
+      },
+    };
+  };
+
+  const runUpscale: Parameters<JobManager['registerExecutor']>[1] = async (context) => {
+    const params = context.job.params as { image: string; source?: 'output' | 'upload'; scale: 2 | 4 };
+    const source = params.source ?? 'output';
+    const inputPath = await upscaler.resolveSource(params.image, source);
+    const result = await upscaler.upscale({
+      inputPath,
+      scale: params.scale,
+      signal: context.signal,
+      onProgress: context.onProgress,
+      onLog: context.onLog,
+    });
+
+    // Carry the source image's generation settings forward, so an upscaled
+    // image can still be reproduced or reused from the Media page.
+    const origin =
+      source === 'output'
+        ? ((jobs.findByOutput(params.image)?.result?.metadata as Record<string, unknown> | undefined) ?? {})
+        : {};
+
+    return {
+      image_path: result.outputPath,
+      image_url: `/v1/outputs/${encodeURIComponent(result.outputName)}`,
+      metadata: {
+        ...origin,
+        kind: 'image',
+        task: 'upscale',
+        scale: result.scale,
+        source_image: params.image,
+        source_width: result.sourceWidth,
+        source_height: result.sourceHeight,
+        width: result.width,
+        height: result.height,
+        upscaler: result.model,
+        upscale_method: result.method,
         duration_ms: result.durationMs,
         output_dir: paths.outputDir,
       },

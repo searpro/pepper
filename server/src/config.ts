@@ -46,6 +46,13 @@ export interface Config {
   outputDir: string;
   /** How long an output file is kept before the retention sweep removes it (0 disables the sweep). */
   outputRetentionMs: number;
+  /**
+   * Directory of ESRGAN upscaler weights (`*.safetensors`, `*.pth`, `*.gguf`).
+   * Defaults to `DATA_DIR/models/upscale`. The native scale is read from the
+   * file name (`RealESRGAN_x4plus` is 4×), which is how every published
+   * ESRGAN checkpoint is named.
+   */
+  upscaleModelsDir: string;
 
   // --- Server ---
   host: string;
@@ -202,6 +209,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     dataDir,
     outputDir: path(env.OUTPUT_DIR?.trim() || join(tmpdir(), 'pepper-outputs')),
     outputRetentionMs: num('OUTPUT_RETENTION_MS', env.OUTPUT_RETENTION_MS, DEFAULTS.outputRetentionMs),
+    upscaleModelsDir: path(env.UPSCALE_MODELS_DIR?.trim() || join(dataDir, 'models', 'upscale')),
 
     host: env.HOST?.trim() || '0.0.0.0',
     port: positiveNum('PORT', env.PORT, 3000),

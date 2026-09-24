@@ -21,6 +21,8 @@ import {
 import { Semaphore } from '../src/util/semaphore.js';
 import { buildImageArgs } from '../src/services/image-args.js';
 import { probeAudio, sliceAudio } from '../src/util/ffmpeg.js';
+import { UpscaleService } from '../src/services/upscale.js';
+import type { ImageService } from '../src/services/image.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -928,5 +930,41 @@ describe('snapshot download flattening', () => {
     const { flattenSnapshotPath } = await import('../src/downloads/snapshot.js');
     const dir = await mkdtemp(join(tmpdir(), 'pepper-snapshot-'));
     await expect(flattenSnapshotPath(dir, 'missing')).resolves.toBeUndefined();
+  });
+});
+
+describe('upscaler', () => {
+  const service = (dir: string) => {
+    const config = loadConfig({ UPSCALE_MODELS_DIR: dir });
+    const noop = () => {};
+    const log = { warn: noop, info: noop, error: noop, debug: noop } as never;
+    return new UpscaleService(config, {} as never, {} as ImageService, log);
+  };
+
+  it('defaults the model directory under DATA_DIR', () => {
+    expect(loadConfig({ DATA_DIR: '/mnt/data' }).upscaleModelsDir).toBe('/mnt/data/models/upscale');
+  });
+
+  it('reads each checkpoint\'s native scale from its file name', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
+    await writeFile(join(dir, 'RealESRGAN_x4plus.safetensors'), '');
+    await writeFile(join(dir, 'RealESRGAN_x2.safetensors'), '');
+    await writeFile(join(dir, 'notes.txt'), '');
+
+    const models = await service(dir).listModels();
+    expect(models.map((m) => [m.name, m.scale])).toEqual([
+      ['RealESRGAN_x2.safetensors', 2],
+      ['RealESRGAN_x4plus.safetensors', 4],
+    ]);
+  });
+
+  it('offers 2x from a 4x checkpoint alone, and no scales without checkpoints', async () => {
+    const withX4 = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
+    await writeFile(join(withX4, 'RealESRGAN_x4plus.safetensors'), '');
+    expect(await service(withX4).availableScales()).toEqual([2, 4]);
+
+    const empty = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
+    expect(await service(empty).availableScales()).toEqual([]);
+    expect(await service(join(empty, 'missing')).availableScales()).toEqual([]);
   });
 });

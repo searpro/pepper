@@ -10,6 +10,7 @@ import type { DownloadManager } from './downloads/manager.js';
 import type { SnapshotDownloader } from './downloads/snapshot.js';
 import type { JobManager } from './jobs/manager.js';
 import type { ImageService } from './services/image.js';
+import type { UpscaleService } from './services/upscale.js';
 
 /**
  * Services decorated onto the Fastify instance. Constructed once in
@@ -31,6 +32,7 @@ declare module 'fastify' {
     snapshotDownloads: SnapshotDownloader;
     jobs: JobManager;
     images: ImageService;
+    upscaler: UpscaleService;
     appVersion: string;
   }
 }

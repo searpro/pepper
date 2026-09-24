@@ -5,6 +5,7 @@ import * as SelectPrimitive from '@radix-ui/react-select';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as SliderPrimitive from '@radix-ui/react-slider';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { Check, ChevronDown, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -45,12 +46,16 @@ const buttonVariants = cva(
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {}
+    VariantProps<typeof buttonVariants> {
+  /** Render the child element (e.g. a download link) with button styling. */
+  asChild?: boolean;
+}
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, ...props }, ref) => (
-    <button ref={ref} className={cn(buttonVariants({ variant, size }), className)} {...props} />
-  ),
+  ({ className, variant, size, asChild, ...props }, ref) => {
+    const Component = asChild ? Slot : 'button';
+    return <Component ref={ref} className={cn(buttonVariants({ variant, size }), className)} {...props} />;
+  },
 );
 Button.displayName = 'Button';
 

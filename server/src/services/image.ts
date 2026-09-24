@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomInt } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, mkdir, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
@@ -105,6 +106,10 @@ export class ImageService {
       video_frames: params.video_frames ?? bundle.defaults.video_frames,
       flow_shift: params.flow_shift ?? bundle.defaults.flow_shift,
       fps: params.fps ?? bundle.defaults.fps,
+      // sd-cli falls back to a fixed seed (42) when none is passed, so an
+      // omitted or -1 seed is resolved here instead: every run differs, and the
+      // seed that produced an image is recorded so it can be reproduced.
+      seed: params.seed !== undefined && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 31 - 1),
     };
 
     const images = {
@@ -164,18 +169,17 @@ export class ImageService {
       'resolved model bundle',
     );
 
-    return this.run({
+    const { durationMs } = await this.run({
       binaryPath,
       args,
       outputPath,
-      outputName,
       kind: bundle.mode,
-      params: effective,
       timeoutMs,
       onProgress,
       onLog,
       signal,
     });
+    return { outputPath, outputName, kind: bundle.mode, durationMs, params: effective };
   }
 
   /**
@@ -234,9 +238,7 @@ export class ImageService {
           binaryPath,
           args,
           outputPath: chunk.outputPath,
-          outputName: chunk.outputPath,
           kind: 'video',
-          params: chunk.params,
           // Each chunk gets the full video budget: the ceiling is meant to
           // catch a wedged process, and a forty-chunk run legitimately takes
           // forty times as long as a one-chunk one.
@@ -262,29 +264,84 @@ export class ImageService {
     };
   }
 
+  /**
+   * One ESRGAN pass through sd-cli's `upscale` mode.
+   *
+   * sd-cli exits 0 and writes the *unscaled* input when it cannot load the
+   * upscaler (RealESRGAN_x2plus's pixel-unshuffle input layer, for one), so
+   * success is judged by the "upscaling from … to …" line it logs only once
+   * the model is actually running — not by the exit code or the file.
+   */
+  async runUpscaler(input: {
+    modelPath: string;
+    inputPath: string;
+    outputPath: string;
+    tileSize?: number;
+    onProgress?: (progress: StepProgress) => void;
+    onLog?: (line: string) => void;
+    signal?: AbortSignal;
+  }): Promise<{ durationMs: number; from?: [number, number]; to?: [number, number] }> {
+    const binaryPath = await this.resolveBinary(input.signal);
+    await mkdir(this.paths.outputDir, { recursive: true });
+
+    let from: [number, number] | undefined;
+    let to: [number, number] | undefined;
+    const args = [
+      '-M',
+      'upscale',
+      '--upscale-model',
+      input.modelPath,
+      '-i',
+      input.inputPath,
+      '-o',
+      input.outputPath,
+      // sd-cli's default tile (128) measured fastest on Metal: 256 was ~15%
+      // slower on a 640×480 → 4× run.
+      ...(input.tileSize ? ['--upscale-tile-size', String(input.tileSize)] : []),
+    ];
+
+    const { durationMs } = await this.run({
+      binaryPath,
+      args,
+      outputPath: input.outputPath,
+      kind: 'image',
+      timeoutMs: this.config.sdcppTimeoutMs,
+      onProgress: input.onProgress,
+      signal: input.signal,
+      onLog: (line) => {
+        const m = /upscaling from \((\d+) x (\d+)\) to \((\d+) x (\d+)\)/.exec(line);
+        if (m) {
+          from = [Number(m[1]), Number(m[2])];
+          to = [Number(m[3]), Number(m[4])];
+        }
+        input.onLog?.(line);
+      },
+    });
+    return { durationMs, from, to };
+  }
+
   private async resolveBinary(signal?: AbortSignal): Promise<string> {
     const installed = await this.backends.ensureInstalled('sdcpp', signal);
     if (!installed) throw errors.backendBinaryNotFound('sdcpp', 'sd-cli');
     return installed.binaryPath;
   }
 
+  /** Spawn sd-cli once and resolve when it has written a non-empty output. */
   private run(input: {
     binaryPath: string;
     args: string[];
     outputPath: string;
-    outputName: string;
     kind: 'image' | 'video';
-    params: GenerateParams;
     timeoutMs: number;
     onProgress?: (progress: StepProgress) => void;
     onLog?: (line: string) => void;
     signal?: AbortSignal;
-  }): Promise<GenerateResult> {
-    const { binaryPath, args, outputPath, outputName, kind, params, timeoutMs } = input;
+  }): Promise<{ durationMs: number }> {
+    const { binaryPath, args, outputPath, kind, timeoutMs } = input;
     const started = Date.now();
     this.log.info({ bin: binaryPath, args }, 'spawning sd-cli');
 
-    return new Promise<GenerateResult>((resolvePromise, reject) => {
+    return new Promise<{ durationMs: number }>((resolvePromise, reject) => {
       const child = spawn(binaryPath, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: loaderEnv(binaryPath),
@@ -294,7 +351,7 @@ export class ImageService {
       let settled = false;
       const errorTail: string[] = [];
 
-      const finish = (err: Error | null, result?: GenerateResult) => {
+      const finish = (err: Error | null, result?: { durationMs: number }) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
@@ -389,13 +446,7 @@ export class ImageService {
           );
         }
 
-        finish(null, {
-          outputPath,
-          outputName,
-          kind,
-          durationMs: Date.now() - started,
-          params,
-        });
+        finish(null, { durationMs: Date.now() - started });
       });
     });
   }

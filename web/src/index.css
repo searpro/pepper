@@ -120,3 +120,14 @@
     background: transparent;
   }
 }
+
+/* Transparent-pixel backdrop for image viewers, so an RGBA result reads as
+   transparent rather than as a white or black image. */
+@layer utilities {
+  .checkerboard {
+    --check-a: color-mix(in oklch, var(--muted) 70%, var(--background));
+    --check-b: var(--background);
+    background: repeating-conic-gradient(var(--check-a) 0 25%, var(--check-b) 0 50%) 0 0 / 18px
+      18px;
+  }
+}

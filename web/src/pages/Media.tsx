@@ -1,6 +1,9 @@
 import * as React from 'react';
-import { Download, Image as ImageIcon, Library, Trash2, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Download, Image as ImageIcon, Library, Maximize2, Trash2, Upload } from 'lucide-react';
 import { api, useResource, type MediaItem } from '@/lib/api';
+import { outputToInput, setHandoff } from '@/lib/images';
+import { ImageDetailsDialog } from '@/components/ImageDetails';
 import {
   Badge,
   Button,
@@ -29,10 +32,19 @@ export function MediaPage() {
   const outputs = useResource<{ outputs: MediaItem[] }>('/v1/outputs?limit=500');
   const uploads = useResource<{ uploads: MediaItem[] }>('/v1/inputs');
   const [filter, setFilter] = React.useState<'all' | 'image' | 'video' | 'audio'>('all');
+  const [detail, setDetail] = React.useState<MediaItem | null>(null);
+  const navigate = useNavigate();
 
   const items = (outputs.data?.outputs ?? []).filter(
     (item) => filter === 'all' || item.kind === filter,
   );
+
+  const images = items.filter((item) => item.kind === 'image');
+
+  const deleteOutput = async (name: string) => {
+    await api.delete(`/v1/outputs/${encodeURIComponent(name)}`);
+    outputs.reload();
+  };
 
   const uploadFile = async (file: File) => {
     await api.upload('/v1/inputs', file);
@@ -87,10 +99,8 @@ export function MediaPage() {
                 <MediaCard
                   key={item.name}
                   item={item}
-                  onDelete={async () => {
-                    await api.delete(`/v1/outputs/${encodeURIComponent(item.name)}`);
-                    outputs.reload();
-                  }}
+                  onOpen={item.kind === 'image' ? () => setDetail(item) : undefined}
+                  onDelete={() => deleteOutput(item.name)}
                 />
               ))}
             </div>
@@ -134,29 +144,76 @@ export function MediaPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Images get the full popup: details, reuse, upscale. The actions that
+          feed the generator hand the image over to the Image screen. */}
+      <ImageDetailsDialog
+        item={detail}
+        items={images}
+        onItemChange={setDetail}
+        onOpenChange={(open) => !open && setDetail(null)}
+        onReuse={(settings) => {
+          setHandoff({ settings });
+          navigate('/image');
+        }}
+        onUseAsInit={async (name) => {
+          setHandoff({ init: await outputToInput(name) });
+          navigate('/image');
+        }}
+        onUseAsReference={async (name) => {
+          setHandoff({ refs: [await outputToInput(name)] });
+          navigate('/image');
+        }}
+        onDelete={deleteOutput}
+      />
     </Page>
   );
 }
 
-function MediaCard({ item, onDelete }: { item: MediaItem; onDelete: () => Promise<void> }) {
+function MediaCard({
+  item,
+  onOpen,
+  onDelete,
+}: {
+  item: MediaItem;
+  /** Open a richer viewer than the plain preview dialog. */
+  onOpen?: () => void;
+  onDelete: () => Promise<void>;
+}) {
   return (
     <Card className="group relative overflow-hidden">
-      <Dialog>
-        <DialogTrigger asChild>
-          <button className="block w-full text-left" aria-label={`Open ${item.name}`}>
-            <MediaThumb item={item} />
-          </button>
-        </DialogTrigger>
-        <DialogContent
-          title={item.name}
-          description={`${item.kind} · ${formatBytes(item.size)} · ${timeAgo(item.modified)}`}
-          className="[--dialog-w:64rem]"
+      {onOpen ? (
+        <button
+          className="checkerboard relative block w-full text-left"
+          aria-label={`Open ${item.name}`}
+          onClick={onOpen}
         >
-          <div className="flex items-center justify-center bg-black/5 p-4 dark:bg-black/30">
-            <MediaPlayer item={item} />
-          </div>
-        </DialogContent>
-      </Dialog>
+          <MediaThumb item={item} />
+          {item.name.startsWith('upscaled-') ? (
+            <span className="absolute bottom-1 left-1 inline-flex items-center gap-0.5 rounded bg-black/60 px-1 text-[10px] font-semibold text-white">
+              <Maximize2 className="size-2.5" />
+              {item.name.slice(9, 11)}
+            </span>
+          ) : null}
+        </button>
+      ) : (
+        <Dialog>
+          <DialogTrigger asChild>
+            <button className="block w-full text-left" aria-label={`Open ${item.name}`}>
+              <MediaThumb item={item} />
+            </button>
+          </DialogTrigger>
+          <DialogContent
+            title={item.name}
+            description={`${item.kind} · ${formatBytes(item.size)} · ${timeAgo(item.modified)}`}
+            className="[--dialog-w:64rem]"
+          >
+            <div className="flex items-center justify-center bg-black/5 p-4 dark:bg-black/30">
+              <MediaPlayer item={item} />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <div className="flex items-center justify-between gap-1 px-2 py-1.5">
         <span className="truncate text-[10px] text-muted-foreground">{timeAgo(item.modified)}</span>
@@ -185,16 +242,30 @@ function MediaCard({ item, onDelete }: { item: MediaItem; onDelete: () => Promis
 function MediaThumb({ item }: { item: MediaItem }) {
   if (item.kind === 'image') {
     return (
-      <img src={item.url} alt={item.name} loading="lazy" className="aspect-square w-full object-cover" />
+      <img
+        src={item.url}
+        alt={item.name}
+        loading="lazy"
+        className="aspect-square w-full object-cover"
+      />
     );
   }
   if (item.kind === 'video') {
-    return <video src={item.url} className="aspect-square w-full object-cover" preload="metadata" muted />;
+    return (
+      <video
+        src={item.url}
+        className="aspect-square w-full object-cover"
+        preload="metadata"
+        muted
+      />
+    );
   }
   return (
     <div className="flex aspect-square w-full flex-col items-center justify-center gap-2 bg-muted p-2">
       <Library className="size-6 text-muted-foreground/60" />
-      <span className="line-clamp-2 text-center text-[10px] text-muted-foreground">{item.name}</span>
+      <span className="line-clamp-2 text-center text-[10px] text-muted-foreground">
+        {item.name}
+      </span>
     </div>
   );
 }

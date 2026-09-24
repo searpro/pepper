@@ -134,7 +134,10 @@ function JobRow({
         .reverse()
         .find((message) => message?.role === 'user')?.content
     : undefined;
-  const prompt = String(job.params.prompt ?? job.params.input ?? lastUserMessage ?? '');
+  const prompt =
+    job.params.task === 'upscale'
+      ? `Upscale ${String(job.params.scale)}× · ${String(job.params.image)}`
+      : String(job.params.prompt ?? job.params.input ?? lastUserMessage ?? '');
   const duration = (job.result?.metadata as { duration_ms?: number } | undefined)?.duration_ms;
   const resultUrl = (job.result?.image_url ?? job.result?.video_url ?? job.result?.audio_url) as
     | string

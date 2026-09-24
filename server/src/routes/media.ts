@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { stat, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -111,6 +111,61 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  app.get(
+    '/v1/outputs/:name/info',
+    {
+      schema: {
+        tags: ['media'],
+        summary: 'How an output was made: its job, parameters and result metadata',
+        description:
+          'Looks up the completed job that wrote this file. `job` is null when the file ' +
+          'predates the job table or its job has been pruned.',
+        params: z.object({ name: z.string() }),
+      },
+    },
+    async (req) => {
+      const path = safeResolve(app.paths.outputDir, req.params.name);
+      let file;
+      try {
+        file = await stat(path);
+      } catch {
+        throw errors.outputNotFound(req.params.name);
+      }
+      const job = app.jobs.findByOutput(req.params.name);
+      return {
+        name: req.params.name,
+        kind: mediaKind(req.params.name),
+        size: file.size,
+        modified: new Date(file.mtimeMs).toISOString(),
+        url: `/v1/outputs/${encodeURIComponent(req.params.name)}`,
+        job: job
+          ? {
+              id: job.id,
+              params: job.params,
+              metadata: (job.result?.metadata as Record<string, unknown> | undefined) ?? null,
+              createdAt: job.createdAt,
+              finishedAt: job.finishedAt,
+            }
+          : null,
+      };
+    },
+  );
+
+  app.get(
+    '/v1/upscalers',
+    {
+      schema: {
+        tags: ['media'],
+        summary: 'ESRGAN upscaler models and the scales they make available',
+      },
+    },
+    async () => ({
+      dir: app.config.upscaleModelsDir,
+      models: (await app.upscaler.listModels()).map(({ name, scale }) => ({ name, scale })),
+      scales: await app.upscaler.availableScales(),
+    }),
+  );
+
   app.delete(
     '/v1/outputs/:name',
     {
@@ -170,6 +225,42 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       if (uploaded.length === 0) throw errors.validation('Expected a multipart file upload');
 
       return reply.code(201).send({ ...uploaded[0], inputs: uploaded });
+    },
+  );
+
+  /**
+   * Reuse a generated image as an input. It is copied rather than referenced:
+   * outputs are swept by the retention timer, and an edit queued against one
+   * should not fail because the source aged out while it waited.
+   */
+  app.post(
+    '/v1/inputs/from-output',
+    {
+      schema: {
+        tags: ['media'],
+        summary: 'Copy a generated output into uploads, for use as an init or reference image',
+        body: z.object({ name: z.string().min(1) }),
+        response: { 201: z.unknown() },
+      },
+    },
+    async (req, reply) => {
+      const from = safeResolve(app.paths.outputDir, req.body.name);
+      try {
+        await stat(from);
+      } catch {
+        throw errors.outputNotFound(req.body.name);
+      }
+      const ext = extname(req.body.name).toLowerCase() || '.png';
+      const name = uniqueOutputName(ext.replace(/^\./, ''), 'upload');
+      const path = safeResolve(app.paths.uploadsDir, name);
+      await copyFile(from, path);
+      return reply.code(201).send({
+        name,
+        originalName: req.body.name,
+        kind: mediaKind(name),
+        size: (await stat(path)).size,
+        url: `/v1/inputs/${encodeURIComponent(name)}`,
+      });
     },
   );
 

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
@@ -145,6 +145,26 @@ export class JobManager extends EventEmitter {
     const job = this.get(id);
     if (!job) throw errors.jobNotFound(id);
     return job;
+  }
+
+  /** The completed job that produced an output file, if it is still on record. */
+  findByOutput(name: string): Job | null {
+    const url = `/v1/outputs/${encodeURIComponent(name)}`;
+    const row = this.db
+      .select()
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.status, 'completed'),
+          or(
+            sql`json_extract(${jobs.result}, '$.image_url') = ${url}`,
+            sql`json_extract(${jobs.result}, '$.video_url') = ${url}`,
+          ),
+        ),
+      )
+      .orderBy(desc(jobs.createdAt))
+      .get();
+    return row ? toJob(row) : null;
   }
 
   list(filter: { kind?: JobKind; status?: JobStatus[]; limit?: number } = {}): Job[] {

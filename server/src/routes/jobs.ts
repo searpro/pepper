@@ -117,6 +117,38 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  app.post(
+    '/v1/jobs/upscale',
+    {
+      schema: {
+        tags: ['jobs'],
+        summary: 'Enqueue an ESRGAN upscale of a generated or uploaded image',
+        description:
+          'Runs on the image queue and produces a new output. `source` says whether `image` ' +
+          'names a generated output (default) or an upload. The source image\'s generation ' +
+          'settings are carried into the result metadata.',
+        body: z.object({
+          image: z.string().min(1),
+          source: z.enum(['output', 'upload']).default('output'),
+          scale: z.union([z.literal(2), z.literal(4)]),
+        }),
+        response: { 202: jobSchema, 400: errorResponseSchema },
+      },
+    },
+    async (req, reply) => {
+      // Fail fast on a missing file or no usable model rather than queueing a
+      // job that can only fail.
+      await app.upscaler.resolveSource(req.body.image, req.body.source);
+      const scales = await app.upscaler.availableScales();
+      if (!scales.includes(req.body.scale)) {
+        throw errors.validation(
+          `No ${req.body.scale}× upscaler available. Put RealESRGAN weights in ${app.config.upscaleModelsDir}.`,
+        );
+      }
+      return reply.code(202).send(app.jobs.create('image', { task: 'upscale', ...req.body }));
+    },
+  );
+
   app.get(
     '/v1/jobs',
     {

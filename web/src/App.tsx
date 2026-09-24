@@ -5,6 +5,7 @@ import { AppShell, type Theme } from '@/components/layout';
 import { CatalogueDialog } from '@/components/Catalogue';
 import { PreferencesDialog } from '@/components/Preferences';
 import { GeneratePage } from '@/pages/Generate';
+import { ImagePage } from '@/pages/Image';
 import { AudioPage } from '@/pages/Audio';
 import { TextPage } from '@/pages/Text';
 import { MediaPage } from '@/pages/Media';
@@ -54,8 +55,8 @@ export function App() {
         >
           <Routes>
             <Route path="/" element={<Navigate to="/image" replace />} />
-            <Route path="/image" element={<GeneratePage kind="image" />} />
-            <Route path="/video" element={<GeneratePage kind="video" />} />
+            <Route path="/image" element={<ImagePage />} />
+            <Route path="/video" element={<GeneratePage />} />
             <Route path="/audio" element={<AudioPage />} />
             <Route path="/text" element={<TextPage />} />
             <Route path="/media" element={<MediaPage />} />
