@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { BACKENDS, publicConfig, type BackendId } from '../config.js';
 import { errors } from '../errors.js';
 import { backendOverridesSchema } from '../backends/args.js';
+import { ensurePythonPackageInstalled, pythonActiveModelKey } from '../backends/python.js';
 import { hfWhoami, maskToken, setHfToken } from '../util/hf.js';
 
 /**
@@ -196,9 +197,26 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       // Installs run for minutes and pull gigabytes; holding the request open
       // would hit every proxy timeout between here and the browser. The UI
       // follows progress through the log stream instead.
-      void app.backends.reinstall(backend).catch((err) => {
-        app.log.error({ backend, err: (err as Error).message }, 'backend install failed');
-      });
+      void app.backends
+        .reinstall(backend)
+        .then(async () => {
+          // The runtime alone spawns nothing: whichever bundle is selected in
+          // Preferences still needs its `python_package` cloned into the venv
+          // before `pythonManagedValues` (the prepare hook) will let the
+          // process start. Piggybacking this on the same "install" action
+          // keeps the Python backend a one-click install like every other
+          // backend, rather than a second, undiscoverable step.
+          if (backend !== 'python') return;
+          const modelId = app.settings.get(pythonActiveModelKey());
+          if (!modelId) return;
+          const bundle = await app.models.find(modelId).catch(() => null);
+          if (!bundle) return;
+          await ensurePythonPackageInstalled(app.backends.python, bundle.manifest);
+          app.backends.scheduleRestart('python', 'model package installed');
+        })
+        .catch((err) => {
+          app.log.error({ backend, err: (err as Error).message }, 'backend install failed');
+        });
       return reply.code(202).send({ backend, status: 'installing' });
     },
   );

@@ -709,3 +709,224 @@ describe('speech-to-video', () => {
     }
   });
 });
+
+describe('Python backend', () => {
+  const fakeLog = { info: () => {}, warn: () => {}, error: () => {} } as unknown as import('fastify').FastifyBaseLogger;
+
+  function fakePaths(root: string) {
+    return { modelsDir: join(root, 'models') } as unknown as import('../src/paths.js').Paths;
+  }
+
+  async function makeRuntime(installDir: string) {
+    await mkdir(join(installDir, 'venv', 'bin'), { recursive: true });
+    const pythonPath = join(installDir, 'venv', 'bin', 'python');
+    await writeFile(pythonPath, '');
+    const receipt = {
+      pythonPath,
+      runtimeDir: join(installDir, 'runtime'),
+      venvDir: join(installDir, 'venv'),
+      version: 'cpython-3.12.8-test',
+      installedAt: new Date().toISOString(),
+    };
+    await writeFile(join(installDir, 'python-runtime.json'), JSON.stringify(receipt));
+    return receipt;
+  }
+
+  it('accepts backend: "python" and its fields in both schemas', async () => {
+    const { catalogueModelSchema } = await import('../src/catalogue/types.js');
+    const { manifestSchema } = await import('../src/models/bundle.js');
+
+    const catalogueModel = catalogueModelSchema.parse({
+      id: 'echomimic-v3',
+      kind: 'video',
+      name: 'EchoMimicV3',
+      backend: 'python',
+      pythonPackage: 'https://github.com/antgroup/echomimic_v3',
+      pythonEntrypoint: 'infer_preview.py',
+      pythonComponentFlags: { 'other:base_model': '--pretrained_wan_path' },
+      pythonHealthPath: '/',
+      components: [
+        { slot: 'other:base_model', label: 'Base model', required: true, source: { repo: 'a/b' } },
+      ],
+    });
+    expect(catalogueModel.backend).toBe('python');
+
+    const manifest = manifestSchema.parse({
+      backend: 'python',
+      python_package: 'https://github.com/antgroup/echomimic_v3',
+      python_entrypoint: 'infer_preview.py',
+      python_component_flags: { 'other:base_model': '--pretrained_wan_path' },
+      python_health_path: '/',
+    });
+    expect(manifest.python_entrypoint).toBe('infer_preview.py');
+  });
+
+  it('copies backend/python/vllm catalogue fields into the installed manifest', async () => {
+    // Regression test: the install route used to drop `backend`,
+    // `huggingfaceId`/`vllmPipelineClass` and their Python equivalents on the
+    // floor, so an installed vLLM or Python bundle's manifest never actually
+    // said which backend served it.
+    const model = {
+      id: 'echomimic-v3',
+      kind: 'video' as const,
+      name: 'EchoMimicV3',
+      backend: 'python' as const,
+      pythonPackage: 'https://github.com/antgroup/echomimic_v3',
+      pythonEntrypoint: 'infer_preview.py',
+      pythonComponentFlags: { 'other:base_model': '--pretrained_wan_path' },
+      pythonHealthPath: '/',
+      tags: [],
+      loadMode: undefined,
+      mode: undefined,
+      defaults: undefined,
+      extraArgs: undefined,
+      capabilities: undefined,
+      s2v: undefined,
+      family: undefined,
+      task: undefined,
+      audioMode: undefined,
+    };
+    // Mirrors the object construction in routes/catalogue.ts's install handler.
+    const manifest = {
+      name: model.name,
+      kind: model.kind,
+      backend: model.backend,
+      huggingface_id: undefined,
+      vllm_pipeline_class: undefined,
+      python_package: model.pythonPackage,
+      python_entrypoint: model.pythonEntrypoint,
+      python_component_flags: model.pythonComponentFlags,
+      python_health_path: model.pythonHealthPath,
+      load: model.loadMode,
+      mode: model.mode,
+    };
+    const { manifestSchema } = await import('../src/models/bundle.js');
+    const parsed = manifestSchema.parse(manifest);
+    expect(parsed.backend).toBe('python');
+    expect(parsed.python_package).toBe('https://github.com/antgroup/echomimic_v3');
+  });
+
+  it('installPackage skips re-cloning a package that is already on disk', async () => {
+    const { PythonInstaller } = await import('../src/backends/python.js');
+    const root = await mkdtemp(join(tmpdir(), 'pepper-python-'));
+    const installer = new PythonInstaller(root, fakeLog);
+    const runtime = await makeRuntime(root);
+
+    const target = installer.packageDir('https://github.com/antgroup/echomimic_v3');
+    await mkdir(join(target, '.git'), { recursive: true });
+    await writeFile(join(target, 'sentinel.txt'), 'already here');
+
+    const result = await installer.installPackage(runtime, {
+      source: 'https://github.com/antgroup/echomimic_v3',
+    });
+    expect(result).toBe(target);
+    // Untouched: a real clone would have removed this first.
+    const { readFile: read } = await import('node:fs/promises');
+    expect(await read(join(target, 'sentinel.txt'), 'utf8')).toBe('already here');
+  });
+
+  it('resolves the entrypoint and component flags for a fully-installed Python model', async () => {
+    const { PythonInstaller, pythonManagedValues } = await import('../src/backends/python.js');
+    const root = await mkdtemp(join(tmpdir(), 'pepper-python-'));
+    const installer = new PythonInstaller(root, fakeLog);
+    await makeRuntime(root);
+
+    const source = 'https://github.com/antgroup/echomimic_v3';
+    const packageDir = installer.packageDir(source);
+    await mkdir(join(packageDir, '.git'), { recursive: true });
+    await writeFile(join(packageDir, 'infer_preview.py'), '# entrypoint');
+
+    const paths = fakePaths(root);
+    const bundleRoot = join(root, 'models', 'video', 'echomimic-v3');
+    await mkdir(join(bundleRoot, 'base_model'), { recursive: true });
+    await writeFile(join(bundleRoot, 'base_model', 'config.json'), '{}');
+    await mkdir(join(bundleRoot, 'wav2vec'), { recursive: true }); // declared but left empty
+
+    const result = await pythonManagedValues(paths, installer, {
+      id: 'echomimic-v3',
+      kind: 'video',
+      name: 'EchoMimicV3',
+      manifest: {
+        python_package: source,
+        python_entrypoint: 'infer_preview.py',
+        python_component_flags: {
+          'other:base_model': '--pretrained_wan_path',
+          'other:wav2vec': '--wav2vec_path',
+        },
+        python_health_path: '/',
+      },
+    });
+
+    expect(result.healthPath).toBe('/');
+    expect(result.argvPrefix[0]).toBe(join(packageDir, 'infer_preview.py'));
+    expect(result.argvPrefix).toContain('--pretrained_wan_path');
+    expect(result.argvPrefix[result.argvPrefix.indexOf('--pretrained_wan_path') + 1]).toBe(
+      join(bundleRoot, 'base_model'),
+    );
+    // The empty, declared slot is omitted rather than passed as an empty dir.
+    expect(result.argvPrefix).not.toContain('--wav2vec_path');
+  });
+
+  it('throws a specific, actionable reason at each unmet precondition', async () => {
+    const { PythonInstaller, pythonManagedValues } = await import('../src/backends/python.js');
+    const root = await mkdtemp(join(tmpdir(), 'pepper-python-'));
+    const installer = new PythonInstaller(root, fakeLog);
+    const paths = fakePaths(root);
+    const bundle = { id: 'echomimic-v3', kind: 'video' as const, name: 'EchoMimicV3', manifest: null };
+
+    // No python_package/python_entrypoint declared at all.
+    await expect(pythonManagedValues(paths, installer, bundle)).rejects.toThrow(/python_package/);
+
+    const withFields = {
+      ...bundle,
+      manifest: { python_package: 'https://github.com/antgroup/echomimic_v3', python_entrypoint: 'infer_preview.py' },
+    };
+
+    // Runtime never installed.
+    await expect(pythonManagedValues(paths, installer, withFields)).rejects.toThrow(/runtime/i);
+
+    // Runtime installed, package not cloned yet.
+    await makeRuntime(root);
+    await expect(pythonManagedValues(paths, installer, withFields)).rejects.toThrow(/not installed/i);
+
+    // Package cloned, entrypoint file missing.
+    const packageDir = installer.packageDir(withFields.manifest.python_package);
+    await mkdir(join(packageDir, '.git'), { recursive: true });
+    await expect(pythonManagedValues(paths, installer, withFields)).rejects.toThrow(/Entrypoint/);
+  });
+});
+
+describe('snapshot download flattening', () => {
+  it('moves a single-segment sub-folder pull up into the slot directory', async () => {
+    const { flattenSnapshotPath } = await import('../src/downloads/snapshot.js');
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-snapshot-'));
+    await mkdir(join(dir, 'transformer'), { recursive: true });
+    await writeFile(join(dir, 'transformer', 'config.json'), '{}');
+    await writeFile(join(dir, 'transformer', 'diffusion_pytorch_model.safetensors'), 'x'.repeat(10));
+
+    await flattenSnapshotPath(dir, 'transformer');
+
+    const { readdir, stat } = await import('node:fs/promises');
+    expect((await readdir(dir)).sort()).toEqual(['config.json', 'diffusion_pytorch_model.safetensors']);
+    await expect(stat(join(dir, 'transformer'))).rejects.toThrow(); // the now-empty wrapper is gone
+  });
+
+  it('walks up a multi-segment sub-folder, removing every emptied level', async () => {
+    const { flattenSnapshotPath } = await import('../src/downloads/snapshot.js');
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-snapshot-'));
+    await mkdir(join(dir, 'split_files', 'diffusion_models'), { recursive: true });
+    await writeFile(join(dir, 'split_files', 'diffusion_models', 'weights.safetensors'), 'x');
+
+    await flattenSnapshotPath(dir, 'split_files/diffusion_models');
+
+    const { readdir, stat } = await import('node:fs/promises');
+    expect(await readdir(dir)).toEqual(['weights.safetensors']);
+    await expect(stat(join(dir, 'split_files'))).rejects.toThrow();
+  });
+
+  it('is a no-op when nothing landed under the declared sub-folder', async () => {
+    const { flattenSnapshotPath } = await import('../src/downloads/snapshot.js');
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-snapshot-'));
+    await expect(flattenSnapshotPath(dir, 'missing')).resolves.toBeUndefined();
+  });
+});

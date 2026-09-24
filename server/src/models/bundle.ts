@@ -91,13 +91,22 @@ export const manifestSchema = z.object({
    * default for `kind`. `vllm` bundles are loaded directly from
    * `huggingface_id` — most have no `checkpoint/` file at all, since vLLM
    * reads the HF snapshot from its own cache dir rather than pepper's bundle
-   * layout.
+   * layout. `python` bundles are loaded through the experimental Python
+   * backend — see `python_package`/`python_entrypoint`.
    */
-  backend: z.enum(['sdcpp', 'llamacpp', 'audiocpp', 'vllm']).optional(),
+  backend: z.enum(['sdcpp', 'llamacpp', 'audiocpp', 'python', 'vllm']).optional(),
   /** HuggingFace repo id vLLM loads directly, e.g. "Wan-AI/Wan2.2-S2V-14B". */
   huggingface_id: z.string().optional(),
   /** vLLM-Omni pipeline class, e.g. "WanS2VPipeline". Only read when `backend` is "vllm". */
   vllm_pipeline_class: z.string().optional(),
+  /** Git URL installed into the Python runtime's venv. Only read when `backend` is "python". */
+  python_package: z.string().optional(),
+  /** Script run inside the installed package, relative to its root. Only read when `backend` is "python". */
+  python_entrypoint: z.string().optional(),
+  /** Component slot -> CLI flag its installed directory is passed under. Only read when `backend` is "python". */
+  python_component_flags: z.record(z.string()).optional(),
+  /** Health-check path once spawned, e.g. "/". Defaults to ComfyUI's "/system_stats". Only read when `backend` is "python". */
+  python_health_path: z.string().optional(),
   /** Force the checkpoint load flag; otherwise auto-detected. */
   load: z.enum(['auto', 'model', 'diffusion-model']).optional(),
   /** `video` switches sd-cli into `-M vid_gen` and writes .webm. */

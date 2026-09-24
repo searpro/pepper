@@ -3,13 +3,17 @@ import { createWriteStream } from 'node:fs';
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import * as tar from 'tar';
+import { z } from 'zod';
 import type { FastifyBaseLogger } from 'fastify';
+import { defineSetting } from '../db/settings.js';
 import { errors } from '../errors.js';
+import type { ModelManifest } from '../models/bundle.js';
+import { bundleDir, type ModelKind, type Paths } from '../paths.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -208,6 +212,13 @@ export class PythonInstaller {
       // fail on it outright, so a source checkout is the only shape that works.
       const name = repoName(spec.source);
       const target = join(packagesDir, name);
+
+      // Already cloned: skip re-cloning and re-installing requirements on
+      // every spawn/restart. A package install is minutes of network and pip
+      // resolution, and `ensureRunning` calls this on every start — not just
+      // the first one.
+      if (await exists(join(target, '.git'))) return target;
+
       await rm(target, { recursive: true, force: true });
       await this.run('git', ['clone', '--depth', '1', spec.source, target], signal);
 
@@ -220,6 +231,11 @@ export class PythonInstaller {
 
     await this.run(runtime.pythonPath, ['-m', 'pip', 'install', spec.source], signal);
     return packagesDir;
+  }
+
+  /** Where `installPackage` places (or has placed) a git-sourced package. */
+  packageDir(source: string): string {
+    return resolve(this.installDir, 'packages', repoName(source));
   }
 
   private async run(command: string, args: string[], signal?: AbortSignal): Promise<void> {
@@ -235,6 +251,95 @@ export class PythonInstaller {
       );
     }
   }
+}
+
+/**
+ * Which installed bundle id the Python backend currently serves. Mirrors
+ * `vllmActiveModelKey`: like vLLM, whatever is spawned here is a persistent
+ * process serving one model, not a per-request choice, so "which model" is a
+ * setting rather than a field on the generation request.
+ */
+export function pythonActiveModelKey() {
+  return defineSetting<string>('backend.python.activeModel', z.string(), '');
+}
+
+/**
+ * Locked argv for the Python backend, derived from the bundle currently
+ * selected in `backend.python.activeModel`.
+ *
+ * Unlike vLLM, spawning nothing useful yet is the *normal* state here even
+ * with a model selected: the package (`python_package`) has to be installed
+ * into the venv first, and that is minutes of git clone and pip resolution —
+ * too slow to run inline from a request-triggered prepare hook, the same
+ * reason the standalone runtime itself is installed explicitly
+ * (`POST /v1/backends/python/install`) rather than on first use. So this
+ * throws with a specific, actionable reason whenever the package is not
+ * already on disk, and the caller (the `python` prepare hook in `server.ts`)
+ * turns that into a `skip` rather than a startup failure.
+ */
+export async function pythonManagedValues(
+  paths: Paths,
+  installer: PythonInstaller,
+  bundle: { id: string; kind: ModelKind; name: string; manifest: ModelManifest | null },
+): Promise<{ argvPrefix: string[]; healthPath?: string }> {
+  const manifest = bundle.manifest;
+  const source = manifest?.python_package;
+  const entrypointRel = manifest?.python_entrypoint;
+  if (!source || !entrypointRel) {
+    throw new Error(
+      `Model "${bundle.id}" has no python_package/python_entrypoint — required to serve it via the Python backend`,
+    );
+  }
+
+  const runtime = await installer.installed();
+  if (!runtime) {
+    throw new Error('Python runtime not installed yet — install it from Preferences first');
+  }
+
+  const packageDir = installer.packageDir(source);
+  const hasPackage = await stat(join(packageDir, '.git'))
+    .then(() => true)
+    .catch(() => false);
+  if (!hasPackage) {
+    throw new Error(
+      `"${source}" is not installed into the Python venv yet — install the backend from Preferences to clone it`,
+    );
+  }
+
+  const entrypoint = join(packageDir, entrypointRel);
+  await stat(entrypoint).catch(() => {
+    throw new Error(`Entrypoint "${entrypointRel}" not found in ${source}`);
+  });
+
+  const dir = bundleDir(paths, bundle.kind, bundle.id);
+  const flagArgs: string[] = [];
+  for (const [slot, flag] of Object.entries(manifest?.python_component_flags ?? {})) {
+    const slotDir = join(dir, slot.startsWith('other:') ? slot.slice('other:'.length) : slot);
+    const hasContent = await readdir(slotDir)
+      .then((entries) => entries.length > 0)
+      .catch(() => false);
+    // A declared-but-empty slot is skipped rather than passed as an empty
+    // directory: the entrypoint script would rather see the flag omitted than
+    // see it pointed at nothing.
+    if (hasContent) flagArgs.push(flag, slotDir);
+  }
+
+  return {
+    argvPrefix: [entrypoint, ...flagArgs],
+    healthPath: manifest?.python_health_path,
+  };
+}
+
+/** Ensure the active Python model's package is installed. Long-running — call from an explicit install action, not a request. */
+export async function ensurePythonPackageInstalled(
+  installer: PythonInstaller,
+  manifest: ModelManifest | null,
+  signal?: AbortSignal,
+): Promise<void> {
+  const source = manifest?.python_package;
+  if (!source) return;
+  const runtime = await installer.installRuntime(signal);
+  await installer.installPackage(runtime, { source }, signal);
 }
 
 function isGitSource(source: string): boolean {

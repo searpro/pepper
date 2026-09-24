@@ -82,6 +82,9 @@ export function PreferencesDialog({
             {status?.backends.some((b) => b.backend === 'vllm') ? (
               <VllmModelPanel onChanged={onChanged} />
             ) : null}
+            {status?.backends.some((b) => b.backend === 'python') ? (
+              <PythonModelPanel onChanged={onChanged} />
+            ) : null}
             {status?.backends.map((backend) => (
               <BackendPanel key={backend.backend} backend={backend} onChanged={onChanged} />
             ))}
@@ -434,6 +437,73 @@ function VllmModelPanel({ onChanged }: { onChanged: () => void }) {
         Tensor parallel size, GPU memory utilization and other vLLM flags are in the vLLM-Omni
         panel below. The GPU count above is a hint for setting tensor parallel size — it is not
         applied automatically.
+      </p>
+
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+    </Card>
+  );
+}
+
+/**
+ * Same shape as `VllmModelPanel`: the Python backend spawns one model per
+ * process and cannot hot-swap, so "which model" is a setting here rather
+ * than a per-request choice (see `routes/python.ts`). Only bundles tagged
+ * `backend: "python"` are offered — anything else has no `python_package`/
+ * `python_entrypoint` for it to run.
+ */
+function PythonModelPanel({ onChanged }: { onChanged: () => void }) {
+  const models = useResource<{ models: BundleInfo[] }>('/v1/models');
+  const current = useResource<{ modelId: string | null }>('/v1/python/model');
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string>();
+
+  const pythonModels = (models.data?.models ?? []).filter(
+    (m) => (m.manifest as { backend?: string } | null)?.backend === 'python',
+  );
+
+  const select = async (modelId: string) => {
+    setSaving(true);
+    setError(undefined);
+    try {
+      await api.put('/v1/python/model', { modelId });
+      current.reload();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="flex flex-col gap-3 p-3">
+      <span className="text-sm font-medium">Python backend model</span>
+
+      {pythonModels.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No installed model is tagged for the Python backend yet. Install one from the catalogue
+          whose entry declares a <code className="text-foreground">python_package</code> — it will
+          appear here once downloaded.
+        </p>
+      ) : (
+        <Field
+          label="Active model"
+          hint="Restarts the Python backend on change. Its package must already be installed — use
+            Install below after selecting a model for the first time."
+        >
+          <Select
+            value={current.data?.modelId ?? ''}
+            onValueChange={(value) => void select(value)}
+            options={pythonModels.map((m) => ({ value: m.id, label: m.name }))}
+            className="w-72"
+            disabled={saving}
+          />
+        </Field>
+      )}
+
+      <p className="text-[11px] text-muted-foreground">
+        What a Python model actually exposes over HTTP is up to its own entrypoint script — pepper
+        reverse-proxies to it unmodified at <code className="text-foreground">/v1/python/proxy/*</code>.
       </p>
 
       {error ? <ErrorNote>{error}</ErrorNote> : null}

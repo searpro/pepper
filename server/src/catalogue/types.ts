@@ -76,13 +76,45 @@ export const catalogueModelSchema = z
      * `kind`" (sd-cpp for image/video, llama.cpp for llm, audio.cpp for
      * audio) — the historical default. Set to `vllm` to tag a catalogue entry
      * as vLLM/vLLM-Omni-only: those entries carry `huggingfaceId` instead of
-     * (or alongside) `components[].source` weight URLs.
+     * (or alongside) `components[].source` weight URLs. Set to `python` for a
+     * model that runs through the experimental Python backend (requirement 5)
+     * rather than a native binary — see `pythonPackage`/`pythonEntrypoint`.
      */
-    backend: z.enum(['sdcpp', 'llamacpp', 'audiocpp', 'vllm']).optional(),
+    backend: z.enum(['sdcpp', 'llamacpp', 'audiocpp', 'python', 'vllm']).optional(),
     /** HuggingFace repo id vLLM loads directly, e.g. "Wan-AI/Wan2.2-S2V-14B". */
     huggingfaceId: z.string().optional(),
     /** vLLM-Omni pipeline class, e.g. "WanS2VPipeline". Only meaningful when `backend: 'vllm'`. */
     vllmPipelineClass: z.string().optional(),
+    /**
+     * Git URL of the Python inference package to install into the standalone
+     * runtime's venv (`PythonInstaller.installPackage`), e.g.
+     * "https://github.com/antgroup/echomimic_v3". Only meaningful when
+     * `backend: 'python'`. A repo carrying a `requirements.txt` has it
+     * installed automatically after the clone.
+     */
+    pythonPackage: z.string().optional(),
+    /**
+     * Script to run, relative to the cloned package's root, e.g.
+     * "app_mm.py". Resolved and spawned as the venv interpreter's first
+     * argument, ahead of the backend's own `--listen`/`--port` flags.
+     */
+    pythonEntrypoint: z.string().optional(),
+    /**
+     * Maps a component slot to the CLI flag its installed directory is passed
+     * under, e.g. `{ "other:base_model": "--pretrained_wan_path" }`. Declared
+     * rather than inferred, the same reason `s2v.audio_flag` is: which flag a
+     * script expects for a given weight is a property of that script, not
+     * something a filename can tell you.
+     */
+    pythonComponentFlags: z.record(z.string()).optional(),
+    /**
+     * HTTP path polled for readiness once the entrypoint is spawned, e.g.
+     * "/". Defaults to ComfyUI's `/system_stats`, which is almost certainly
+     * wrong for anything else installed into the same venv — a model whose
+     * entrypoint exposes a different one should declare it here rather than
+     * leave the backend permanently "starting".
+     */
+    pythonHealthPath: z.string().optional(),
 
     // --- image / video ---
     loadMode: z.enum(['model', 'diffusion-model']).optional(),

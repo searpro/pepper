@@ -21,6 +21,7 @@ import { SettingsStore } from './db/settings.js';
 import { LogBuffer } from './logs/buffer.js';
 import { BackendManager } from './backends/manager.js';
 import { vllmActiveModelKey, vllmManagedValues } from './backends/vllm.js';
+import { pythonActiveModelKey, pythonManagedValues } from './backends/python.js';
 import { ModelManager } from './models/manager.js';
 import { CatalogueManager } from './catalogue/manager.js';
 import { DownloadManager } from './downloads/manager.js';
@@ -41,6 +42,7 @@ import { mediaRoutes } from './routes/media.js';
 import { logRoutes } from './routes/logs.js';
 import { textRoutes } from './routes/text.js';
 import { vllmRoutes } from './routes/vllm.js';
+import { pythonRoutes } from './routes/python.js';
 import { audioRoutes } from './routes/audio.js';
 import { compatRoutes } from './routes/compat.js';
 import './types.js';
@@ -161,6 +163,23 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     }
   });
 
+  // Same shape as vLLM's hook: one model per process, selected in
+  // Preferences. `pythonManagedValues` itself distinguishes "no model
+  // selected" from "selected but its package isn't installed yet" — both
+  // land here as an ordinary skip rather than a startup failure.
+  backends.setPrepare('python', async () => {
+    const modelId = settings.get(pythonActiveModelKey());
+    if (!modelId) return { skip: true, reason: 'no Python model selected' };
+    const bundle = await models.find(modelId).catch(() => null);
+    if (!bundle) return { skip: true, reason: `selected Python model "${modelId}" not found` };
+    try {
+      const { argvPrefix, healthPath } = await pythonManagedValues(paths, backends.python, bundle);
+      return { argvPrefix, healthPath };
+    } catch (err) {
+      return { skip: true, reason: (err as Error).message };
+    }
+  });
+
   registerExecutors(jobs, images, speech, text, paths);
 
   app.decorate('config', config);
@@ -274,6 +293,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   // Encapsulated: this scope also swaps in a no-op multipart parser (for
   // vLLM-Omni's multipart video endpoint), which must not affect /v1/inputs.
   await app.register(vllmRoutes);
+  await app.register(pythonRoutes);
   // Encapsulated: this scope swaps in a no-op multipart parser so transcription
   // uploads can be forwarded byte for byte, which must not affect /v1/inputs.
   await app.register(audioRoutes);

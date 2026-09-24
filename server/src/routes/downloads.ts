@@ -202,20 +202,28 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
     {
       schema: {
         tags: ['downloads'],
-        summary: 'Queue a whole-repo HuggingFace snapshot download into a model bundle',
+        summary: 'Queue a whole-repo (or whole sub-folder) HuggingFace snapshot download into a model bundle',
         description:
           'For vLLM models: pulls the full repo (config, tokenizer, sharded weights) via ' +
-          'huggingface-cli, rather than picking one component file.',
+          'huggingface-cli, rather than picking one component file. For a Python-backend model ' +
+          'declaring `"source": { "snapshot": true } }` components (e.g. EchoMimicV3), pass `slot` ' +
+          'so the pull lands in that component\'s own directory rather than the bundle root, and ' +
+          '`path` when the component is a sub-folder of the repo rather than the whole thing.',
         body: z.object({
           kind: z.enum(MODEL_KINDS),
           bundle: z.string().min(1),
           repo: z.string().min(1),
+          slot: z.string().optional(),
+          path: z.string().optional(),
         }),
         response: { 202: z.unknown() },
       },
     },
     async (req, reply) => {
-      const task = await app.snapshotDownloads.enqueue(req.body.kind, req.body.bundle, req.body.repo);
+      const task = await app.snapshotDownloads.enqueue(req.body.kind, req.body.bundle, req.body.repo, {
+        slot: req.body.slot ? parseSlot(req.body.slot) : undefined,
+        path: req.body.path,
+      });
       return reply.code(202).send(task);
     },
   );

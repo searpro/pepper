@@ -54,6 +54,20 @@ export interface PrepareResult {
   reason?: string;
   /** Values for the spec's `locked` arguments, computed at spawn time. */
   managed?: Record<string, string | number | boolean | null>;
+  /**
+   * Argv entries inserted before the spec-rendered flags — e.g. the Python
+   * backend's entrypoint script, which has to be the interpreter's first
+   * positional argument rather than a `--flag value` pair. Nothing else needs
+   * this today; `ArgDefinition` has no concept of a positional argument.
+   */
+  argvPrefix?: string[];
+  /**
+   * Overrides the backend's default health-check path for this spawn. The
+   * Python backend's default (`/system_stats`) is ComfyUI's endpoint; a
+   * different package installed into the same venv almost certainly exposes
+   * something else, and the catalogue entry is what knows which.
+   */
+  healthPath?: string;
 }
 
 export type PrepareHook = () => Promise<PrepareResult>;
@@ -319,16 +333,23 @@ export class BackendManager {
     }
   }
 
-  private healthUrl(backend: BackendId): string | undefined {
+  /**
+   * `healthPath` overrides the path (not the host/port) for a spawn whose
+   * prepare hook knows better than the backend-wide default — the Python
+   * backend's `/system_stats` is ComfyUI's endpoint, and a different package
+   * installed into the same venv (see `PrepareResult.healthPath`) almost
+   * certainly answers somewhere else.
+   */
+  private healthUrl(backend: BackendId, healthPath?: string): string | undefined {
     switch (backend) {
       case 'llamacpp':
-        return `http://127.0.0.1:${this.config.llamacppPort}/health`;
+        return `http://127.0.0.1:${this.config.llamacppPort}${healthPath ?? '/health'}`;
       case 'audiocpp':
-        return `http://127.0.0.1:${this.config.audiocppPort}/health`;
+        return `http://127.0.0.1:${this.config.audiocppPort}${healthPath ?? '/health'}`;
       case 'python':
-        return `http://127.0.0.1:${this.config.pythonPort}/system_stats`;
+        return `http://127.0.0.1:${this.config.pythonPort}${healthPath ?? '/system_stats'}`;
       case 'vllm':
-        return `http://127.0.0.1:${this.config.vllmPort}/health`;
+        return `http://127.0.0.1:${this.config.vllmPort}${healthPath ?? '/health'}`;
       default:
         return undefined;
     }
@@ -377,7 +398,7 @@ export class BackendManager {
 
     const managed = { ...this.managedValues(backend), ...prepared.managed };
     const overrides = readOverrides(this.settings, backend);
-    const args = buildArgv(ARG_SPECS[backend], overrides, managed);
+    const args = [...(prepared.argvPrefix ?? []), ...buildArgv(ARG_SPECS[backend], overrides, managed)];
 
     let proc = this.processes.get(backend);
     if (!proc) {
@@ -387,7 +408,7 @@ export class BackendManager {
           backend,
           binaryPath: installed.binaryPath,
           args,
-          healthUrl: this.healthUrl(backend),
+          healthUrl: this.healthUrl(backend, prepared.healthPath),
           startupTimeoutMs: this.config.backendStartupTimeoutMs,
           policy: this.policy(await totalMemoryKb()),
         },
@@ -419,7 +440,11 @@ export class BackendManager {
       const prepare = this.prepares.get(backend);
       const prepared = prepare ? await prepare().catch(() => ({}) as PrepareResult) : {};
       const managed = { ...this.managedValues(backend), ...prepared.managed };
-      proc.configure({ args: buildArgv(ARG_SPECS[backend], readOverrides(this.settings, backend), managed) });
+      const args = [
+        ...(prepared.argvPrefix ?? []),
+        ...buildArgv(ARG_SPECS[backend], readOverrides(this.settings, backend), managed),
+      ];
+      proc.configure({ args, healthUrl: this.healthUrl(backend, prepared.healthPath) });
       proc.scheduleRestart(reason);
     })();
   }
@@ -432,7 +457,8 @@ export class BackendManager {
       const prepare = this.prepares.get(backend);
       const prepared = prepare ? await prepare().catch(() => ({}) as PrepareResult) : {};
       const managed = { ...this.managedValues(backend), ...prepared.managed };
-      proc.configure({ args: buildArgv(ARG_SPECS[backend], overrides, managed) });
+      const args = [...(prepared.argvPrefix ?? []), ...buildArgv(ARG_SPECS[backend], overrides, managed)];
+      proc.configure({ args, healthUrl: this.healthUrl(backend, prepared.healthPath) });
       if (proc.status === 'ready') await proc.restart('arguments changed');
     }
     return this.status(backend);

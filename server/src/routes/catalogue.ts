@@ -140,6 +140,13 @@ export async function catalogueRoutes(fastify: FastifyInstance): Promise<void> {
       const manifest: ModelManifest = {
         name: model.name,
         kind: model.kind,
+        backend: model.backend,
+        huggingface_id: model.huggingfaceId,
+        vllm_pipeline_class: model.vllmPipelineClass,
+        python_package: model.pythonPackage,
+        python_entrypoint: model.pythonEntrypoint,
+        python_component_flags: model.pythonComponentFlags,
+        python_health_path: model.pythonHealthPath,
         load: model.loadMode,
         mode: model.mode,
         defaults: model.defaults as ModelManifest['defaults'],
