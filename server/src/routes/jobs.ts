@@ -10,7 +10,7 @@ import {
   validateDimensions,
 } from '../schemas/generate.js';
 import { errors } from '../errors.js';
-import { startSse } from '../util/sse.js';
+import { startSse, startWs, type SseStream } from '../util/sse.js';
 import type { JobKind } from '../jobs/manager.js';
 
 /**
@@ -182,17 +182,20 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   /** Live updates for every job — what the Job viewer subscribes to. */
-  app.get(
-    '/v1/jobs/stream',
-    { schema: { tags: ['jobs'], summary: 'Live updates for all jobs (SSE)' } },
-    async (req, reply) => {
-      const stream = startSse(req, reply);
-      for (const job of app.jobs.list({ status: ['queued', 'running'] })) {
-        stream.send('updated', job);
-      }
-      stream.onClose(app.jobs.subscribe(null, (event, data) => stream.send(event, data)));
-    },
-  );
+  function allJobs(stream: SseStream): void {
+    for (const job of app.jobs.list({ status: ['queued', 'running'] })) {
+      stream.send('updated', job);
+    }
+    stream.onClose(app.jobs.subscribe(null, (event, data) => stream.send(event, data)));
+  }
+
+  app.route({
+    method: 'GET',
+    url: '/v1/jobs/stream',
+    schema: { tags: ['jobs'], summary: 'Live updates for all jobs (SSE, or WebSocket on upgrade)' },
+    handler: async (req, reply) => allJobs(startSse(req, reply)),
+    wsHandler: (socket) => allJobs(startWs(socket)),
+  });
 
   const idParam = z.object({ id: z.string() });
 
@@ -209,30 +212,45 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
     async (req) => app.jobs.require(req.params.id),
   );
 
-  app.get(
-    '/v1/jobs/:id/stream',
-    { schema: { tags: ['jobs'], summary: 'Progress and logs for one job (SSE)', params: idParam } },
-    async (req, reply) => {
-      const job = app.jobs.require(req.params.id);
-      const stream = startSse(req, reply);
-      stream.send('updated', job);
+  function oneJob(id: string, stream: SseStream): void {
+    const job = app.jobs.get(id);
+    if (!job) {
+      stream.close();
+      return;
+    }
+    stream.send('updated', job);
 
-      // A client attaching to an already-finished job gets its terminal event
-      // and a closed stream, rather than an open connection that never speaks.
-      if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
-        stream.send(job.status === 'completed' ? 'completed' : 'failed', job);
-        stream.close();
-        return;
-      }
+    // A client attaching to an already-finished job gets its terminal event
+    // and a closed stream, rather than an open connection that never speaks.
+    if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+      stream.send(job.status === 'completed' ? 'completed' : 'failed', job);
+      stream.close();
+      return;
+    }
 
-      stream.onClose(
-        app.jobs.subscribe(req.params.id, (event, data) => {
-          stream.send(event, data);
-          if (event === 'completed' || event === 'failed') stream.close();
-        }),
-      );
+    stream.onClose(
+      app.jobs.subscribe(id, (event, data) => {
+        stream.send(event, data);
+        if (event === 'completed' || event === 'failed') stream.close();
+      }),
+    );
+  }
+
+  app.route({
+    method: 'GET',
+    url: '/v1/jobs/:id/stream',
+    schema: {
+      tags: ['jobs'],
+      summary: 'Progress and logs for one job (SSE, or WebSocket on upgrade)',
+      params: idParam,
     },
-  );
+    handler: async (req, reply) => {
+      // Checked before the stream opens so an unknown id is a plain 404.
+      app.jobs.require(req.params.id);
+      oneJob(req.params.id, startSse(req, reply));
+    },
+    wsHandler: (socket, req) => oneJob(req.params.id, startWs(socket)),
+  });
 
   app.post(
     '/v1/jobs/:id/cancel',

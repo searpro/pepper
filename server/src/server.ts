@@ -4,6 +4,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import pino from 'pino';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
+import fastifyWebsocket from '@fastify/websocket';
 import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import {
@@ -216,6 +217,10 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   await app.register(fastifyMultipart, {
     limits: { fileSize: 512 * 1024 * 1024 },
   });
+
+  // Lets the live streams answer a WebSocket upgrade on their SSE URLs — see
+  // util/sse.ts for why both transports exist.
+  await app.register(fastifyWebsocket);
 
   await app.register(fastifySwagger, {
     openapi: {

@@ -3,9 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 /**
  * API client and the two hooks every screen is built from.
  *
- * `useResource` polls; `useEventStream` subscribes to SSE. The split matters:
+ * `useResource` polls; `useEventStream` subscribes to a live stream. The split matters:
  * anything that changes because *the server* did something — a job advancing,
- * a download's byte count, a log line — arrives over SSE, because polling it
+ * a download's byte count, a log line — arrives over a stream, because polling it
  * fast enough to feel live would mean a request every few hundred
  * milliseconds per open tab. Everything else (the model list, the catalogue)
  * is fetched on demand and refetched when an action invalidates it.
@@ -131,11 +131,19 @@ export function useResource<T>(path: string | null, intervalMs?: number): Resour
 }
 
 /**
- * Subscribe to an SSE endpoint.
+ * Subscribe to one of the server's live streams.
+ *
+ * Every stream URL answers both SSE and a WebSocket upgrade. The WebSocket is
+ * tried first because Cloudflare quick tunnels — how a Kaggle deployment is
+ * reached — do not pass SSE through at all; if the socket cannot open even
+ * once, the hook falls back to `EventSource` for the rest of its life. A
+ * dropped socket reconnects with backoff (what `EventSource` does on its own);
+ * a normal close (code 1000) means the server ended the stream on purpose,
+ * e.g. a finished job, and is left closed.
  *
  * `onEvent` is held in a ref rather than being a dependency: a handler defined
  * inline in a component is a new function on every render, and using it as a
- * dependency would tear down and re-open the EventSource on each one — which
+ * dependency would tear down and re-open the stream on each one — which
  * on a log stream means losing the replay buffer several times a second.
  */
 export function useEventStream(
@@ -151,26 +159,69 @@ export function useEventStream(
 
   useEffect(() => {
     if (!path) return;
+    const names = new Set(eventKey.split(','));
+    let stopped = false;
+    let teardown = () => {};
 
-    const source = new EventSource(path);
-    source.onopen = () => setConnected(true);
-    source.onerror = () => setConnected(false);
+    const openSse = () => {
+      const source = new EventSource(path);
+      source.onopen = () => setConnected(true);
+      source.onerror = () => setConnected(false);
+      for (const name of names) {
+        source.addEventListener(name, (event: MessageEvent) => {
+          try {
+            handler.current(name, JSON.parse(event.data));
+          } catch {
+            // A malformed frame is not worth tearing the stream down for.
+          }
+        });
+      }
+      teardown = () => source.close();
+    };
 
-    const listeners = eventKey.split(',').map((name) => {
-      const listener = (event: MessageEvent) => {
+    let everOpened = false;
+    let retryMs = 1000;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const openWs = () => {
+      const url = new URL(path, window.location.href);
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(url);
+      socket.onopen = () => {
+        everOpened = true;
+        retryMs = 1000;
+        setConnected(true);
+      };
+      socket.onmessage = (message) => {
         try {
-          handler.current(name, JSON.parse(event.data));
+          const { event, data } = JSON.parse(message.data as string) as { event: string; data: unknown };
+          if (names.has(event)) handler.current(event, data);
         } catch {
           // A malformed frame is not worth tearing the stream down for.
         }
       };
-      source.addEventListener(name, listener);
-      return [name, listener] as const;
-    });
+      socket.onclose = (close) => {
+        setConnected(false);
+        if (stopped || close.code === 1000) return;
+        if (!everOpened) {
+          openSse();
+          return;
+        }
+        retryTimer = setTimeout(openWs, retryMs);
+        retryMs = Math.min(retryMs * 2, 10_000);
+      };
+      teardown = () => {
+        socket.onclose = null;
+        socket.close();
+      };
+    };
+
+    openWs();
 
     return () => {
-      for (const [name, listener] of listeners) source.removeEventListener(name, listener);
-      source.close();
+      stopped = true;
+      clearTimeout(retryTimer);
+      teardown();
       setConnected(false);
     };
   }, [path, eventKey]);

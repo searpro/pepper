@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { startSse } from '../util/sse.js';
+import { startSse, startWs, type SseStream } from '../util/sse.js';
 import type { LogSource } from '../logs/buffer.js';
 
 const sourceEnum = z.enum([
@@ -71,29 +71,29 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
     }),
   );
 
-  app.get(
-    '/v1/logs/stream',
-    {
-      schema: {
-        tags: ['logs'],
-        summary: 'Live log tail (SSE)',
-        querystring: filterSchema,
-      },
-    },
-    async (req, reply) => {
-      const filter = {
-        search: req.query.search,
-        sources: toSources(req.query.source),
-        minLevel: req.query.minLevel,
-      };
+  function tail(query: z.infer<typeof filterSchema>, stream: SseStream): void {
+    const filter = {
+      search: query.search,
+      sources: toSources(query.source),
+      minLevel: query.minLevel,
+    };
+    // Replay a recent window before tailing, so the viewer opens with
+    // context instead of an empty pane on an idle system.
+    for (const record of app.logs.query({ ...filter, limit: query.limit ?? 200 })) {
+      stream.send('record', record);
+    }
+    stream.onClose(app.logs.subscribe(filter, (record) => stream.send('record', record)));
+  }
 
-      const stream = startSse(req, reply);
-      // Replay a recent window before tailing, so the viewer opens with
-      // context instead of an empty pane on an idle system.
-      for (const record of app.logs.query({ ...filter, limit: req.query.limit ?? 200 })) {
-        stream.send('record', record);
-      }
-      stream.onClose(app.logs.subscribe(filter, (record) => stream.send('record', record)));
+  app.route({
+    method: 'GET',
+    url: '/v1/logs/stream',
+    schema: {
+      tags: ['logs'],
+      summary: 'Live log tail (SSE, or WebSocket on upgrade)',
+      querystring: filterSchema,
     },
-  );
+    handler: async (req, reply) => tail(req.query, startSse(req, reply)),
+    wsHandler: (socket, req) => tail(req.query, startWs(socket)),
+  });
 }

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { errors } from '../errors.js';
 import { parseSlot } from '../models/bundle.js';
 import { MODEL_KINDS } from '../paths.js';
-import { startSse } from '../util/sse.js';
+import { startSse, startWs, type SseStream } from '../util/sse.js';
 
 const statusEnum = z.enum(['queued', 'downloading', 'completed', 'failed', 'cancelled']);
 
@@ -71,17 +71,23 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
    * heartbeat. One stream carrying every task's progress is what the UI's
    * download manager actually needs.
    */
-  app.get(
-    '/v1/downloads/stream',
-    { schema: { tags: ['downloads'], summary: 'Live progress for all downloads (SSE)' } },
-    async (req, reply) => {
-      const stream = startSse(req, reply);
-      for (const task of app.downloads.list({ status: ['queued', 'downloading'] })) {
-        stream.send('task', task);
-      }
-      stream.onClose(app.downloads.subscribe(null, (event, task) => stream.send(event, task)));
+  function allDownloads(stream: SseStream): void {
+    for (const task of app.downloads.list({ status: ['queued', 'downloading'] })) {
+      stream.send('task', task);
+    }
+    stream.onClose(app.downloads.subscribe(null, (event, task) => stream.send(event, task)));
+  }
+
+  app.route({
+    method: 'GET',
+    url: '/v1/downloads/stream',
+    schema: {
+      tags: ['downloads'],
+      summary: 'Live progress for all downloads (SSE, or WebSocket on upgrade)',
     },
-  );
+    handler: async (req, reply) => allDownloads(startSse(req, reply)),
+    wsHandler: (socket) => allDownloads(startWs(socket)),
+  });
 
   const idParam = z.object({ id: z.string() });
 
@@ -102,27 +108,38 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get(
-    '/v1/downloads/:id/stream',
-    {
-      schema: { tags: ['downloads'], summary: 'Live progress for one download (SSE)', params: idParam },
-    },
-    async (req, reply) => {
-      const task = app.downloads.get(req.params.id);
-      if (!task) throw errors.downloadNotFound(req.params.id);
+  function oneDownload(id: string, stream: SseStream): void {
+    const task = app.downloads.get(id);
+    if (!task) {
+      stream.close();
+      return;
+    }
+    // Replay current state first: a client connecting to a download that is
+    // already at 80% should see 80%, not wait for the next tick.
+    stream.send('task', task);
+    if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
+      stream.send('done', task);
+      stream.close();
+      return;
+    }
+    stream.onClose(app.downloads.subscribe(id, (event, data) => stream.send(event, data)));
+  }
 
-      const stream = startSse(req, reply);
-      // Replay current state first: a client connecting to a download that is
-      // already at 80% should see 80%, not wait for the next tick.
-      stream.send('task', task);
-      if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') {
-        stream.send('done', task);
-        stream.close();
-        return;
-      }
-      stream.onClose(app.downloads.subscribe(req.params.id, (event, data) => stream.send(event, data)));
+  app.route({
+    method: 'GET',
+    url: '/v1/downloads/:id/stream',
+    schema: {
+      tags: ['downloads'],
+      summary: 'Live progress for one download (SSE, or WebSocket on upgrade)',
+      params: idParam,
     },
-  );
+    handler: async (req, reply) => {
+      // Checked before the stream opens so an unknown id is a plain 404.
+      if (!app.downloads.get(req.params.id)) throw errors.downloadNotFound(req.params.id);
+      oneDownload(req.params.id, startSse(req, reply));
+    },
+    wsHandler: (socket, req) => oneDownload(req.params.id, startWs(socket)),
+  });
 
   app.post(
     '/v1/downloads/:id/cancel',

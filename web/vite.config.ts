@@ -22,7 +22,8 @@ export default defineConfig({
     // `npm run dev:web` talks to the API server running on 3000, so the SPA
     // can be developed with hot reload against a real backend.
     proxy: {
-      '/v1': { target: api, changeOrigin: true },
+      // `ws` so the live streams' WebSocket upgrades are proxied too.
+      '/v1': { target: api, changeOrigin: true, ws: true },
       '/health': { target: api, changeOrigin: true },
     },
   },
