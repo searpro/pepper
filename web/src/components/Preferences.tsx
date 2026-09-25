@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { Check, Download, Play, RefreshCw, Square, TriangleAlert } from 'lucide-react';
+import { formatMinutes } from '@/components/system-status';
 import {
   api,
   useResource,
@@ -81,6 +82,7 @@ export function PreferencesDialog({
               these serves a request — is made here, not on the generation screens: those exist to
               verify a backend works, not as the API's real consumer.
             </p>
+            {status ? <IdleTimeoutPanel status={status} onChanged={onChanged} /> : null}
             {status?.backends.some((b) => b.backend === 'vllm') ? (
               <VllmModelPanel onChanged={onChanged} />
             ) : null}
@@ -143,6 +145,59 @@ export function PreferencesDialog({
         </Tabs>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const IDLE_OPTIONS = [
+  { value: '60000', label: '1 minute' },
+  { value: '300000', label: '5 minutes' },
+  { value: '600000', label: '10 minutes' },
+  { value: '1800000', label: '30 minutes' },
+  { value: '3600000', label: '1 hour' },
+  { value: '0', label: 'Never — keep running' },
+];
+
+/**
+ * Backends start on the first job that needs them and stop once idle, so a
+ * resident model only holds memory while something is actually using it.
+ */
+function IdleTimeoutPanel({ status, onChanged }: { status: SystemStatus; onChanged: () => void }) {
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string>();
+  const current = String(status.idleTimeoutMs);
+  const options = IDLE_OPTIONS.some((o) => o.value === current)
+    ? IDLE_OPTIONS
+    : [...IDLE_OPTIONS, { value: current, label: formatMinutes(status.idleTimeoutMs) }];
+
+  const save = async (value: string) => {
+    setSaving(true);
+    setError(undefined);
+    try {
+      await api.put('/v1/backends/idle-timeout', { idleTimeoutMs: Number(value) });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="flex flex-col gap-2 p-3">
+      <Field
+        label="Stop idle backends after"
+        hint="llama.cpp, audio.cpp, vLLM and Python servers start on the first job that needs them and stop after this long unused, freeing their memory. The next job starts them again (a model load of a few seconds)."
+      >
+        <Select
+          value={current}
+          onValueChange={(value) => void save(value)}
+          options={options}
+          className="w-56"
+          disabled={saving}
+        />
+      </Field>
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+    </Card>
   );
 }
 
@@ -270,6 +325,18 @@ function BackendPanel({ backend, onChanged }: { backend: BackendStatus; onChange
       {backend.lastRestartReason ? (
         <p className="border-t border-border bg-[var(--warning)]/8 px-3 py-1.5 text-[11px] text-muted-foreground">
           Last automatic restart: {backend.lastRestartReason}
+        </p>
+      ) : null}
+
+      {backend.note && backend.status !== 'ready' ? (
+        <p className="border-t border-border bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+          Not started: {backend.note}
+        </p>
+      ) : null}
+
+      {backend.lastStopReason && backend.status === 'stopped' ? (
+        <p className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+          Stopped automatically: {backend.lastStopReason} — starts again on the next job.
         </p>
       ) : null}
 

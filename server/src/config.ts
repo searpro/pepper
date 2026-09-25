@@ -87,6 +87,12 @@ export interface Config {
   llamacppTimeoutMs: number;
   /** How long to wait for a persistent backend's health endpoint at startup. */
   backendStartupTimeoutMs: number;
+  /**
+   * Stop a persistent backend after it has served nothing for this long; 0
+   * keeps it running. Backends start on demand, so the cost of stopping is a
+   * model load on the next job. Preferences can override it at runtime.
+   */
+  backendIdleTimeoutMs: number;
 
   /** Loopback ports the persistent backends listen on. Never public. */
   llamacppPort: number;
@@ -144,6 +150,7 @@ const DEFAULTS = {
   audiocppTimeoutMs: 300_000, // sd-api audio_request_timeout_ms
   llamacppTimeoutMs: 300_000, // sd-api llm_request_timeout_ms
   backendStartupTimeoutMs: 30_000, // sd-api {llm,audio}_startup_timeout_ms
+  backendIdleTimeoutMs: 5 * 60 * 1000,
   httpServerTimeoutMs: 0, // Fastify default: no request timeout
   maxConcurrentJobs: 1, // sd-api max_concurrent_jobs
   maxConcurrentDownloads: 2, // sd-api max_concurrent_downloads
@@ -250,6 +257,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       'BACKEND_STARTUP_TIMEOUT',
       env.BACKEND_STARTUP_TIMEOUT,
       DEFAULTS.backendStartupTimeoutMs,
+    ),
+    backendIdleTimeoutMs: num(
+      'BACKEND_IDLE_TIMEOUT',
+      env.BACKEND_IDLE_TIMEOUT,
+      DEFAULTS.backendIdleTimeoutMs,
     ),
 
     llamacppPort: positiveNum('LLAMACPP_PORT', env.LLAMACPP_PORT, DEFAULTS.llamacppPort),

@@ -71,6 +71,7 @@ and acceleration.
 | `OUTPUT_RETENTION_MS` | `86400000` | How long an output survives before the sweep removes it. `0` disables it. |
 | `UPSCALE_MODELS_DIR` | `DATA_DIR/models/upscale` | Upscaler checkpoints for Upscale 2×/4×. Install curated ones (UltraSharp, NMKD Siax, ClearReality, RealESRGAN x2plus/x4plus/anime…) from Preferences → Upscalers, or drop any spandrel-loadable `.pth`/`.safetensors` here. The engine (Python/spandrel or sd-cli) and the default per scale are set there too. |
 | `PYTHON_EXECUTABLE` | unset | Run Python video jobs (Wan 2.2 5B, LTX-Video, EchoMimicV3) with this interpreter instead of the managed runtime Pepper installs under `DATA_DIR/bin/python`. |
+| `BACKEND_IDLE_TIMEOUT` | `300000` | Backends (llama.cpp, audio.cpp, vLLM, Python servers) start on the first job that needs them and stop after this many ms unused. `0` keeps them running. Overridable in Preferences → Backends. |
 | `PYTHON_EXCLUSIVE_MEMORY` | `true` | Stop llama.cpp / audio.cpp / vLLM before a Python video job so the model has the memory to itself, and stop llama.cpp after a Character Studio design (the sheet render comes next); they restart on their next request. |
 | `HOST` / `PORT` | `0.0.0.0` / `3000` | Public listener. |
 | `HTTP_SERVER_TIMEOUT` | `0` | Per-request ceiling. `0` means none, which synchronous generation needs. |

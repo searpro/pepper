@@ -19,7 +19,7 @@ const execFileAsync = promisify(execFile);
  *
  * On Linux that comes from `/proc/<pid>/status`, which is exact and free.
  * macOS has no per-process swap accounting available without elevated
- * privileges, so `swapKb` is reported as `null` there and the idle-memory rule
+ * privileges, so `swapKb` is reported as `null` there and the idle stop
  * carries the load instead; production is Linux/CUDA, so the precise signal is
  * available where it is actually needed.
  */
@@ -71,27 +71,9 @@ async function samplePs(pid: number): Promise<ProcessStats | null> {
   }
 }
 
-/** Total system memory in KiB, used to express thresholds as a fraction. */
-export async function totalMemoryKb(): Promise<number> {
-  if (process.platform === 'linux') {
-    try {
-      const meminfo = await readFile('/proc/meminfo', 'utf8');
-      const total = matchKb(meminfo, 'MemTotal');
-      if (total) return total;
-    } catch {
-      // fall through to the os module
-    }
-  }
-  const { totalmem } = await import('node:os');
-  return Math.round(totalmem() / 1024);
-}
-
 export interface HealthPolicy {
   /** Restart once swap exceeds this many KiB. `null` disables the swap rule. */
   swapLimitKb: number | null;
-  /** Restart when idle this long *and* holding more than `idleRssLimitKb`. */
-  idleAfterMs: number;
-  idleRssLimitKb: number;
 }
 
 export interface PolicyVerdict {
@@ -102,27 +84,16 @@ export interface PolicyVerdict {
 /**
  * Decide whether a sampled process should be recycled.
  *
- * The idle rule is deliberately conjunctive: idleness alone is not a problem
- * (a backend sitting ready for the next request is the desired state), and
- * memory use alone is not either. It is holding gigabytes *while doing
- * nothing* that is worth reclaiming — and a restart is cheap precisely because
- * nothing is in flight.
+ * Only swap triggers a restart. Idleness used to as well (idle *and* holding
+ * memory), but a restart reloads the same models into the same footprint, so
+ * it reclaimed nothing. Idle backends are now stopped outright by the idle
+ * timeout in `ManagedProcess` and started again by the next job.
  */
-export function evaluatePolicy(
-  stats: ProcessStats,
-  idleForMs: number,
-  policy: HealthPolicy,
-): PolicyVerdict {
+export function evaluatePolicy(stats: ProcessStats, policy: HealthPolicy): PolicyVerdict {
   if (policy.swapLimitKb !== null && stats.swapKb !== null && stats.swapKb > policy.swapLimitKb) {
     return {
       restart: true,
       reason: `swapping (${mib(stats.swapKb)} MiB swapped, limit ${mib(policy.swapLimitKb)} MiB)`,
-    };
-  }
-  if (idleForMs >= policy.idleAfterMs && stats.rssKb > policy.idleRssLimitKb) {
-    return {
-      restart: true,
-      reason: `idle ${Math.round(idleForMs / 1000)}s holding ${mib(stats.rssKb)} MiB (limit ${mib(policy.idleRssLimitKb)} MiB)`,
     };
   }
   return { restart: false };

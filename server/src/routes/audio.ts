@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { errors } from '../errors.js';
 import { safeResolve } from '../paths.js';
 import { listFiles, uniqueOutputName } from '../util/files.js';
+import { defineSetting } from '../db/settings.js';
 import { proxyToBackend, type ProxyBody } from '../services/proxy.js';
 
 /**
@@ -18,6 +19,17 @@ import { proxyToBackend, type ProxyBody } from '../services/proxy.js';
  * voice-cloning or voice-design model conditions on — are stored by this app,
  * since audio.cpp takes a path and has no upload surface of its own.
  */
+/**
+ * Voices audio.cpp last reported, per model. Persisted so the Audio page can
+ * list a model's built-in speakers while the backend is idle-stopped, rather
+ * than starting it (and loading every audio model) just to fill a dropdown.
+ */
+const voicesCacheKey = defineSetting<Record<string, string[]>>(
+  'audio.voicesCache',
+  z.record(z.array(z.string())),
+  {},
+);
+
 export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -111,16 +123,58 @@ export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
       }),
   );
 
+  /**
+   * Not a straight proxy: the Audio and Characters pages ask for this on
+   * every visit and every model change, and proxying started audio.cpp each
+   * time — which is how a backend stopped from Preferences kept coming back
+   * on its own. So it only asks audio.cpp when audio.cpp is already up, and
+   * otherwise answers from the last live answer plus the bundle's configured
+   * presets (which is where audio.cpp's own preset list comes from anyway).
+   */
   app.get(
     '/v1/audio/voices',
-    { schema: { tags: ['audio'], summary: 'Voices the loaded models provide' } },
-    async (req, reply) =>
-      proxyToBackend(app.backends, req, reply, {
-        backend: 'audiocpp',
-        upstreamPath: '/v1/audio/voices',
-        method: 'GET',
-        timeoutMs: 30_000,
-      }),
+    {
+      schema: {
+        tags: ['audio'],
+        summary: 'Voices the loaded models provide',
+        querystring: z.object({ model: z.string().optional() }).passthrough(),
+      },
+    },
+    async (req) => {
+      const model = req.query.model;
+      const proc = app.backends.get('audiocpp');
+      const cache = app.settings.get(voicesCacheKey);
+
+      if (proc?.isReady()) {
+        const release = proc.acquire();
+        try {
+          const query = model ? `?model=${encodeURIComponent(model)}` : '';
+          const res = await fetch(`${app.backends.baseUrl('audiocpp')}/v1/audio/voices${query}`, {
+            signal: AbortSignal.timeout(30_000),
+          });
+          if (!res.ok) {
+            const detail = await res.text().catch(() => '');
+            throw errors.backendUpstreamError(
+              'audiocpp',
+              `listing voices failed (${res.status}): ${detail.slice(0, 300)}`,
+            );
+          }
+          const payload = (await res.json()) as { voices?: unknown };
+          const voices = Array.isArray(payload.voices)
+            ? payload.voices.filter((v): v is string => typeof v === 'string')
+            : [];
+          if (model) app.settings.set(voicesCacheKey, { ...cache, [model]: voices });
+          return payload;
+        } finally {
+          release();
+        }
+      }
+
+      if (!model) return { voices: [...new Set(Object.values(cache).flat())] };
+      const bundle = await app.models.find(model, ['audio']).catch(() => null);
+      const presets = Object.keys(bundle?.manifest?.voicePresets ?? {});
+      return { voices: [...new Set([...(cache[model] ?? []), ...presets])] };
+    },
   );
 
   app.get(

@@ -76,19 +76,21 @@ export class AudioService {
     const { params, onLog, signal } = options;
     const started = Date.now();
 
-    const process = await this.backends.ensureRunning('audiocpp');
-    if (!process) {
+    // Resolved before the backend is started, so a bad reference fails fast
+    // and cannot leave a lease held on a backend nobody is using.
+    const body: Record<string, unknown> = { ...params };
+    if (typeof params.voice_ref === 'string') {
+      body.voice_ref = await this.resolveVoiceRef(params.voice_ref);
+    }
+
+    const lease = await this.backends.acquire('audiocpp');
+    if (!lease) {
       throw errors.backendUnavailable(
         'audiocpp',
         'audiocpp is not running — no audio models are installed yet',
       );
     }
-    process.markActivity();
-
-    const body: Record<string, unknown> = { ...params };
-    if (typeof params.voice_ref === 'string') {
-      body.voice_ref = await this.resolveVoiceRef(params.voice_ref);
-    }
+    const { release } = lease;
 
     onLog?.(`speech: ${params.model} (${params.input.length} chars)`);
 
@@ -151,7 +153,7 @@ export class AudioService {
     } finally {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
-      process.markActivity();
+      release();
     }
   }
 }

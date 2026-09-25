@@ -36,6 +36,7 @@ import { writeLlmScanDir } from './services/llm-scan-dir.js';
 import { AudioService } from './services/audio-gen.js';
 import { TextService } from './services/text-gen.js';
 import { CharacterService } from './services/characters.js';
+import { ResourceMonitor } from './services/resources.js';
 import { systemRoutes } from './routes/system.js';
 import { modelRoutes } from './routes/models.js';
 import { downloadRoutes } from './routes/downloads.js';
@@ -205,6 +206,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   app.decorate('upscaler', upscaler);
   app.decorate('pythonVideo', pythonVideo);
   app.decorate('characters', characterService);
+  app.decorate('resources', new ResourceMonitor());
   // `version` is taken by Fastify itself, so the app's own version needs a
   // distinct name rather than shadowing the framework's.
   app.decorate('appVersion', VERSION);

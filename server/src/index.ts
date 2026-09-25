@@ -30,10 +30,15 @@ async function main(): Promise<void> {
     'pepper is listening',
   );
 
-  // Reconcile whatever the previous process left behind.
-  app.backends.refreshInstalled().catch((err) => {
-    app.log.warn({ err: (err as Error).message }, 'failed to inspect installed backends');
-  });
+  // Reconcile whatever the previous process left behind — including backend
+  // processes it failed to stop, which would otherwise hold their models
+  // (and their ports) until something happened to need that backend.
+  app.backends
+    .refreshInstalled()
+    .then(() => app.backends.reapOrphans())
+    .catch((err) => {
+      app.log.warn({ err: (err as Error).message }, 'failed to inspect installed backends');
+    });
   app.jobs.recoverInterrupted();
   app.downloads.recoverInterrupted();
 
@@ -64,12 +69,17 @@ async function main(): Promise<void> {
 }
 
 /**
- * Install and start backends in the background.
+ * Install backends in the background — but do not start them.
  *
- * Every step is non-fatal on purpose. A box with no audio models should still
- * serve images; a llama.cpp release that fails to download should not take the
- * whole API down. What each failure costs is one backend, and the status
- * endpoint says which one and why.
+ * Servers are started on demand by the first job or request that needs one
+ * and stopped again after the idle timeout (see `ManagedProcess`). Starting
+ * llama.cpp and audio.cpp at boot held gigabytes of models resident for
+ * nothing — audio.cpp alone loads every registered model up front — and on
+ * unified memory that was memory the image and video jobs did not get.
+ * Installing now still means the first job does not wait on a download.
+ *
+ * Every step is non-fatal on purpose: a llama.cpp release that fails to
+ * download should not take image generation down with it.
  */
 async function converge(app: Awaited<ReturnType<typeof buildServer>>['app']): Promise<void> {
   const { config } = app;
@@ -79,17 +89,10 @@ async function converge(app: Awaited<ReturnType<typeof buildServer>>['app']): Pr
     return;
   }
 
-  // sd-cli is spawned per generation, so it only needs to exist, not run.
-  await app.backends.ensureInstalled('sdcpp').catch((err) => {
-    app.log.warn({ err: (err as Error).message }, 'stable-diffusion.cpp is unavailable');
-  });
-
-  for (const backend of ['llamacpp', 'audiocpp'] as const) {
-    try {
-      await app.backends.ensureRunning(backend);
-    } catch (err) {
-      app.log.warn({ backend, err: (err as Error).message }, 'backend did not start');
-    }
+  for (const backend of ['sdcpp', 'llamacpp', 'audiocpp'] as const) {
+    await app.backends.ensureInstalled(backend).catch((err) => {
+      app.log.warn({ backend, err: (err as Error).message }, 'backend could not be installed');
+    });
   }
 }
 

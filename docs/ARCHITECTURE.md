@@ -22,8 +22,8 @@ SQLite (jobs, downloads, settings) · filesystem (models, outputs, uploads)
 ```
 
 `server/src/index.ts` loads config, builds the server, **starts listening**, and
-only then converges backends in the background. That ordering is deliberate: a
-cold start downloads hundreds of megabytes, and blocking the listen on it means
+only then installs backends in the background — it starts none; see "Backends
+run on demand" below. That ordering is deliberate: a cold start downloads hundreds of megabytes, and blocking the listen on it means
 the orchestrator's health check fails for minutes and kills the container —
 repeatedly, never finishing the download it keeps restarting.
 
@@ -57,10 +57,32 @@ pushed to disk is thrashing — every inference faults them back in, a two-secon
 request takes ninety, and nothing shrinks the footprint on its own.
 
 Only `VmSwap` separates them, so `monitor.ts` reads `/proc/<pid>/status` and the
-policy triggers on swap, plus a conjunctive idle rule (idle **and** holding
-memory — either alone is a normal state). macOS cannot report per-process swap
-without elevated privileges, so `swapKb` is `null` there and the idle rule
-carries; production is Linux/CUDA, where the precise signal exists.
+policy triggers on swap. macOS cannot report per-process swap without elevated
+privileges, so `swapKb` is `null` there and the idle stop below carries;
+production is Linux/CUDA, where the precise signal exists.
+
+### Backends run on demand and stop when idle
+
+Nothing is started at boot. The first job or request that needs a server
+backend starts it (`BackendManager.acquire`), holds a lease for as long as it
+runs, and releases it when done; once a backend has had no lease and no traffic
+for `BACKEND_IDLE_TIMEOUT` (5 minutes by default, changeable in Preferences) it
+is stopped. audio.cpp loads every registered model at startup — 7–8 GB on the
+dev Mac — so keeping it resident "just in case" was the single largest
+consumer of memory the image and video jobs then did not have.
+
+The lease matters more than the timestamp: a ten-minute completion has no
+"activity" between its first and last byte, and a timestamp-only rule would
+stop the backend under it. Metadata lookups that the UI makes on page load
+(`GET /v1/audio/voices`) answer from a cache while the backend is down instead
+of starting it — before, merely opening the Audio page restarted audio.cpp.
+
+Each spawn records its pid under `cache/run/`. A server process that dies
+without stopping its children (a crash, a `tsx watch` reload, SIGKILL) used to
+leave them holding the port and their memory; the next start then failed to
+bind while its health check passed against the orphan. Boot and every spawn now
+reap an orphan found by pid file or by port — but only one whose command line
+names the same executable.
 
 ### CLI arguments are data
 

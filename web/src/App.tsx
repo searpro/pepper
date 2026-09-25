@@ -53,6 +53,7 @@ export function App() {
           onThemeChange={setTheme}
           onOpenPreferences={() => setPreferencesOpen(true)}
           onOpenCatalogue={() => setCatalogueOpen(true)}
+          onStatusChanged={status.reload}
         >
           <Routes>
             <Route path="/" element={<Navigate to="/image" replace />} />

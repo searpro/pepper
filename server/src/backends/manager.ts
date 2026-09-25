@@ -1,9 +1,10 @@
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
+import { z } from 'zod';
 import { BACKENDS, type BackendId, type Config } from '../config.js';
 import { errors } from '../errors.js';
 import type { LogBuffer } from '../logs/buffer.js';
-import type { SettingsStore } from '../db/settings.js';
+import { defineSetting, type SettingsStore } from '../db/settings.js';
 import { backendBinDir, type Paths } from '../paths.js';
 import { isExecutableAvailable } from '../util/files.js';
 import {
@@ -16,7 +17,7 @@ import {
   type EffectiveArg,
 } from './args.js';
 import { BinaryInstaller, type InstalledBinary } from './installer.js';
-import { ManagedProcess, type ProcessState } from './process.js';
+import { ManagedProcess, reapOrphan, type ProcessState } from './process.js';
 import type { HealthPolicy } from './monitor.js';
 import { PythonInstaller } from './python.js';
 
@@ -41,6 +42,16 @@ import { PythonInstaller } from './python.js';
 
 /** Backends supervised as long-running processes. */
 const SERVER_BACKENDS: BackendId[] = ['llamacpp', 'audiocpp', 'python', 'vllm'];
+
+/**
+ * The idle timeout chosen in Preferences, in milliseconds. `null` means "use
+ * BACKEND_IDLE_TIMEOUT"; 0 keeps backends running until stopped by hand.
+ */
+const idleTimeoutKey = defineSetting<number | null>(
+  'backends.idleTimeoutMs',
+  z.number().int().min(0).nullable(),
+  null,
+);
 
 export interface PrepareResult {
   /**
@@ -83,6 +94,10 @@ export interface BackendStatus extends ProcessState {
   args: EffectiveArg[];
   extraArgs: string[];
   argv: string[];
+  /** Why the last start was skipped (e.g. no audio models), if it was. */
+  note?: string;
+  /** Effective idle timeout; 0 means the backend is never stopped for idleness. */
+  idleTimeoutMs: number;
 }
 
 export class BackendManager {
@@ -91,6 +106,7 @@ export class BackendManager {
   private readonly prepares = new Map<BackendId, PrepareHook>();
   private readonly binaries = new Map<BackendId, InstalledBinary>();
   private readonly installPromises = new Map<BackendId, Promise<InstalledBinary | null>>();
+  private readonly skipReasons = new Map<BackendId, string>();
   private readonly pythonInstaller: PythonInstaller;
 
   constructor(
@@ -122,20 +138,53 @@ export class BackendManager {
     this.prepares.set(backend, hook);
   }
 
-  /**
-   * Health policy for the recycle monitor. Thresholds are derived from total
-   * system memory rather than fixed: "500MB while idle" is negligible on a
-   * 200GB inference host and most of the budget on a small one.
-   */
-  private policy(totalKb: number): HealthPolicy {
+  /** Health policy for the recycle monitor. */
+  private policy(): HealthPolicy {
     return {
       // Any sustained swapping is already the pathological state; the small
       // allowance absorbs the few MB a process may have parked at startup
       // without ever touching again.
       swapLimitKb: 256 * 1024,
-      idleAfterMs: 15 * 60 * 1000,
-      idleRssLimitKb: Math.max(2 * 1024 * 1024, Math.round(totalKb * 0.15)),
     };
+  }
+
+  private pidFile(backend: BackendId): string {
+    return join(this.paths.cacheDir, 'run', `${backend}.pid`);
+  }
+
+  /**
+   * Stop backends a previous server process left running. Called at boot:
+   * with backends now started on demand, nothing else would touch an orphan
+   * until a job needed that backend, and until then it holds its models.
+   */
+  async reapOrphans(): Promise<void> {
+    await Promise.all(
+      SERVER_BACKENDS.map(async (backend) => {
+        const binaryPath = this.binaries.get(backend)?.binaryPath ?? DEFAULT_COMMANDS[backend];
+        if (!binaryPath || this.processes.get(backend)?.status === 'ready') return;
+        try {
+          await reapOrphan(
+            { backend, binaryPath, healthUrl: this.healthUrl(backend), pidFile: this.pidFile(backend) },
+            this.log,
+            this.logs,
+          );
+        } catch (err) {
+          this.log.warn({ backend, err: (err as Error).message }, 'backend port is taken');
+        }
+      }),
+    );
+  }
+
+  /** How long a backend may sit unused before it is stopped (0 = never). */
+  idleTimeoutMs(): number {
+    return this.settings.get(idleTimeoutKey) ?? this.config.backendIdleTimeoutMs;
+  }
+
+  /** Persist the Preferences idle timeout; `null` reverts to the env default. */
+  setIdleTimeout(ms: number | null): number {
+    if (ms === null) this.settings.reset(idleTimeoutKey);
+    else this.settings.set(idleTimeoutKey, ms);
+    return this.idleTimeoutMs();
   }
 
   /** Resolve a usable binary path, installing one if allowed. */
@@ -393,8 +442,10 @@ export class BackendManager {
     const prepared = prepare ? await prepare() : {};
     if (prepared.skip) {
       this.log.info({ backend, reason: prepared.reason }, 'backend start skipped');
+      if (prepared.reason) this.skipReasons.set(backend, prepared.reason);
       return null;
     }
+    this.skipReasons.delete(backend);
 
     const managed = { ...this.managedValues(backend), ...prepared.managed };
     const overrides = readOverrides(this.settings, backend);
@@ -402,7 +453,6 @@ export class BackendManager {
 
     let proc = this.processes.get(backend);
     if (!proc) {
-      const { totalMemoryKb } = await import('./monitor.js');
       proc = new ManagedProcess(
         {
           backend,
@@ -410,7 +460,9 @@ export class BackendManager {
           args,
           healthUrl: this.healthUrl(backend, prepared.healthPath),
           startupTimeoutMs: this.config.backendStartupTimeoutMs,
-          policy: this.policy(await totalMemoryKb()),
+          policy: this.policy(),
+          idleTimeoutMs: () => this.idleTimeoutMs(),
+          pidFile: this.pidFile(backend),
         },
         this.log,
         this.logs,
@@ -422,7 +474,25 @@ export class BackendManager {
     }
 
     await proc.ensureRunning(signal);
+    // Whoever asked is about to use it; without this an already-running
+    // backend a few seconds short of its idle timeout could be stopped
+    // between this returning and the caller taking its lease.
+    proc.markActivity();
     return proc;
+  }
+
+  /**
+   * Start a backend if needed and hold it busy until `release` is called —
+   * the entry point for jobs and proxied requests. Returns null when the
+   * backend has nothing to serve (see `PrepareResult.skip`).
+   */
+  async acquire(
+    backend: BackendId,
+    signal?: AbortSignal,
+  ): Promise<{ process: ManagedProcess; release: () => void } | null> {
+    const process = await this.ensureRunning(backend, signal);
+    if (!process) return null;
+    return { process, release: process.acquire() };
   }
 
   /**
@@ -475,6 +545,7 @@ export class BackendManager {
       backend,
       status: 'stopped',
       restarts: 0,
+      inFlight: 0,
       recentOutput: [],
     };
 
@@ -489,6 +560,8 @@ export class BackendManager {
       args,
       extraArgs: overrides.extraArgs,
       argv: buildArgv(spec, overrides, this.managedValues(backend)),
+      note: state.status === 'ready' ? undefined : this.skipReasons.get(backend),
+      idleTimeoutMs: spec.kind === 'server' ? this.idleTimeoutMs() : 0,
     };
   }
 

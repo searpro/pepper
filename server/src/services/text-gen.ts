@@ -65,14 +65,14 @@ export class TextService {
     const { params, onLog, signal } = options;
     const started = Date.now();
 
-    const process = await this.backends.ensureRunning('llamacpp');
-    if (!process) {
+    const lease = await this.backends.acquire('llamacpp');
+    if (!lease) {
       throw errors.backendUnavailable(
         'llamacpp',
         'llamacpp is not running — no text models are installed yet',
       );
     }
-    process.markActivity();
+    const { release } = lease;
 
     // Chat and completion share this path; which upstream endpoint applies is
     // decided by the shape of the input, the same way the proxy routes split.
@@ -142,7 +142,7 @@ export class TextService {
     } finally {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
-      process.markActivity();
+      release();
     }
   }
 }

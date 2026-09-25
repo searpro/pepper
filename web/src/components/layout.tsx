@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  Activity,
   AudioLines,
   ChevronLeft,
   Image as ImageIcon,
@@ -17,7 +16,8 @@ import {
   Video,
 } from 'lucide-react';
 import { Badge, Button, Tooltip } from '@/components/ui';
-import { backendState, cn } from '@/lib/utils';
+import { BackendPills, ResourceMeters } from '@/components/system-status';
+import { cn } from '@/lib/utils';
 import type { SystemStatus } from '@/lib/api';
 
 /**
@@ -48,8 +48,11 @@ export function AppShell({
   onThemeChange,
   onOpenPreferences,
   onOpenCatalogue,
+  onStatusChanged,
 }: {
   status: SystemStatus | undefined;
+  /** Re-poll status now, after a lifecycle action from a backend pill. */
+  onStatusChanged: () => void;
   children: React.ReactNode;
   theme: Theme;
   onThemeChange: (theme: Theme) => void;
@@ -144,6 +147,10 @@ export function AppShell({
           ))}
         </nav>
 
+        <div className={cn('border-t border-border py-3', collapsed ? 'px-2' : 'px-3')}>
+          <ResourceMeters resources={status?.resources} collapsed={collapsed} />
+        </div>
+
         <div className="border-t border-border p-2">
           <Button
             variant="ghost"
@@ -164,7 +171,7 @@ export function AppShell({
             <h1 className="truncate text-sm font-semibold capitalize">
               {location.pathname.replace('/', '') || 'image'}
             </h1>
-            <BackendPills status={status} />
+            <BackendPills status={status} onChanged={onStatusChanged} />
           </div>
 
           <div className="flex items-center gap-1">
@@ -195,38 +202,6 @@ export function AppShell({
 
         <main className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">{children}</main>
       </div>
-    </div>
-  );
-}
-
-/** Backend health at a glance — the question every "why isn't this working" starts with. */
-function BackendPills({ status }: { status: SystemStatus | undefined }) {
-  if (!status) return null;
-
-  return (
-    <div className="hidden items-center gap-1.5 md:flex">
-      {status.backends
-        .filter((backend) => backend.kind === 'server' || backend.installed)
-        .map((backend) => (
-          <Tooltip
-            key={backend.backend}
-            label={
-              <div className="flex flex-col gap-0.5">
-                <span className="font-medium">{backend.label}</span>
-                <span>Status: {backendState(backend).label}</span>
-                {backend.releaseTag ? <span>Release: {backend.releaseTag}</span> : null}
-                {backend.restarts > 0 ? <span>Restarts: {backend.restarts}</span> : null}
-                {backend.lastRestartReason ? <span>Last: {backend.lastRestartReason}</span> : null}
-                {backend.lastError ? <span className="text-destructive">{backend.lastError}</span> : null}
-              </div>
-            }
-          >
-            <Badge variant={backendState(backend).variant} className="cursor-default">
-              <Activity className="size-2.5" />
-              {backend.backend}
-            </Badge>
-          </Tooltip>
-        ))}
     </div>
   );
 }

@@ -45,16 +45,16 @@ export async function proxyToBackend(
   reply: FastifyReply,
   options: ProxyOptions,
 ): Promise<void> {
-  const process = await backends.ensureRunning(options.backend);
-  if (!process) {
+  const lease = await backends.acquire(options.backend);
+  if (!lease) {
     throw errors.backendUnavailable(
       options.backend,
       `${options.backend} is not running — no models are installed for it yet`,
     );
   }
-  // Feeds the idle-recycle rule: a backend serving traffic must never be
-  // recycled out from under a request.
-  process.markActivity();
+  // Held until the response has been fully streamed: a backend serving
+  // traffic must never be idle-stopped or recycled out from under a request.
+  const { release } = lease;
 
   const controller = new AbortController();
   const onClientGone = () => controller.abort();
@@ -111,7 +111,7 @@ export async function proxyToBackend(
   } finally {
     if (timer) clearTimeout(timer);
     reply.raw.off('close', onClientGone);
-    process.markActivity();
+    release();
   }
 }
 

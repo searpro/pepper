@@ -293,11 +293,36 @@ export interface BackendStatus {
   lastError?: string;
   restarts: number;
   lastRestartReason?: string;
+  /** Why it last stopped on its own (the idle timeout). */
+  lastStopReason?: string;
+  /** Requests or jobs using it right now. */
+  inFlight: number;
+  lastActivityAt?: string;
+  /** When the idle timeout will stop it if nothing uses it first. */
+  idleStopAt?: string;
+  /** Why the last start was skipped (e.g. no audio models installed). */
+  note?: string;
+  idleTimeoutMs: number;
   stats?: { rssKb: number; swapKb: number | null };
   recentOutput: string[];
   args: ArgDefinition[];
   extraArgs: string[];
   argv: string[];
+}
+
+export interface ResourceSnapshot {
+  sampledAt: string;
+  cpu: { percent: number; cores: number };
+  memory: { usedBytes: number; totalBytes: number };
+  gpu: {
+    name: string;
+    count: number;
+    percent: number | null;
+    memoryUsedBytes: number | null;
+    memoryTotalBytes: number | null;
+    /** GPU memory is system RAM (Apple Silicon) rather than dedicated VRAM. */
+    unified: boolean;
+  } | null;
 }
 
 export interface SystemStatus {
@@ -306,6 +331,9 @@ export interface SystemStatus {
   accel: string;
   platform: string;
   backends: BackendStatus[];
+  resources?: ResourceSnapshot;
+  /** Effective idle timeout for server backends; 0 = never stopped for idleness. */
+  idleTimeoutMs: number;
   jobs: { running: number; queued: number; capacity: number };
   catalogue: { loaded: boolean; source: string; modelCount: number; url: string; error?: string };
   paths: { dataDir: string; modelsDir: string; outputDir: string };

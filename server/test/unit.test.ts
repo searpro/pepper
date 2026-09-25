@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 import { loadConfig, publicConfig } from '../src/config.js';
 import { assertSafeName, safeResolve } from '../src/paths.js';
 import { selectAsset } from '../src/backends/release.js';
+import type { FastifyBaseLogger } from 'fastify';
 import { evaluatePolicy } from '../src/backends/monitor.js';
+import { ManagedProcess } from '../src/backends/process.js';
 import { parseBackendLine, parseProgress } from '../src/logs/parse.js';
 import { LogBuffer } from '../src/logs/buffer.js';
 import { buildArgv, effectiveArgs, LLAMACPP_ARGS, renderArgs } from '../src/backends/args.js';
@@ -131,30 +133,98 @@ describe('release asset selection', () => {
 });
 
 describe('process health policy', () => {
-  const policy = { swapLimitKb: 256 * 1024, idleAfterMs: 900_000, idleRssLimitKb: 2 * 1024 * 1024 };
+  const policy = { swapLimitKb: 256 * 1024 };
 
   it('recycles a swapping process — the audio.cpp failure mode', () => {
-    const verdict = evaluatePolicy({ pid: 1, rssKb: 1000, swapKb: 400 * 1024 }, 0, policy);
+    const verdict = evaluatePolicy({ pid: 1, rssKb: 1000, swapKb: 400 * 1024 }, policy);
     expect(verdict.restart).toBe(true);
     expect(verdict.reason).toMatch(/swapping/);
   });
 
-  it('leaves a busy process holding a lot of memory alone', () => {
-    expect(evaluatePolicy({ pid: 1, rssKb: 40 * 1024 * 1024, swapKb: 0 }, 0, policy).restart).toBe(false);
-  });
-
-  it('recycles only when idleness and memory use coincide', () => {
-    const idleAndSmall = evaluatePolicy({ pid: 1, rssKb: 1024, swapKb: 0 }, 3_600_000, policy);
-    const busyAndLarge = evaluatePolicy({ pid: 1, rssKb: 8 * 1024 * 1024, swapKb: 0 }, 0, policy);
-    const idleAndLarge = evaluatePolicy({ pid: 1, rssKb: 8 * 1024 * 1024, swapKb: 0 }, 3_600_000, policy);
-
-    expect(idleAndSmall.restart).toBe(false);
-    expect(busyAndLarge.restart).toBe(false);
-    expect(idleAndLarge.restart).toBe(true);
+  it('leaves a process holding a lot of memory alone — idleness is the idle stop’s job', () => {
+    expect(evaluatePolicy({ pid: 1, rssKb: 40 * 1024 * 1024, swapKb: 0 }, policy).restart).toBe(false);
   });
 
   it('does not treat unreported swap as zero swap', () => {
-    expect(evaluatePolicy({ pid: 1, rssKb: 1000, swapKb: null }, 0, policy).restart).toBe(false);
+    expect(evaluatePolicy({ pid: 1, rssKb: 1000, swapKb: null }, policy).restart).toBe(false);
+  });
+});
+
+describe('backend idle stop', () => {
+  const silentLog = {
+    info() {},
+    warn() {},
+    error() {},
+    debug() {},
+    trace() {},
+    fatal() {},
+  } as unknown as FastifyBaseLogger;
+
+  function sleeper(idleTimeoutMs: number, healthUrl?: string): ManagedProcess {
+    return new ManagedProcess(
+      {
+        backend: 'audiocpp',
+        binaryPath: process.execPath,
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+        healthUrl,
+        startupTimeoutMs: 10_000,
+        policy: { swapLimitKb: null },
+        idleTimeoutMs: () => idleTimeoutMs,
+      },
+      silentLog,
+      new LogBuffer(),
+    );
+  }
+
+  // The monitor loop runs on a 15 s interval; the tests drive one tick directly.
+  const tick = (proc: ManagedProcess) =>
+    (proc as unknown as { sampleAndEnforce(): Promise<void> }).sampleAndEnforce();
+
+  it('stops a backend nothing has used for the idle timeout', async () => {
+    const proc = sleeper(1);
+    await proc.start();
+    await new Promise((r) => setTimeout(r, 10));
+    await tick(proc);
+    expect(proc.status).toBe('stopped');
+    expect(proc.state().lastStopReason).toMatch(/idle/);
+  });
+
+  it('never stops a backend while a request holds a lease', async () => {
+    const proc = sleeper(1);
+    await proc.start();
+    const release = proc.acquire();
+    await new Promise((r) => setTimeout(r, 10));
+    await tick(proc);
+    expect(proc.status).toBe('ready');
+    expect(proc.state().inFlight).toBe(1);
+
+    release();
+    release(); // double release must not go negative
+    expect(proc.state().inFlight).toBe(0);
+    await new Promise((r) => setTimeout(r, 10));
+    await tick(proc);
+    expect(proc.status).toBe('stopped');
+  });
+
+  it('keeps running when the timeout is 0', async () => {
+    const proc = sleeper(0);
+    await proc.start();
+    await tick(proc);
+    expect(proc.status).toBe('ready');
+    expect(proc.state().idleStopAt).toBeUndefined();
+    await proc.stop();
+  });
+
+  it('reads as stopped, not failed, when stopped during startup', async () => {
+    // Nothing listens here, so startup would poll until the timeout.
+    const proc = sleeper(0, 'http://127.0.0.1:9/health');
+    const starting = proc.start().catch((err: Error) => err);
+    await new Promise((r) => setTimeout(r, 100));
+    await proc.stop();
+    const err = await starting;
+    expect(err).toBeInstanceOf(Error);
+    expect(proc.status).toBe('stopped');
+    expect(proc.state().lastError).toBeUndefined();
   });
 });
 

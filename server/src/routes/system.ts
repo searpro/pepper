@@ -55,6 +55,10 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       accel: app.config.accel,
       platform: `${process.platform}/${process.arch}`,
       backends: app.backends.statusAll(),
+      // Sampled here rather than on its own poll, so the header meters and the
+      // backend pills refresh together from the one request the UI already makes.
+      resources: await app.resources.sample(),
+      idleTimeoutMs: app.backends.idleTimeoutMs(),
       jobs: app.jobs.stats(),
       catalogue: app.catalogue.state(),
       generators: app.images.stats,
@@ -78,7 +82,35 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
     async () => publicConfig(app.config),
   );
 
+  app.get(
+    '/v1/system/resources',
+    {
+      schema: {
+        tags: ['system'],
+        summary: 'CPU, RAM, GPU and GPU-memory utilisation of the host',
+        response: { 200: z.unknown() },
+      },
+    },
+    async () => app.resources.sample(),
+  );
+
   // --- Backends -------------------------------------------------------------
+
+  app.put(
+    '/v1/backends/idle-timeout',
+    {
+      schema: {
+        tags: ['backends'],
+        summary: 'Set how long an unused backend stays running',
+        description:
+          'Backends start on the first job that needs them and stop after this long with ' +
+          'nothing using them. 0 keeps them running; null reverts to BACKEND_IDLE_TIMEOUT.',
+        body: z.object({ idleTimeoutMs: z.number().int().min(0).nullable() }),
+        response: { 200: z.object({ idleTimeoutMs: z.number() }) },
+      },
+    },
+    async (req) => ({ idleTimeoutMs: app.backends.setIdleTimeout(req.body.idleTimeoutMs) }),
+  );
 
   app.get(
     '/v1/backends',
@@ -141,7 +173,16 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (req) => {
       const backend = parseBackend(req.params.backend);
-      await app.backends.ensureRunning(backend);
+      const proc = await app.backends.ensureRunning(backend);
+      // A skipped start (no audio models, no vLLM model selected) used to
+      // answer 200 with "stopped" and no reason, which read as the button
+      // doing nothing at all.
+      if (!proc) {
+        throw errors.backendUnavailable(
+          backend,
+          app.backends.status(backend).note ?? `${backend} has nothing to serve yet`,
+        );
+      }
       return app.backends.status(backend);
     },
   );
@@ -175,9 +216,17 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (req) => {
       const backend = parseBackend(req.params.backend);
-      const proc = app.backends.get(backend);
-      if (proc) await proc.restart('restarted from the API');
-      else await app.backends.ensureRunning(backend);
+      // Stop then start through the manager rather than `proc.restart()`, so
+      // the argv and registry are regenerated (a model installed since the
+      // last start is picked up) and a skip is reported like `start` does.
+      await app.backends.get(backend)?.stop();
+      const proc = await app.backends.ensureRunning(backend);
+      if (!proc) {
+        throw errors.backendUnavailable(
+          backend,
+          app.backends.status(backend).note ?? `${backend} has nothing to serve yet`,
+        );
+      }
       return app.backends.status(backend);
     },
   );
