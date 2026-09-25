@@ -144,6 +144,17 @@ Backend binaries are not baked into the image. They are downloaded on first
 boot into `/data/bin`, which is on the volume, so the image stays small and a
 backend can be updated without republishing it.
 
+## Kaggle
+
+```bash
+uv run deploy/kaggle/launch.py --hours 6
+```
+
+Runs the checked-out commit (plus local changes) on a free Kaggle GPU behind a
+Cloudflare quick tunnel and prints the public URL. See
+[`deploy/kaggle/README.md`](deploy/kaggle/README.md) for prerequisites,
+options, and how to stop a run.
+
 ## API
 
 OpenAPI lives at `/docs`. The surface is grouped as:
