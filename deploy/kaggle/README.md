@@ -61,9 +61,12 @@ on your own machine; the Kaggle website is only needed to stop a run early.
 - **If the quick tunnel drops**, the kernel reopens it with a **new URL**. It is
   posted to the launcher if it is still attached; otherwise find it in the
   kernel's log on Kaggle after the run.
-- **Storage is scratch.** Models, outputs and the database live under `/tmp`
-  on the Kaggle machine (~1.2 TB) and are gone when the run ends. Expect to
-  re-download models each run.
+- **Storage is scratch, and smaller than it looks.** Models, outputs and the
+  database live under `/tmp` and are gone when the run ends; expect to
+  re-download models each run. `df` reports ~1.2 TB free there, but Kaggle
+  only lets a session write about 60 GB and kills the kernel (status `ERROR`,
+  empty log) when it goes over. Keep the installed models under ~50 GB —
+  delete one video model before installing the next.
 
 ## Stopping a run
 

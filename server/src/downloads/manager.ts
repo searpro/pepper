@@ -77,6 +77,26 @@ interface SidecarMeta {
 const PROGRESS_INTERVAL_MS = 400;
 const ACTIVE: DownloadStatus[] = ['queued', 'downloading'];
 
+/**
+ * Stall detection. HuggingFace's CDN sometimes lets a long-lived connection
+ * decay from tens of MB/s to one or two after a few GB, and it stays there; a
+ * fresh ranged request is back at full speed immediately. So a connection is
+ * judged against its own best rate rather than a fixed floor (which would
+ * misfire on a genuinely slow link): once it has run long enough to have a
+ * peak, falling below a tenth of that peak for a whole window — or delivering
+ * nothing at all for a minute — drops it and reconnects from the `.part`.
+ */
+const STALL_CHECK_MS = 5_000;
+const STALL_WINDOW_MS = 30_000;
+const STALL_IDLE_MS = 60_000;
+const STALL_RATIO = 0.1;
+/** Below this peak (bytes/s) a slowdown is not worth a reconnect. */
+const STALL_MIN_PEAK = 5 * 1024 * 1024;
+const MAX_RECONNECTS = 20;
+
+/** The connection was dropped by the stall watchdog, not by the user. */
+class StalledConnection extends Error {}
+
 export class DownloadManager extends EventEmitter {
   private readonly controllers = new Map<string, AbortController>();
   private readonly waiting: string[] = [];
@@ -329,7 +349,16 @@ export class DownloadManager extends EventEmitter {
     this.controllers.set(task.id, controller);
 
     try {
-      const finished = await this.download(task, controller.signal);
+      let finished = 0;
+      for (let reconnects = 0; ; reconnects++) {
+        try {
+          finished = await this.download(task, controller.signal);
+          break;
+        } catch (err) {
+          if (!(err instanceof StalledConnection) || reconnects >= MAX_RECONNECTS) throw err;
+          this.log.info({ id: task.id, name: task.name, reconnects: reconnects + 1 }, 'download stalled; reconnecting');
+        }
+      }
       this.settle(task.id, 'completed');
       this.log.info({ id: task.id, name: task.name, bytes: finished }, 'download complete');
     } catch (err) {
@@ -363,6 +392,58 @@ export class DownloadManager extends EventEmitter {
     };
     if (offset > 0) headers.Range = `bytes=${offset}-`;
 
+    // This connection's own abort, so the watchdog can drop it without the
+    // task counting as cancelled. A user cancel still aborts it through here.
+    const connection = new AbortController();
+    const forwardAbort = () => connection.abort();
+    signal.addEventListener('abort', forwardAbort, { once: true });
+    let stalled = false;
+    let watchdog: NodeJS.Timeout | undefined;
+
+    try {
+      return await this.transfer(task, paths, offset, headers, connection, (received) => {
+        const startedAt = Date.now();
+        const samples: { at: number; bytes: number }[] = [{ at: startedAt, bytes: received() }];
+        let peak = 0;
+        let lastByteAt = startedAt;
+        watchdog = setInterval(() => {
+          const now = Date.now();
+          const bytes = received();
+          if (bytes > samples[samples.length - 1].bytes) lastByteAt = now;
+          samples.push({ at: now, bytes });
+          while (samples.length > 1 && now - samples[0].at > STALL_WINDOW_MS) samples.shift();
+
+          const span = now - samples[0].at;
+          const rate = span > 0 ? ((bytes - samples[0].bytes) * 1000) / span : 0;
+          const fullWindow = now - startedAt >= STALL_WINDOW_MS && span >= STALL_WINDOW_MS - STALL_CHECK_MS;
+          if (fullWindow) peak = Math.max(peak, rate);
+
+          const decayed = fullWindow && peak >= STALL_MIN_PEAK && rate < peak * STALL_RATIO;
+          const idle = now - lastByteAt >= STALL_IDLE_MS;
+          if (decayed || idle) {
+            stalled = true;
+            connection.abort();
+          }
+        }, STALL_CHECK_MS);
+      });
+    } catch (err) {
+      if (stalled && !signal.aborted) throw new StalledConnection('stalled');
+      throw err;
+    } finally {
+      clearInterval(watchdog);
+      signal.removeEventListener('abort', forwardAbort);
+    }
+  }
+
+  private async transfer(
+    task: DownloadTask,
+    paths: Awaited<ReturnType<ModelManager['componentPaths']>>,
+    offset: number,
+    headers: Record<string, string>,
+    connection: AbortController,
+    startWatchdog: (received: () => number) => void,
+  ): Promise<number> {
+    const signal = connection.signal;
     const res = await fetch(task.url, { headers, signal, redirect: 'follow' });
 
     let append = false;
@@ -409,6 +490,8 @@ export class DownloadManager extends EventEmitter {
       name: task.name,
     };
     await writeFile(paths.metaPath, JSON.stringify(meta), 'utf8').catch(() => {});
+
+    startWatchdog(() => received);
 
     let lastEmit = 0;
     const counter = new Transform({

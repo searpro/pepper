@@ -8,7 +8,7 @@ script kernel. On Kaggle it
      uncommitted diff, so what runs is what is on the laptop),
   3. builds the web app and the server,
   4. starts Pepper with DATA_DIR on /tmp — binaries, models, uploads and the
-     database all download there (~1.2 TB of scratch; /kaggle/working is the
+     database all download there (~60 GB writable, though df reports far more; /kaggle/working is the
      saved notebook output and capped at 20 GB),
   5. opens a Cloudflare quick tunnel to it, and
   6. stays up for CONFIG["hours"], then exits.
