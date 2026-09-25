@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:web"],
+      "env": { "PEPPER_API": "http://localhost:3004" },
+      "port": 5173
+    }
+  ]
+}

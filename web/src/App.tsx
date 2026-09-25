@@ -11,6 +11,7 @@ import { TextPage } from '@/pages/Text';
 import { MediaPage } from '@/pages/Media';
 import { JobsPage } from '@/pages/Jobs';
 import { LogsPage } from '@/pages/Logs';
+import { CharactersPage } from '@/pages/Characters';
 import { useResource, type SystemStatus } from '@/lib/api';
 
 const THEME_KEY = 'pepper-theme';
@@ -59,6 +60,7 @@ export function App() {
             <Route path="/video" element={<GeneratePage />} />
             <Route path="/audio" element={<AudioPage />} />
             <Route path="/text" element={<TextPage />} />
+            <Route path="/characters" element={<CharactersPage />} />
             <Route path="/media" element={<MediaPage />} />
             <Route path="/jobs" element={<JobsPage />} />
             <Route path="/logs" element={<LogsPage />} />

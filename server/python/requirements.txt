@@ -24,3 +24,5 @@ scipy
 librosa
 pyloudnorm
 opencv-python-headless
+# Image upscaling: loads ESRGAN/RealESRGAN/SPAN/RCAN/DAT/HAT… checkpoints.
+spandrel>=0.4.2

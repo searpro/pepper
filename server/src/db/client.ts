@@ -52,6 +52,22 @@ CREATE TABLE IF NOT EXISTS downloads (
 CREATE INDEX IF NOT EXISTS downloads_status_idx ON downloads (status);
 CREATE INDEX IF NOT EXISTS downloads_bundle_idx ON downloads (kind, bundle);
 
+CREATE TABLE IF NOT EXISTS characters (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  brief TEXT NOT NULL DEFAULT '',
+  style TEXT NOT NULL DEFAULT '',
+  appearance TEXT NOT NULL DEFAULT '',
+  personality TEXT NOT NULL DEFAULT '',
+  images TEXT NOT NULL DEFAULT '[]',
+  thumbnail TEXT,
+  voice TEXT,
+  pending TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS characters_updated_idx ON characters (updated_at);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,

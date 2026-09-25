@@ -22,7 +22,9 @@ import {
 import { Semaphore } from '../src/util/semaphore.js';
 import { buildImageArgs } from '../src/services/image-args.js';
 import { probeAudio, sliceAudio } from '../src/util/ffmpeg.js';
-import { UpscaleService } from '../src/services/upscale.js';
+import { UpscaleService, upscalerPreferencesKey, type UpscalerPreferences } from '../src/services/upscale.js';
+import { catalogueEntryFor, sdcppCompatible, UPSCALER_CATALOGUE } from '../src/services/upscalers-catalogue.js';
+import { parseJsonObject, speechParams, SHEET_TEMPLATE } from '../src/services/characters.js';
 import type { ImageService } from '../src/services/image.js';
 
 describe('config', () => {
@@ -935,38 +937,115 @@ describe('snapshot download flattening', () => {
 });
 
 describe('upscaler', () => {
-  const service = (dir: string) => {
+  const service = (dir: string, prefs: Partial<UpscalerPreferences> = {}, pythonReady = true) => {
     const config = loadConfig({ UPSCALE_MODELS_DIR: dir });
     const noop = () => {};
     const log = { warn: noop, info: noop, error: noop, debug: noop } as never;
-    return new UpscaleService(config, {} as never, {} as ImageService, log);
+    let stored: UpscalerPreferences = { ...upscalerPreferencesKey.defaultValue, ...prefs };
+    const settings = {
+      get: () => stored,
+      patch: (_key: unknown, partial: Partial<UpscalerPreferences>) =>
+        (stored = { ...stored, ...partial }),
+    } as never;
+    const python = { runtimeInstalled: async () => pythonReady } as never;
+    return new UpscaleService(config, {} as never, {} as ImageService, python, settings, log);
   };
+  const checkpoint = (dir: string, name: string) => writeFile(join(dir, name), 'weights');
 
   it('defaults the model directory under DATA_DIR', () => {
     expect(loadConfig({ DATA_DIR: '/mnt/data' }).upscaleModelsDir).toBe('/mnt/data/models/upscale');
   });
 
-  it('reads each checkpoint\'s native scale from its file name', async () => {
+  it('reads each checkpoint\'s native scale from the catalogue or its file name', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
-    await writeFile(join(dir, 'RealESRGAN_x4plus.safetensors'), '');
-    await writeFile(join(dir, 'RealESRGAN_x2.safetensors'), '');
-    await writeFile(join(dir, 'notes.txt'), '');
+    await checkpoint(dir, 'RealESRGAN_x4plus.safetensors');
+    await checkpoint(dir, 'RealESRGAN_x2.safetensors');
+    await checkpoint(dir, '4x-UltraSharpV2.safetensors');
+    await checkpoint(dir, '2x_Custom.pth');
+    await writeFile(join(dir, 'empty.pth'), '');
+    await writeFile(join(dir, 'notes.txt'), 'x');
 
     const models = await service(dir).listModels();
     expect(models.map((m) => [m.name, m.scale])).toEqual([
+      ['2x_Custom.pth', 2],
       ['RealESRGAN_x2.safetensors', 2],
+      ['4x-UltraSharpV2.safetensors', 4],
       ['RealESRGAN_x4plus.safetensors', 4],
     ]);
+    expect(models.find((m) => m.name === '4x-UltraSharpV2.safetensors')?.sdcpp).toBe(false);
   });
 
-  it('offers 2x from a 4x checkpoint alone, and no scales without checkpoints', async () => {
+  it('offers both scales from any checkpoint with Python, and only what sd-cli loads without it', async () => {
     const withX4 = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
-    await writeFile(join(withX4, 'RealESRGAN_x4plus.safetensors'), '');
+    await checkpoint(withX4, 'RealESRGAN_x4plus.safetensors');
     expect(await service(withX4).availableScales()).toEqual([2, 4]);
+    expect(await service(withX4, { engine: 'sdcpp' }).availableScales()).toEqual([2, 4]);
+
+    const onlyDat = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
+    await checkpoint(onlyDat, '4x-UltraSharpV2.safetensors');
+    expect(await service(onlyDat).availableScales()).toEqual([2, 4]);
+    expect(await service(onlyDat, { engine: 'sdcpp' }).availableScales()).toEqual([]);
 
     const empty = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
     expect(await service(empty).availableScales()).toEqual([]);
     expect(await service(join(empty, 'missing')).availableScales()).toEqual([]);
+  });
+
+  it('picks the configured default, else a preferred checkpoint, per scale', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
+    await checkpoint(dir, 'RealESRGAN_x4plus.safetensors');
+    await checkpoint(dir, '4x-UltraSharp.safetensors');
+    await checkpoint(dir, 'RealESRGAN_x2.safetensors');
+    await checkpoint(dir, '4x-ClearRealityV1.safetensors');
+
+    const auto = service(dir);
+    expect((await auto.defaultModel(4))?.name).toBe('4x-UltraSharp.safetensors');
+    expect((await auto.defaultModel(2))?.name).toBe('RealESRGAN_x2.safetensors');
+
+    const configured = service(dir, { default_x4: '4x-ClearRealityV1.safetensors' });
+    expect((await configured.defaultModel(4))?.name).toBe('4x-ClearRealityV1.safetensors');
+    // A default that is no longer on disk falls back rather than failing.
+    const stale = service(dir, { default_x2: 'gone.pth' });
+    expect((await stale.defaultModel(2))?.name).toBe('RealESRGAN_x2.safetensors');
+  });
+
+  it('refuses an architecture sd-cli cannot load when the engine is pinned to it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-esrgan-'));
+    await checkpoint(dir, '4x-ClearRealityV1.safetensors');
+    await expect(
+      service(dir, { engine: 'sdcpp' }).upscale({ inputPath: '/nope.png', scale: 4 }),
+    ).rejects.toThrow(/needs the Python engine/);
+  });
+
+  it('knows which catalogue checkpoints sd-cli can load', () => {
+    expect(sdcppCompatible('RealESRGAN_x4plus.safetensors')).toBe(true);
+    expect(sdcppCompatible('4x-UltraSharp.safetensors')).toBe(true);
+    expect(sdcppCompatible('4x-UltraSharpV2.safetensors')).toBe(false);
+    expect(sdcppCompatible('RealESRGAN_x2.safetensors')).toBe(false);
+    expect(sdcppCompatible('mystery.pth')).toBeUndefined();
+    expect(catalogueEntryFor('4X-ULTRASHARP.SAFETENSORS')?.id).toBe('ultrasharp-4x');
+    expect(new Set(UPSCALER_CATALOGUE.map((entry) => entry.file)).size).toBe(UPSCALER_CATALOGUE.length);
+  });
+});
+
+describe('character studio', () => {
+  it('reads the JSON object out of an LLM reply, around fences and thinking', () => {
+    expect(parseJsonObject('<think>hmm {no}</think>```json\n{"name":"Gronk","appearance":"a dwarf"}\n```')).toEqual({
+      name: 'Gronk',
+      appearance: 'a dwarf',
+    });
+    expect(parseJsonObject('no json here')).toBeNull();
+    expect(parseJsonObject('[1,2]')).toBeNull();
+  });
+
+  it('fills the sheet template with every placeholder', () => {
+    for (const key of ['{name}', '{appearance}', '{style}']) expect(SHEET_TEMPLATE).toContain(key);
+  });
+
+  it('turns a character voice into speech-job fields, dropping blanks', () => {
+    expect(
+      speechParams({ model: 'qwen3-tts', instructions: '  warm narrator ', voice: '', voice_ref: undefined }),
+    ).toEqual({ model: 'qwen3-tts', instructions: 'warm narrator' });
   });
 });
 

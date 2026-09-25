@@ -235,6 +235,42 @@ install on the runtime's Python. Upstream model code is cloned at a pinned
 commit and imported. The server shape (entrypoint + proxy) remains for
 genuinely resident packages like ComfyUI.
 
+### Upscaling runs on spandrel, with sd-cli as the fallback
+
+sd-cli's ESRGAN graph implements plain RRDBNet only: it loads RealESRGAN
+x4plus, 4x-UltraSharp, NMKD Siax and the anime 6B model, and rejects
+RealESRGAN x2plus (pixel-unshuffle), the compact SRVGGNet models, SPAN, RCAN,
+DAT and HAT. The `upscale` Python runner loads all of those through
+[spandrel](https://github.com/chaiNNer-org/spandrel), tiled with feathered
+overlaps, fp16 where the architecture allows it. On the M4 it was measured on it
+is also far faster: 4x-UltraSharp on a 256×320 input took ~0.9 s warm through
+spandrel against ~23 s per sd-cli run.
+
+`UpscaleService` picks the engine (`auto` uses Python once its runtime exists,
+and sd-cli for the checkpoints it can load before that), and the default
+checkpoint per scale, both set in Preferences → Upscalers. The curated list in
+`services/upscalers-catalogue.ts` is what that screen installs from.
+
+### Characters are data the other screens read, not a generation mode
+
+A Character Studio character is a row (`characters` table) holding a visual
+description, an art style, upload names for its sheet, portraits and
+references, and a voice (speech model + direction / speaker / reference clip).
+The Image, Video and Audio screens fetch it and fold it into their own
+requests — description into the prompt, an image as reference or start frame,
+the voice's fields into a speech job — so no generation endpoint had to learn
+about characters.
+
+A character is made from a one-line idea in two steps: an installed LLM
+expands it under `DESIGNER_PROMPT` into the precise, drawable description every
+later prompt reuses (plus a style and a voice direction), and that description
+fills `SHEET_TEMPLATE`, which fixes the sheet layout (turnaround, expressions,
+palette) whatever the image model's habits. Without an LLM the idea goes into
+the template as written. Sheet, portrait and voice-preview jobs are ordinary
+queued jobs tagged `character_id` / `character_role`; the service attaches
+their outputs (copied into uploads, so retention cannot sweep them) when they
+complete, including jobs that settle while no browser is open.
+
 ## Gotchas worth keeping
 
 These cost real debugging time; the code comments carry the short version.

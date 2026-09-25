@@ -39,6 +39,7 @@ export type ErrorCode =
   | 'INTERNAL_ERROR'
   // --- New: backend-generic lifecycle ---
   | 'BACKEND_NOT_FOUND'
+  | 'CHARACTER_NOT_FOUND'
   | 'BACKEND_BINARY_NOT_FOUND'
   | 'BACKEND_STARTUP_FAILED'
   | 'BACKEND_UNAVAILABLE'

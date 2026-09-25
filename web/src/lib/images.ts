@@ -48,10 +48,42 @@ export interface OutputInfo {
   } | null;
 }
 
+export interface UpscalerModel {
+  name: string;
+  scale: number;
+  size: number;
+  label: string;
+  description?: string;
+  architecture?: string;
+  bestFor?: 'general' | 'photo' | 'illustration' | 'fast';
+  license?: string;
+  sdcpp?: boolean;
+}
+
+export interface UpscalerCatalogueEntry {
+  id: string;
+  file: string;
+  label: string;
+  description: string;
+  scale: 2 | 4;
+  architecture: string;
+  bestFor: 'general' | 'photo' | 'illustration' | 'fast';
+  license: string;
+  sizeBytes: number;
+  sdcpp: boolean;
+  installed: boolean;
+  installing: boolean;
+}
+
 export interface UpscalerInfo {
   dir: string;
-  models: { name: string; scale: number }[];
+  models: UpscalerModel[];
   scales: (2 | 4)[];
+  preferences: { engine: 'auto' | 'python' | 'sdcpp'; default_x2: string | null; default_x4: string | null };
+  /** The checkpoint each scale uses when none is named. */
+  defaults: { 2: string | null; 4: string | null };
+  pythonReady: boolean;
+  catalogue: UpscalerCatalogueEntry[];
 }
 
 export const inputUrl = (name: string) => `/v1/inputs/${encodeURIComponent(name)}`;
@@ -100,8 +132,18 @@ export async function copyText(text: string): Promise<void> {
   }
 }
 
-export function upscale(name: string, scale: 2 | 4, source: 'output' | 'upload' = 'output') {
-  return api.post<Job>('/v1/jobs/upscale', { image: name, source, scale });
+export function upscale(
+  name: string,
+  scale: 2 | 4,
+  source: 'output' | 'upload' = 'output',
+  upscaler?: string,
+) {
+  return api.post<Job>('/v1/jobs/upscale', {
+    image: name,
+    source,
+    scale,
+    ...(upscaler ? { upscaler } : {}),
+  });
 }
 
 /** Copy an output into uploads so it can be an init or reference image. */
@@ -138,6 +180,34 @@ export function takeHandoff(): ImageHandoff | null {
     const raw = sessionStorage.getItem(HANDOFF_KEY);
     sessionStorage.removeItem(HANDOFF_KEY);
     return raw ? (JSON.parse(raw) as ImageHandoff) : null;
+  } catch {
+    return null;
+  }
+}
+
+// --- Hand-off to the Video screen -------------------------------------------
+
+/** What another screen asks the Video screen to load: a start image, or a video's settings. */
+export interface VideoHandoff {
+  init?: string;
+  settings?: Record<string, unknown>;
+}
+
+const VIDEO_HANDOFF_KEY = 'pepper-video-handoff';
+
+export function setVideoHandoff(handoff: VideoHandoff): void {
+  try {
+    sessionStorage.setItem(VIDEO_HANDOFF_KEY, JSON.stringify(handoff));
+  } catch {
+    // Storage disabled: the navigation still happens, just without the payload.
+  }
+}
+
+export function takeVideoHandoff(): VideoHandoff | null {
+  try {
+    const raw = sessionStorage.getItem(VIDEO_HANDOFF_KEY);
+    sessionStorage.removeItem(VIDEO_HANDOFF_KEY);
+    return raw ? (JSON.parse(raw) as VideoHandoff) : null;
   } catch {
     return null;
   }

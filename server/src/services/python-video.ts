@@ -303,6 +303,45 @@ export class PythonVideoService {
     };
   }
 
+  /**
+   * Run a non-video runner (the upscaler) once: same runtime, protocol and
+   * cancellation as a video job, without the model-bundle plumbing.
+   */
+  async runTask(options: {
+    runner: string;
+    output: string;
+    params: Record<string, unknown>;
+    inputs: { image?: string | null; audio?: string | null };
+    onProgress?: (progress: StepProgress) => void;
+    onLog?: (line: string) => void;
+    signal?: AbortSignal;
+  }): Promise<Record<string, unknown>> {
+    const log = (line: string) => {
+      options.onLog?.(line);
+      this.logs.push({ level: 'info', source: 'python', msg: line });
+    };
+    const runtime = await this.prepare(log, options.signal);
+    const { type: _type, ...result } = await this.runSpec(
+      runtime.pythonPath,
+      {
+        runner: options.runner,
+        output: options.output,
+        components: {},
+        package_dir: null,
+        params: options.params,
+        inputs: { image: options.inputs.image ?? null, audio: options.inputs.audio ?? null },
+      },
+      { onProgress: options.onProgress, onLog: log, signal: options.signal },
+    );
+    return result;
+  }
+
+  /** Whether a Python job can start without first installing the runtime. */
+  async runtimeInstalled(): Promise<boolean> {
+    if (this.config.pythonExecutable) return true;
+    return (await this.backends.python.installed()) !== null;
+  }
+
   /** Write a spec file, run the runner on it, and clean up. */
   private async runSpec(
     python: string,
@@ -459,7 +498,7 @@ export class PythonVideoService {
           if (!s.isFile() || s.size === 0) throw new Error('empty');
         } catch {
           return finish(
-            errors.generationFailed('Python runner reported success but wrote no video'),
+            errors.generationFailed('Python runner reported success but wrote no output'),
           );
         }
         finish(null, result);

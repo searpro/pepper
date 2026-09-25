@@ -88,8 +88,43 @@ export const settings = sqliteTable('settings', {
   updatedAt: integer('updated_at').notNull(),
 });
 
+/**
+ * Character Studio: a reusable cast. Images are *upload* names — a character's
+ * sheet and portraits have to outlive the output retention sweep, and uploads
+ * are what `init_image` / `ref_images` take — so a character can be dropped
+ * into any generation without copying anything first.
+ */
+export const characters = sqliteTable(
+  'characters',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    /** What the user typed: the minimal prompt the sheet was expanded from. */
+    brief: text('brief').notNull().default(''),
+    /** Art style, e.g. "photorealistic", "anime cel-shaded". */
+    style: text('style').notNull().default(''),
+    /** Visual description, reused verbatim in every prompt the character appears in. */
+    appearance: text('appearance').notNull().default(''),
+    personality: text('personality').notNull().default(''),
+    /** `CharacterImage[]` */
+    images: text('images', { mode: 'json' }).notNull().default([]),
+    /** Upload name of the image the picker shows. */
+    thumbnail: text('thumbnail'),
+    /** `CharacterVoice | null` */
+    voice: text('voice', { mode: 'json' }),
+    /** Jobs generating something for this character: `{ jobId, role }[]` */
+    pending: text('pending', { mode: 'json' }).notNull().default([]),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (table) => ({
+    updatedIdx: index('characters_updated_idx').on(table.updatedAt),
+  }),
+);
+
 export type JobRow = typeof jobs.$inferSelect;
 export type NewJobRow = typeof jobs.$inferInsert;
 export type DownloadRow = typeof downloads.$inferSelect;
 export type NewDownloadRow = typeof downloads.$inferInsert;
 export type SettingRow = typeof settings.$inferSelect;
+export type CharacterRow = typeof characters.$inferSelect;

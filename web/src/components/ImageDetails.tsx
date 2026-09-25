@@ -11,11 +11,15 @@ import {
   Wand2,
   Layers,
   RotateCcw,
+  Film,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { api, useEventStream, useResource, type Job, type MediaItem } from '@/lib/api';
 import {
   copyText,
   formatSettings,
+  outputToInput,
+  setVideoHandoff,
   settingsOf,
   upscale,
   type ImageSettings,
@@ -29,6 +33,7 @@ import {
   DialogContent,
   ErrorNote,
   Progress,
+  Select,
   Spinner,
 } from '@/components/ui';
 import { formatBytes, formatDuration, timeAgo } from '@/lib/utils';
@@ -127,6 +132,8 @@ function ImageDetailsBody({
   const [error, setError] = React.useState<string>();
   const [upscaleJob, setUpscaleJob] = React.useState<Job>();
   const [busy, setBusy] = React.useState<string>();
+  const [upscaler, setUpscaler] = React.useState<string>('');
+  const navigate = useNavigate();
 
   const flash = (what: string) => {
     setCopied(what);
@@ -149,7 +156,7 @@ function ImageDetailsBody({
   const startUpscale = async (scale: 2 | 4) => {
     setError(undefined);
     try {
-      setUpscaleJob(await upscale(item.name, scale));
+      setUpscaleJob(await upscale(item.name, scale, 'output', upscaler || undefined));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -337,6 +344,20 @@ function ImageDetailsBody({
                 {busy === 'init' ? <Spinner className="size-3.5" /> : <ImagePlus />} Use as init
               </Button>
             ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy !== undefined}
+              onClick={() =>
+                void run('animate', async () => {
+                  setVideoHandoff({ init: await outputToInput(item.name) });
+                  onClose();
+                  navigate('/video');
+                })
+              }
+            >
+              {busy === 'animate' ? <Spinner className="size-3.5" /> : <Film />} Animate
+            </Button>
             {onUseAsReference ? (
               <Button
                 size="sm"
@@ -357,7 +378,25 @@ function ImageDetailsBody({
 
         {/* Upscale */}
         <section className="flex flex-col gap-2">
-          <SectionTitle>Upscale (RealESRGAN)</SectionTitle>
+          <SectionTitle>Upscale</SectionTitle>
+          {(upscalers.data?.models.length ?? 0) > 0 ? (
+            <Select
+              value={upscaler || '__default'}
+              onValueChange={(value) => setUpscaler(value === '__default' ? '' : value)}
+              options={[
+                {
+                  value: '__default',
+                  label: 'Default for the scale',
+                  description: `2× ${upscalers.data!.defaults[2] ?? '—'} · 4× ${upscalers.data!.defaults[4] ?? '—'}`,
+                },
+                ...upscalers.data!.models.map((model) => ({
+                  value: model.name,
+                  label: `${model.label} · ${model.scale}×`,
+                  description: model.description ?? model.architecture,
+                })),
+              ]}
+            />
+          ) : null}
           {upscaleJob && upscaleJob.status !== 'completed' ? (
             <UpscaleProgress job={upscaleJob} />
           ) : null}

@@ -35,6 +35,7 @@ import { writeAudioServerConfig } from './services/audio-config.js';
 import { writeLlmScanDir } from './services/llm-scan-dir.js';
 import { AudioService } from './services/audio-gen.js';
 import { TextService } from './services/text-gen.js';
+import { CharacterService } from './services/characters.js';
 import { systemRoutes } from './routes/system.js';
 import { modelRoutes } from './routes/models.js';
 import { downloadRoutes } from './routes/downloads.js';
@@ -48,6 +49,7 @@ import { vllmRoutes } from './routes/vllm.js';
 import { pythonRoutes } from './routes/python.js';
 import { audioRoutes } from './routes/audio.js';
 import { compatRoutes } from './routes/compat.js';
+import { characterRoutes } from './routes/characters.js';
 import './types.js';
 
 const VERSION = '0.1.0';
@@ -127,10 +129,11 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 
   const jobs = new JobManager(config, db, app.log, logs);
   const images = new ImageService(config, paths, models, backends, app.log, logs);
-  const upscaler = new UpscaleService(config, paths, images, app.log);
   const pythonVideo = new PythonVideoService(config, paths, backends, app.log, logs);
+  const upscaler = new UpscaleService(config, paths, images, pythonVideo, settings, app.log);
   const speech = new AudioService(config, paths, backends, app.log, logs);
   const text = new TextService(config, backends, app.log, logs);
+  const characterService = new CharacterService(db, paths, jobs, models, text, backends, config, app.log);
 
   // llama.cpp scans a directory one level deep, which is one level shallower
   // than pepper's bundle layout. The scan directory bridges the two.
@@ -201,6 +204,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   app.decorate('images', images);
   app.decorate('upscaler', upscaler);
   app.decorate('pythonVideo', pythonVideo);
+  app.decorate('characters', characterService);
   // `version` is taken by Fastify itself, so the app's own version needs a
   // distinct name rather than shadowing the framework's.
   app.decorate('appVersion', VERSION);
@@ -229,6 +233,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
         { name: 'media', description: 'Outputs and uploads' },
         { name: 'audio', description: 'Speech, voice design and transcription' },
         { name: 'text', description: 'Text generation' },
+        { name: 'characters', description: 'Character Studio' },
         { name: 'logs', description: 'Log query and live tail' },
         { name: 'compat', description: 'sd-api compatible endpoints' },
       ],
@@ -305,6 +310,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   // uploads can be forwarded byte for byte, which must not affect /v1/inputs.
   await app.register(audioRoutes);
   await app.register(compatRoutes);
+  await app.register(characterRoutes);
 
   // The built SPA. Registered last so it never shadows an API route — its
   // wildcard route is the least specific thing in the tree, and a path it has
@@ -415,12 +421,18 @@ function registerExecutors(
   };
 
   const runUpscale: Parameters<JobManager['registerExecutor']>[1] = async (context) => {
-    const params = context.job.params as { image: string; source?: 'output' | 'upload'; scale: 2 | 4 };
+    const params = context.job.params as {
+      image: string;
+      source?: 'output' | 'upload';
+      scale: 2 | 4;
+      upscaler?: string;
+    };
     const source = params.source ?? 'output';
     const inputPath = await upscaler.resolveSource(params.image, source);
     const result = await upscaler.upscale({
       inputPath,
       scale: params.scale,
+      model: params.upscaler,
       signal: context.signal,
       onProgress: context.onProgress,
       onLog: context.onLog,
@@ -447,6 +459,8 @@ function registerExecutors(
         width: result.width,
         height: result.height,
         upscaler: result.model,
+        upscale_engine: result.engine,
+        upscale_architecture: result.architecture,
         upscale_method: result.method,
         duration_ms: result.durationMs,
         output_dir: paths.outputDir,

@@ -17,6 +17,8 @@ import {
   Textarea,
 } from '@/components/ui';
 import { Page } from '@/components/layout';
+import { CharacterField, useChosenCharacter } from '@/components/CharacterPicker';
+import type { Character } from '@/lib/characters';
 
 interface VoiceRef {
   name: string;
@@ -99,10 +101,35 @@ function SpeechPanel({
   const [audioUrl, setAudioUrl] = React.useState<string>();
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
+  const { character, setCharacter } = useChosenCharacter('pepper-character-audio');
+  /** Set while a character's voice is being applied, so the model change keeps its speaker. */
+  const applying = React.useRef<Character | undefined>(undefined);
 
   React.useEffect(() => {
     if (!model && models.length > 0) setModel(models[0].id);
   }, [models, model]);
+
+  /** A character's voice sets the model, speaker, reference and direction together. */
+  const applyVoice = React.useCallback(
+    (next: Character | undefined) => {
+      const voice = next?.voice;
+      if (!voice?.model || !models.some((entry) => entry.id === voice.model)) return;
+      if (voice.model !== model) applying.current = next;
+      setModel(voice.model);
+      setVoice(voice.voice || undefined);
+      setVoiceRef(voice.voice_ref || undefined);
+      setInstructions(voice.instructions ?? '');
+    },
+    [models, model],
+  );
+
+  // Arriving with a character already chosen (from the studio's "Audio" button).
+  const appliedFor = React.useRef<string | undefined>(undefined);
+  React.useEffect(() => {
+    if (!character || appliedFor.current === character.id || models.length === 0) return;
+    appliedFor.current = character.id;
+    applyVoice(character);
+  }, [character, models, applyVoice]);
 
   const selected = models.find((entry) => entry.id === model);
 
@@ -123,8 +150,15 @@ function SpeechPanel({
   );
   const builtInVoices = voices.data?.voices ?? [];
 
-  // A voice picked for one model means nothing to the next.
-  React.useEffect(() => setVoice(undefined), [model]);
+  // A voice picked for one model means nothing to the next — unless the model
+  // changed because a character's voice (which names both) was applied.
+  React.useEffect(() => {
+    if (applying.current) {
+      applying.current = undefined;
+      return;
+    }
+    setVoice(undefined);
+  }, [model]);
 
   const generate = async () => {
     setBusy(true);
@@ -136,6 +170,7 @@ function SpeechPanel({
         ...(voice ? { voice } : {}),
         ...(voiceRef ? { voice_ref: voiceRef } : {}),
         ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
+        ...(character ? { character_id: character.id } : {}),
       });
 
       // The queue is the point — the clip is fetched from OUTPUT_DIR once the
@@ -174,6 +209,21 @@ function SpeechPanel({
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(320px,420px)_1fr]">
       <Card className="flex flex-col gap-4 p-4">
+        <CharacterField
+          character={character}
+          need="voice"
+          onChange={(next) => {
+            setCharacter(next);
+            if (next) appliedFor.current = next.id;
+            applyVoice(next);
+          }}
+          hint={
+            character && !character.voice?.model
+              ? `${character.name} has no voice yet — give them one in the Character Studio, or set it up below.`
+              : undefined
+          }
+        />
+
         <Field label="Model">
           <Select
             value={model}

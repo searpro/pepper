@@ -72,6 +72,15 @@ export const generateSchema = z.object({
   // --- Additions ---
   /** Number of images to produce; each becomes its own job. */
   batch: z.number().int().min(1).max(16).optional(),
+
+  // --- Character Studio ---
+  /** The character this generation features; recorded for the Media page. */
+  character_id: z.string().optional(),
+  /**
+   * Set by the Character Studio on its own sheet/portrait jobs: the output is
+   * attached to the character when the job completes.
+   */
+  character_role: z.enum(['sheet', 'portrait', 'reference']).optional(),
 });
 
 export type GenerateParams = z.infer<typeof generateSchema>;

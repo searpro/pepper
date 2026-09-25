@@ -27,6 +27,7 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { backendState, formatBytes } from '@/lib/utils';
+import type { UpscalerInfo } from '@/lib/images';
 import type { Theme } from '@/components/layout';
 
 /**
@@ -66,6 +67,7 @@ export function PreferencesDialog({
           <div className="border-b border-border px-5 py-3">
             <TabsList>
               <TabsTrigger value="backends">Backends</TabsTrigger>
+              <TabsTrigger value="upscalers">Upscalers</TabsTrigger>
               <TabsTrigger value="environment">Environment</TabsTrigger>
               <TabsTrigger value="credentials">Credentials</TabsTrigger>
               <TabsTrigger value="appearance">Appearance</TabsTrigger>
@@ -88,6 +90,10 @@ export function PreferencesDialog({
             {status?.backends.map((backend) => (
               <BackendPanel key={backend.backend} backend={backend} onChanged={onChanged} />
             ))}
+          </TabsContent>
+
+          <TabsContent value="upscalers" className="p-5">
+            <UpscalersPanel />
           </TabsContent>
 
           <TabsContent value="environment" className="p-5">
@@ -582,6 +588,175 @@ function HuggingFacePanel() {
       </div>
 
       {result ? <p className="text-xs text-muted-foreground">{result}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Upscaler checkpoints: which engine runs them, which one each scale uses by
+ * default, and the curated list to install more from.
+ */
+function UpscalersPanel() {
+  const info = useResource<UpscalerInfo>('/v1/upscalers');
+  const [error, setError] = React.useState<string>();
+  const [installing, setInstalling] = React.useState<Set<string>>(new Set());
+
+  const setPrefs = async (patch: Partial<UpscalerInfo['preferences']>) => {
+    setError(undefined);
+    try {
+      await api.put('/v1/upscalers/preferences', patch);
+      info.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const install = async (id: string) => {
+    setError(undefined);
+    setInstalling((current) => new Set(current).add(id));
+    try {
+      await api.post('/v1/upscalers/install', { id });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setInstalling((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      info.reload();
+    }
+  };
+
+  if (info.loading && !info.data) return <Spinner />;
+  const data = info.data;
+  if (!data) return <ErrorNote>{info.error?.message ?? 'Could not load upscalers'}</ErrorNote>;
+
+  const modelOptions = [
+    { value: '__auto', label: 'Automatic', description: 'Best installed checkpoint for the scale' },
+    ...data.models.map((model) => ({
+      value: model.name,
+      label: `${model.label} · ${model.scale}×`,
+      description: model.architecture,
+    })),
+  ];
+  const BEST_FOR: Record<string, string> = {
+    general: 'General',
+    photo: 'Photo',
+    illustration: 'Illustration',
+    fast: 'Fast',
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field
+          label="Engine"
+          hint={
+            data.pythonReady
+              ? 'Auto uses Python (spandrel) — every architecture, fp16 on the GPU.'
+              : 'Auto uses sd-cli until the Python runtime is installed (first video job installs it).'
+          }
+        >
+          <Select
+            value={data.preferences.engine}
+            onValueChange={(value) => void setPrefs({ engine: value as 'auto' | 'python' | 'sdcpp' })}
+            options={[
+              { value: 'auto', label: 'Auto' },
+              { value: 'python', label: 'Python (spandrel)', description: 'All architectures; fastest' },
+              { value: 'sdcpp', label: 'stable-diffusion.cpp', description: 'Plain RRDBNet models only' },
+            ]}
+          />
+        </Field>
+        <Field label="Default for 2×" hint={`Now: ${data.defaults[2] ?? '—'}`}>
+          <Select
+            value={data.preferences.default_x2 ?? '__auto'}
+            onValueChange={(value) => void setPrefs({ default_x2: value === '__auto' ? null : value })}
+            options={modelOptions}
+          />
+        </Field>
+        <Field label="Default for 4×" hint={`Now: ${data.defaults[4] ?? '—'}`}>
+          <Select
+            value={data.preferences.default_x4 ?? '__auto'}
+            onValueChange={(value) => void setPrefs({ default_x4: value === '__auto' ? null : value })}
+            options={modelOptions}
+          />
+        </Field>
+      </div>
+
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+
+      <section className="flex flex-col gap-2">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Recommended upscalers
+        </h4>
+        <div className="flex flex-col divide-y divide-border rounded-lg border border-border">
+          {data.catalogue.map((entry) => {
+            const busy = installing.has(entry.id) || entry.installing;
+            return (
+              <div key={entry.id} className="flex items-start gap-3 p-3">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
+                    {entry.label}
+                    <Badge variant="outline">{entry.scale}×</Badge>
+                    <Badge variant="outline">{entry.architecture}</Badge>
+                    <Badge variant="primary">{BEST_FOR[entry.bestFor]}</Badge>
+                    {entry.sdcpp ? null : (
+                      <Tooltip label="stable-diffusion.cpp cannot load this architecture">
+                        <Badge variant="warning">Python</Badge>
+                      </Tooltip>
+                    )}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{entry.description}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {formatBytes(entry.sizeBytes)} · {entry.license}
+                  </span>
+                </div>
+                {entry.installed ? (
+                  <Badge variant="success">
+                    <Check className="size-2.5" /> Installed
+                  </Badge>
+                ) : (
+                  <Button size="sm" variant="outline" disabled={busy} onClick={() => void install(entry.id)}>
+                    {busy ? <Spinner className="size-3.5" /> : <Download />} Install
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Installed · <code className="normal-case">{data.dir}</code>
+        </h4>
+        {data.models.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Nothing installed yet.</p>
+        ) : (
+          <div className="flex flex-col divide-y divide-border rounded-lg border border-border">
+            {data.models.map((model) => (
+              <div key={model.name} className="flex items-center gap-3 px-3 py-2 text-xs">
+                <span className="min-w-0 flex-1 truncate font-medium">{model.name}</span>
+                <span className="text-muted-foreground">{model.scale}×</span>
+                <span className="w-16 text-right text-muted-foreground">{formatBytes(model.size)}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive hover:bg-destructive/10"
+                  onClick={async () => {
+                    if (!window.confirm(`Delete ${model.name}?`)) return;
+                    await api.delete(`/v1/upscalers/${encodeURIComponent(model.name)}`);
+                    info.reload();
+                  }}
+                >
+                  Delete
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

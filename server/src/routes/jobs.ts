@@ -131,6 +131,8 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
           image: z.string().min(1),
           source: z.enum(['output', 'upload']).default('output'),
           scale: z.union([z.literal(2), z.literal(4)]),
+          /** Checkpoint file name in the upscaler directory; the configured default if omitted. */
+          upscaler: z.string().min(1).optional(),
         }),
         response: { 202: jobSchema, 400: errorResponseSchema },
       },
@@ -142,8 +144,14 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
       const scales = await app.upscaler.availableScales();
       if (!scales.includes(req.body.scale)) {
         throw errors.validation(
-          `No ${req.body.scale}× upscaler available. Put RealESRGAN weights in ${app.config.upscaleModelsDir}.`,
+          `No ${req.body.scale}× upscaler available. Install one from Preferences → Upscalers, or put weights in ${app.config.upscaleModelsDir}.`,
         );
+      }
+      if (req.body.upscaler) {
+        const known = await app.upscaler.listModels();
+        if (!known.some((model) => model.name === req.body.upscaler)) {
+          throw errors.validation(`Upscaler "${req.body.upscaler}" is not installed`);
+        }
       }
       return reply.code(202).send(app.jobs.create('image', { task: 'upscale', ...req.body }));
     },

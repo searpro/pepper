@@ -51,6 +51,9 @@ import {
 import { Page } from '@/components/layout';
 import { ImageDetailsDialog } from '@/components/ImageDetails';
 import { ImagePickerDialog } from '@/components/ImagePicker';
+import { AspectChip, FileButton, InputThumb, useElapsed } from '@/components/studio';
+import { CharacterField, useChosenCharacter } from '@/components/CharacterPicker';
+import { primaryImage, withCharacter } from '@/lib/characters';
 import { cn, formatDuration, timeAgo } from '@/lib/utils';
 
 /**
@@ -130,6 +133,11 @@ interface FormState {
   ref_images: string[];
   img_cfg_scale: number;
   increase_ref_index: boolean;
+  /** Fold the chosen character's description into the prompt. */
+  characterPrompt: boolean;
+  /** Send one of the character's images as reference image 1. */
+  characterRef: boolean;
+  characterImage?: string;
 }
 
 const DEFAULTS: FormState = {
@@ -151,6 +159,8 @@ const DEFAULTS: FormState = {
   ref_images: [],
   img_cfg_scale: 1,
   increase_ref_index: false,
+  characterPrompt: true,
+  characterRef: false,
 };
 
 const STORE_KEY = 'pepper-image-form';
@@ -209,6 +219,13 @@ export function ImagePage() {
   const upscalers = useResource<UpscalerInfo>('/v1/upscalers');
 
   const [form, setForm] = React.useState<FormState>(loadForm);
+  const { character, setCharacter } = useChosenCharacter('pepper-character-image');
+  const characterImage =
+    character &&
+    (character.images.some((image) => image.name === form.characterImage)
+      ? form.characterImage
+      : primaryImage(character));
+  const characterRefs = character && form.characterRef && characterImage ? [characterImage] : [];
   const [error, setError] = React.useState<string>();
   const [submitting, setSubmitting] = React.useState(false);
   const [jobs, setJobs] = React.useState<Record<string, Job>>({});
@@ -255,6 +272,8 @@ export function ImagePage() {
       setForm((state) => {
         const next: FormState = { ...state };
         if (settings.prompt !== undefined) next.prompt = settings.prompt;
+        // A stored prompt already carries any character description.
+        next.characterPrompt = false;
         next.negative_prompt = settings.negative_prompt ?? '';
         if (settings.model && (models.data?.models ?? []).some((m) => m.id === settings.model)) {
           next.model = settings.model;
@@ -374,7 +393,10 @@ export function ImagePage() {
 
   const buildRequest = (): Record<string, unknown> => {
     const body: Record<string, unknown> = {
-      prompt: form.prompt.trim(),
+      prompt:
+        character && form.characterPrompt
+          ? withCharacter(form.prompt, character)
+          : form.prompt.trim(),
       model: form.model,
       steps,
       width,
@@ -385,13 +407,18 @@ export function ImagePage() {
     if (form.sampler) body.sampler = form.sampler;
     if (form.negative_prompt.trim()) body.negative_prompt = form.negative_prompt.trim();
     if (form.seed >= 0) body.seed = form.seed;
+    if (character) body.character_id = character.id;
     if (form.mode === 'edit') {
-      body.ref_images = form.ref_images;
+      // The character's image leads, so an instruction can call it "image 1".
+      body.ref_images = [...characterRefs, ...form.ref_images.filter((ref) => !characterRefs.includes(ref))].slice(0, MAX_REFS);
       body.img_cfg_scale = form.img_cfg_scale;
       if (form.increase_ref_index) body.increase_ref_index = true;
-    } else if (form.init_image) {
-      body.init_image = form.init_image;
-      body.strength = form.strength;
+    } else {
+      if (characterRefs.length) body.ref_images = characterRefs;
+      if (form.init_image) {
+        body.init_image = form.init_image;
+        body.strength = form.strength;
+      }
     }
     return body;
   };
@@ -403,7 +430,7 @@ export function ImagePage() {
       promptRef.current?.focus();
       return;
     }
-    if (form.mode === 'edit' && !override && form.ref_images.length === 0) {
+    if (form.mode === 'edit' && !override && form.ref_images.length === 0 && characterRefs.length === 0) {
       setError('Add at least one reference image to edit.');
       return;
     }
@@ -497,7 +524,7 @@ export function ImagePage() {
     Boolean(form.prompt.trim()) &&
     Boolean(form.model) &&
     !submitting &&
-    (form.mode === 'generate' || form.ref_images.length > 0);
+    (form.mode === 'generate' || form.ref_images.length > 0 || characterRefs.length > 0);
 
   return (
     <Page
@@ -573,6 +600,41 @@ export function ImagePage() {
               />
             )}
           </Field>
+
+          <CharacterField
+            character={character}
+            onChange={(next) => {
+              setCharacter(next);
+              setForm((state) => ({ ...state, characterImage: undefined, characterPrompt: true }));
+            }}
+            imageName={characterImage}
+            onImageChange={(name) => update('characterImage', name)}
+            hint={
+              character && form.characterRef
+                ? form.mode === 'edit'
+                  ? 'The character image is reference image 1; refer to it as “image 1”.'
+                  : 'Sent as a reference image — needs an edit-capable model (FLUX.2, Qwen-Image-Edit).'
+                : undefined
+            }
+          >
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                Describe the character in the prompt
+                <Switch
+                  checked={form.characterPrompt}
+                  onCheckedChange={(value) => update('characterPrompt', value)}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                Use the character image as a reference
+                <Switch
+                  checked={form.characterRef}
+                  disabled={!characterImage}
+                  onCheckedChange={(value) => update('characterRef', value)}
+                />
+              </label>
+            </div>
+          </CharacterField>
 
           <Field
             label={form.mode === 'edit' ? 'Edit instruction' : 'Prompt'}
@@ -1064,7 +1126,7 @@ export function ImagePage() {
                     variant="ghost"
                     disabled={!scales.includes(scale)}
                     onClick={() => void startUpscale(focus.name, scale)}
-                    title={`Upscale ${scale}× with RealESRGAN`}
+                    title={`Upscale ${scale}× with ${upscalers.data?.defaults[scale] ?? 'the default upscaler'}`}
                   >
                     <Maximize2 /> {scale}×
                   </Button>
@@ -1182,120 +1244,10 @@ export function ImagePage() {
 
 // --- Pieces ------------------------------------------------------------------
 
-function AspectChip({
-  value,
-  pressed,
-  shape,
-  onClick,
-}: {
-  value: string;
-  pressed: boolean;
-  shape?: [number, number];
-  onClick: () => void;
-}) {
-  const scale = shape ? 14 / Math.max(shape[0], shape[1]) : 0;
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium transition hover:bg-accent',
-        pressed && 'border-primary bg-primary text-primary-foreground hover:bg-primary',
-      )}
-    >
-      {shape ? (
-        <i
-          className="inline-block rounded-[2px] border-[1.5px] border-current opacity-80"
-          style={{ width: Math.round(shape[0] * scale), height: Math.round(shape[1] * scale) }}
-        />
-      ) : null}
-      {value === 'match' ? 'Match input' : value === 'custom' ? 'Custom' : value}
-    </button>
-  );
-}
-
-function InputThumb({
-  name,
-  label,
-  onRemove,
-  className,
-}: {
-  name: string;
-  label?: string;
-  onRemove: () => void;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        'checkerboard group relative aspect-square overflow-hidden rounded-md border border-border',
-        className,
-      )}
-    >
-      <img src={inputUrl(name)} alt="" className="size-full object-cover" />
-      {label ? (
-        <span className="absolute left-1 top-1 rounded bg-black/65 px-1.5 text-[10px] font-semibold text-white">
-          {label}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        aria-label="Remove"
-        onClick={onRemove}
-        className="absolute right-1 top-1 rounded-full bg-black/65 p-0.5 text-white opacity-80 transition hover:opacity-100"
-      >
-        <X className="size-3" />
-      </button>
-    </div>
-  );
-}
-
-function FileButton({
-  children,
-  multiple,
-  onFiles,
-}: {
-  children: React.ReactNode;
-  multiple?: boolean;
-  onFiles: (files: File[]) => void;
-}) {
-  const ref = React.useRef<HTMLInputElement>(null);
-  return (
-    <>
-      <input
-        ref={ref}
-        type="file"
-        accept="image/*"
-        multiple={multiple}
-        className="hidden"
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? []);
-          event.target.value = '';
-          if (files.length) onFiles(files);
-        }}
-      />
-      <Button variant="outline" size="sm" onClick={() => ref.current?.click()}>
-        {children}
-      </Button>
-    </>
-  );
-}
-
 function jobLabel(job: Job): string {
   if (job.params.task === 'upscale')
     return `Upscale ${job.params.scale}× · ${String(job.params.image)}`;
   return String(job.params.prompt ?? job.id);
-}
-
-function useElapsed(since?: string): number {
-  const [now, setNow] = React.useState(Date.now());
-  React.useEffect(() => {
-    if (!since) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [since]);
-  return since ? Math.max(0, now - Date.parse(since)) : 0;
 }
 
 /** Stage, step count, elapsed and a naive ETA for the batch the viewer follows. */

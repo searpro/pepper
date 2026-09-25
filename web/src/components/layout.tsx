@@ -13,6 +13,7 @@ import {
   ScrollText,
   Settings,
   Sun,
+  Users,
   Video,
 } from 'lucide-react';
 import { Badge, Button, Tooltip } from '@/components/ui';
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { to: '/video', label: 'Video', icon: Video, group: 'Generate' },
   { to: '/audio', label: 'Audio', icon: AudioLines, group: 'Generate' },
   { to: '/text', label: 'Text', icon: MessageSquareText, group: 'Generate' },
+  { to: '/characters', label: 'Characters', icon: Users, group: 'Create' },
   { to: '/media', label: 'Media', icon: Library, group: 'Library' },
   { to: '/jobs', label: 'Jobs', icon: ListChecks, group: 'Library' },
   { to: '/logs', label: 'Logs', icon: ScrollText, group: 'Library' },
