@@ -22,7 +22,7 @@ import type { TextService } from './text-gen.js';
  * two steps. An installed LLM expands the brief — under `DESIGNER_PROMPT`
  * below — into a precise visual description, a style and a voice direction.
  * That description is then dropped into `SHEET_TEMPLATE`, which fixes the
- * layout every sheet shares (turnaround views, expressions, palette) so the
+ * layout every sheet shares (face close-ups and full-body views, front and side, in a generic outfit) so the
  * result is a usable model sheet whatever the image model's own habits. With
  * no LLM installed the brief goes into the template as written.
  *
@@ -98,24 +98,25 @@ export const DESIGNER_PROMPT = `You are a senior character designer writing the 
 The user gives a short idea for a character. Invent the concrete visual design an artist needs to draw that character identically across many images, and a voice direction for a text-to-speech voice designer.
 
 Rules:
-- "appearance": 70-130 words of purely visual, drawable facts in comma-separated descriptive phrases, present tense. Cover: apparent age, gender presentation, ethnicity or species, height and build, face shape and distinctive features, skin tone, eye colour, hair colour, length and style, facial hair, the full outfit from head to toe with materials and colours, accessories, props, and one or two signature details that make the character instantly recognisable. No personality, backstory, poses, camera or lighting words. Never mention other characters.
+- "appearance": 50-90 words of purely physical, drawable facts in comma-separated descriptive phrases, present tense. Cover: apparent age, gender presentation, ethnicity or species, height and build, face shape and distinctive facial features, skin tone, eye colour, hair colour, length and style, facial hair, and one or two physical signature details (a scar, freckles, a birthmark) that make the character instantly recognisable. No clothing, accessories or props — the sheet dresses every character in the same plain generic outfit. No personality, backstory, poses, camera or lighting words. Never mention other characters.
 - "style": the art style in 3-8 words. Keep the user's style if they gave one; otherwise choose the one that suits the idea (for example "photorealistic, cinematic", "anime cel-shaded", "stylised 3D animated film", "painterly fantasy illustration").
 - "name": the character's name. Keep the user's if given; otherwise invent a fitting one.
 - "personality": one sentence.
 - "voice": 20-40 words directing a voice actor: gender, age, pitch, timbre, pace, accent, and emotional colour. No quotes or sample lines.
-- Be specific (for example "rust-orange leather jerkin with brass buckles", not "adventurer clothes"). Keep every detail consistent with the idea.
+- Be specific (for example "short copper-red hair shaved at the sides", not "red hair"). Keep every detail consistent with the idea.
 
 Reply with only a JSON object with the keys "name", "style", "appearance", "personality" and "voice".`;
 
 /** Fixed sheet layout; `{name}`, `{appearance}` and `{style}` are filled per character. */
 export const SHEET_TEMPLATE =
-  'Professional character design reference sheet for {name}. {appearance}. ' +
-  'Layout on a single wide sheet: a full-body turnaround of the same character in one row — front view, ' +
-  'three-quarter view, side profile and back view — standing in a relaxed neutral pose at identical scale, ' +
-  'head to feet fully visible. Alongside, a column of head close-ups showing neutral, smiling, angry and ' +
-  'surprised expressions, small callouts of key outfit details and accessories, and a colour palette swatch strip. ' +
-  'The face, hairstyle, body proportions, outfit and colours are exactly consistent in every view. ' +
-  'Plain light-grey studio background, soft even lighting, crisp clean detail, {style}, character concept art model sheet.';
+  'Character reference sheet for {name}. {appearance}. ' +
+  'Wearing a plain generic outfit: a fitted plain grey crew-neck t-shirt, plain grey trousers and simple grey shoes, no accessories. ' +
+  'Exactly four views of the same character side by side in one row, nothing else: a front close-up of the face, ' +
+  'a side-profile close-up of the face, a full-body front view and a full-body side-profile view, ' +
+  'standing straight with a neutral expression, head to feet fully visible in the full-body views. ' +
+  'The face, hairstyle, body proportions and colours are exactly consistent in every view. ' +
+  'No text, labels, callouts, colour swatches, props or extra poses. ' +
+  'Plain light-grey studio background, soft even lighting, crisp clean detail, {style}.';
 
 /** A single figure: what a start frame or an edit reference wants, unlike the sheet. */
 const PORTRAIT_FRAMING =

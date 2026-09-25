@@ -286,8 +286,8 @@ about characters.
 A character is made from a one-line idea in two steps: an installed LLM
 expands it under `DESIGNER_PROMPT` into the precise, drawable description every
 later prompt reuses (plus a style and a voice direction), and that description
-fills `SHEET_TEMPLATE`, which fixes the sheet layout (turnaround, expressions,
-palette) whatever the image model's habits. Without an LLM the idea goes into
+fills `SHEET_TEMPLATE`, which fixes the sheet layout (front and side face
+close-ups, front and side full-body views, generic outfit) whatever the image model's habits. Without an LLM the idea goes into
 the template as written. Sheet, portrait and voice-preview jobs are ordinary
 queued jobs tagged `character_id` / `character_role`; the service attaches
 their outputs (copied into uploads, so retention cannot sweep them) when they

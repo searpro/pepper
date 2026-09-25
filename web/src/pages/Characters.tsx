@@ -335,7 +335,7 @@ function NewCharacterDialog({
               <span className="flex flex-col">
                 <span className="text-sm font-medium">Generate the character sheet now</span>
                 <span className="text-[11px] text-muted-foreground">
-                  Turnaround, expressions and palette on one sheet.
+                  Face close-ups and full-body views, front and side.
                 </span>
               </span>
               <Switch checked={generateSheet} onCheckedChange={setGenerateSheet} />
@@ -846,7 +846,7 @@ const NONE = '__none';
 
 const ROLE_ORDER: Record<CharacterImageRole, number> = { sheet: 0, portrait: 1, reference: 2 };
 
-/** Sheet / portrait sizes per quality. Sheets are wide (a turnaround row), portraits tall. */
+/** Sheet / portrait sizes per quality. Sheets are wide (four views in a row), portraits tall. */
 const SIZES = {
   draft: { label: 'Draft', sheet: [1024, 576], portrait: [640, 800] },
   standard: { label: 'Standard', sheet: [1280, 720], portrait: [768, 960] },
