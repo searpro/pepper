@@ -9,3 +9,4 @@ server/public/
 web/dist/
 *.tsbuildinfo
 __pycache__/
+deploy/kaggle/.last-url
