@@ -103,7 +103,11 @@ export class ModelManager {
     return null;
   }
 
-  async resolveImage(id: string, kinds: ModelKind[] = ['image', 'video']): Promise<ResolvedImageBundle> {
+  async resolveImage(
+    id: string,
+    kinds: ModelKind[] = ['image', 'video'],
+    options: { checkpoint?: string } = {},
+  ): Promise<ResolvedImageBundle> {
     for (const kind of kinds) {
       const dir = bundleDir(this.paths, kind, id);
       try {
@@ -111,7 +115,7 @@ export class ModelManager {
       } catch {
         continue;
       }
-      return resolveImageBundle(dir, id, kind);
+      return resolveImageBundle(dir, id, kind, options);
     }
     throw errors.modelNotFound(id);
   }

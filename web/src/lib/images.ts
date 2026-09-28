@@ -11,6 +11,7 @@ export interface ImageSettings {
   prompt?: string;
   negative_prompt?: string;
   model?: string;
+  checkpoint?: string;
   steps?: number;
   cfg_scale?: number;
   width?: number;
@@ -104,6 +105,7 @@ export function formatSettings(settings: ImageSettings): string {
     settings.negative_prompt ? `Negative prompt: ${settings.negative_prompt}` : null,
     [
       settings.model && `Model: ${settings.model}`,
+      settings.checkpoint && `Checkpoint: ${settings.checkpoint}`,
       settings.width && settings.height && `Size: ${settings.width}x${settings.height}`,
       settings.steps !== undefined && `Steps: ${settings.steps}`,
       settings.cfg_scale !== undefined && `CFG scale: ${settings.cfg_scale}`,

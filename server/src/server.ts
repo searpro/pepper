@@ -400,6 +400,7 @@ function registerExecutors(
         kind: result.kind,
         prompt: result.params.prompt,
         model: result.params.model,
+        checkpoint: result.params.checkpoint,
         steps: result.params.steps,
         cfg_scale: result.params.cfg_scale,
         width: result.params.width,

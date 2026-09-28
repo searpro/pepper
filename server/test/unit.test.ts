@@ -387,6 +387,23 @@ describe('model bundles', () => {
     expect(preset('p_qwen_image_2.1_8step_v0.1')?.sigmas).toHaveLength(8);
   });
 
+  it('loads a requested checkpoint instead of the largest, and rejects unknown ones', async () => {
+    const root = await makeBundle();
+    await writeFile(join(root, 'checkpoint', 'flux-Q2_K.gguf'), 'x'.repeat(5));
+    await mkdir(join(root, 'vae'), { recursive: true });
+
+    const auto = await resolveImageBundle(root, 'flux', 'image');
+    expect(auto.checkpointName).toBe('flux-Q4_K_M.gguf');
+
+    const chosen = await resolveImageBundle(root, 'flux', 'image', { checkpoint: 'flux-Q2_K.gguf' });
+    expect(chosen.checkpointName).toBe('flux-Q2_K.gguf');
+    expect(chosen.checkpointPath).toBe(join(root, 'checkpoint', 'flux-Q2_K.gguf'));
+
+    await expect(
+      resolveImageBundle(root, 'flux', 'image', { checkpoint: '../../etc/passwd' }),
+    ).rejects.toThrow(/not in model/);
+  });
+
   it('excludes in-progress downloads from the component list', async () => {
     const info = await inspectBundle(await makeBundle(), 'flux', 'image');
     expect(info.components.some((c) => c.name.endsWith('.part'))).toBe(false);

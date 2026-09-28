@@ -327,6 +327,8 @@ export interface ResolvedImageBundle {
   loadMode: LoadMode;
   mode: GenerationMode;
   checkpointPath: string;
+  /** Filename of the checkpoint in use, recorded with each output. */
+  checkpointName: string;
   /** Wan 2.2's high-noise expert, when the bundle ships one. */
   highNoisePath?: string;
   weights: Partial<Record<ClipRole | 'vae' | 'audio_vae', string>>;
@@ -577,6 +579,7 @@ export async function resolveImageBundle(
   bundlePath: string,
   id: string,
   kind: ModelKind,
+  options: { checkpoint?: string } = {},
 ): Promise<ResolvedImageBundle> {
   const info = await inspectBundle(bundlePath, id, kind);
   if (!info.ready) throw errors.invalidModel(`Model "${id}" is not ready: ${info.readyReason}`);
@@ -596,7 +599,18 @@ export async function resolveImageBundle(
       : null;
 
   const lowNoise = checkpoints.filter((file) => file !== highNoise);
-  const checkpoint = pickFile(lowNoise, info.manifest?.components?.checkpoint);
+  // A request may pick among several checkpoints of one model (quants,
+  // fine-tunes); otherwise the manifest's choice, else the largest.
+  if (options.checkpoint && !lowNoise.some((file) => file.name === options.checkpoint)) {
+    throw errors.validation(
+      `Checkpoint "${options.checkpoint}" is not in model "${id}". ` +
+        `Available: ${lowNoise.map((file) => file.name).join(', ')}.`,
+    );
+  }
+  const checkpoint = pickFile(
+    lowNoise,
+    options.checkpoint ?? info.manifest?.components?.checkpoint,
+  );
   if (!checkpoint) throw errors.invalidModel(`Model "${id}" has no checkpoint file`);
 
   const weights: Partial<Record<ClipRole | 'vae' | 'audio_vae', string>> = {};
@@ -641,6 +655,7 @@ export async function resolveImageBundle(
     loadMode: info.loadMode,
     mode: info.mode,
     checkpointPath: join(bundlePath, 'checkpoint', checkpoint.name),
+    checkpointName: checkpoint.name,
     highNoisePath: highNoise ? join(bundlePath, 'checkpoint', highNoise.name) : undefined,
     weights,
     defaults: info.manifest?.defaults ?? {},

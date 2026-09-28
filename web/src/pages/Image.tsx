@@ -56,7 +56,7 @@ import { ImagePickerDialog } from '@/components/ImagePicker';
 import { AspectChip, FileButton, InputThumb, useElapsed } from '@/components/studio';
 import { CharacterField, useChosenCharacter } from '@/components/CharacterPicker';
 import { primaryImage, withCharacter } from '@/lib/characters';
-import { cn, formatDuration, timeAgo } from '@/lib/utils';
+import { cn, formatBytes, formatDuration, timeAgo } from '@/lib/utils';
 
 /**
  * The image studio: text-to-image and edit, laid out after the Qwen Image
@@ -116,6 +116,8 @@ const MAX_REFS = 16;
 interface FormState {
   mode: Mode;
   model: string;
+  /** A file in the model's `checkpoint/` folder; `null` lets the server pick. */
+  checkpoint: string | null;
   prompt: string;
   negative_prompt: string;
   /** An `ASPECTS` key, `match` (follow the first input image) or `custom`. */
@@ -162,6 +164,7 @@ interface LoraChoice {
 const DEFAULTS: FormState = {
   mode: 'generate',
   model: '',
+  checkpoint: null,
   prompt: '',
   negative_prompt: '',
   aspect: '1:1',
@@ -277,6 +280,20 @@ export function ImagePage() {
     [models.data],
   );
   const selectedModel = ready.find((model) => model.id === form.model);
+  // The high-noise half of a Wan 2.2 pair is not a choice of its own.
+  const checkpoints = (selectedModel?.components ?? []).filter(
+    (file) => file.slot === 'checkpoint' && !/high[_-]?noise|highnoise|[_-]high[_.-]/i.test(file.name),
+  );
+  const declaredCheckpoint = (
+    selectedModel?.manifest as { components?: { checkpoint?: string } } | null
+  )?.components?.checkpoint;
+  const defaultCheckpoint =
+    checkpoints.find((file) => file.name === declaredCheckpoint) ??
+    [...checkpoints].sort((a, b) => b.size - a.size)[0];
+  // A stored choice whose file has since been deleted falls back to the default.
+  const checkpoint = checkpoints.some((file) => file.name === form.checkpoint)
+    ? form.checkpoint
+    : null;
   const loraFiles = (selectedModel?.components ?? []).filter(
     (file) => file.slot === 'lora' && file.ref,
   );
@@ -305,6 +322,7 @@ export function ImagePage() {
         next.negative_prompt = settings.negative_prompt ?? '';
         if (settings.model && (models.data?.models ?? []).some((m) => m.id === settings.model)) {
           next.model = settings.model;
+          next.checkpoint = settings.checkpoint ?? null;
         }
         if (settings.steps !== undefined) next.steps = settings.steps;
         if (settings.cfg_scale !== undefined) next.cfg_scale = settings.cfg_scale;
@@ -439,6 +457,7 @@ export function ImagePage() {
           ? withCharacter(form.prompt, character)
           : form.prompt.trim(),
       model: form.model,
+      ...(checkpoint ? { checkpoint } : {}),
       steps,
       width,
       height,
@@ -624,6 +643,7 @@ export function ImagePage() {
                   setForm((state) => ({
                     ...state,
                     model: value,
+                    checkpoint: null,
                     steps: null,
                     cfg_scale: null,
                     sampler: null,
@@ -646,6 +666,29 @@ export function ImagePage() {
               />
             )}
           </Field>
+
+          {checkpoints.length > 1 && (
+            <Field label="Checkpoint">
+              <Select
+                value={checkpoint ?? '__default'}
+                onValueChange={(value) =>
+                  update('checkpoint', value === '__default' ? null : value)
+                }
+                options={[
+                  {
+                    value: '__default',
+                    label: `Default (${defaultCheckpoint?.name})`,
+                    description: declaredCheckpoint ? 'Set in model.json' : 'The largest file',
+                  },
+                  ...checkpoints.map((file) => ({
+                    value: file.name,
+                    label: file.name,
+                    description: formatBytes(file.size),
+                  })),
+                ]}
+              />
+            </Field>
+          )}
 
           {selectedModel && (
             <LoraField

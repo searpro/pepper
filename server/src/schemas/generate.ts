@@ -30,6 +30,12 @@ export const generateSchema = z.object({
   prompt: z.string().min(1, 'prompt is required'),
   /** Bundle id under `models/image/` or `models/video/`. */
   model: z.string().min(1, 'model is required'),
+  /**
+   * Which file in the bundle's `checkpoint/` folder to load, for a model with
+   * several (quantizations, fine-tunes). Defaults to the manifest's choice,
+   * else the largest.
+   */
+  checkpoint: z.string().optional(),
 
   negative_prompt: z.string().optional(),
   steps: z.number().int().min(1).max(200).optional(),
@@ -129,6 +135,7 @@ export const generateResultSchema = z.object({
     /** Speech-to-video only: how the run was split, and over how much audio. */
     audio_duration_s: z.number().optional(),
     audio_chunks: z.number().optional(),
+    checkpoint: z.string().optional(),
     loras: z.array(z.object({ name: z.string(), weight: z.number().optional() })).optional(),
     sigmas: z.array(z.number()).optional(),
     duration_ms: z.number(),

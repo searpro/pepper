@@ -90,13 +90,16 @@ export class ImageService {
     const binaryPath = await this.resolveBinary(signal);
     await mkdir(this.paths.outputDir, { recursive: true });
 
-    const bundle = await this.models.resolveImage(params.model);
+    const bundle = await this.models.resolveImage(params.model, undefined, {
+      checkpoint: params.checkpoint,
+    });
 
     // Manifest defaults sit *under* the request: an explicit value always
     // wins, and a model that ships sensible defaults means a caller can send
     // nothing but a prompt.
     const effective: GenerateParams = {
       ...params,
+      checkpoint: bundle.checkpointName,
       negative_prompt: params.negative_prompt ?? bundle.defaults.negative_prompt,
       steps: params.steps ?? bundle.defaults.steps,
       cfg_scale: params.cfg_scale ?? bundle.defaults.cfg_scale,
