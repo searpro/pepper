@@ -74,6 +74,14 @@ export function selectAsset(
   platform: NodeJS.Platform = process.platform,
   arch: string = process.arch,
   accel: Accel = 'cpu',
+  /**
+   * Newest CUDA the host's driver supports, as `cudaRank` numbers it
+   * (12.8 → 1208), from `nvidia-smi`. A build for a newer major toolkit than
+   * the driver fails to initialise CUDA and llama.cpp then runs on the CPU;
+   * within a major, CUDA's minor-version compatibility lets any 12.x runtime
+   * run on any 12.x driver.
+   */
+  maxCuda?: number,
 ): SelectionResult {
   const os = osKeywords(platform);
   const archs = archKeywords(platform, arch);
@@ -130,18 +138,45 @@ export function selectAsset(
         .join(', ')}`,
     );
   }
-  // Among several CUDA builds, the newest toolkit is the higher version
-  // number; prefer it, falling back to size for ties.
-  matches.sort((a, b) => cudaRank(b.name) - cudaRank(a.name) || (a.size ?? 0) - (b.size ?? 0));
-  return { asset: matches[0], reason: accel };
+  // Among several CUDA builds, the newest toolkit the driver can run wins,
+  // falling back to size for ties.
+  const runnable = maxCuda
+    ? matches.filter(
+        (a) => cudaRank(a.name) === 0 || Math.floor(cudaRank(a.name) / 100) <= Math.floor(maxCuda / 100),
+      )
+    : matches;
+  if (runnable.length === 0) {
+    throw new Error(
+      `No CUDA build this driver can run (supports up to CUDA ${Math.floor(maxCuda! / 100)}.${
+        maxCuda! % 100
+      }). Candidates: ${matches.map((a) => a.name).join(', ')}`,
+    );
+  }
+  runnable.sort((a, b) => cudaRank(b.name) - cudaRank(a.name) || (a.size ?? 0) - (b.size ?? 0));
+  return { asset: runnable[0], reason: maxCuda ? `${accel} (driver ≤ ${maxCuda})` : accel };
+}
+
+/**
+ * The CUDA runtime redistributable published next to a CUDA build, if any.
+ * llama.cpp's Linux CUDA archives link libcudart/libcublas from `$ORIGIN`
+ * but ship them only in this separate `cudart-<same name>` archive.
+ */
+export function runtimeCompanion(assets: ReleaseAsset[], asset: ReleaseAsset): ReleaseAsset | undefined {
+  return assets.find((a) => a.name.toLowerCase() === `cudart-${asset.name.toLowerCase()}`);
+}
+
+/** Parse `nvidia-smi`'s banner ("CUDA Version: 12.8") into a `cudaRank` number. */
+export function parseDriverCuda(nvidiaSmi: string): number | undefined {
+  const m = /CUDA Version:\s*(\d+)\.(\d+)/i.exec(nvidiaSmi);
+  return m ? Number(m[1]) * 100 + Number(m[2]) : undefined;
 }
 
 /** Extract a comparable CUDA toolkit version from an asset name (`cuda-12.4` → 1204). */
-function cudaRank(name: string): number {
-  const m = /cu(?:da)?[-_]?(\d+)(?:[._](\d+))?/i.exec(name);
+export function cudaRank(name: string): number {
+  // A two-digit major that ends the token, so a commit hash after "cuda-"
+  // (sd.cpp's "sd-cuda-3f8527a") or a distro version ("cuda-2204") is not
+  // read as a toolkit version. "cu12" style has no minor.
+  const m = /cu(?:da)?[-_]?(\d{2})(?:[._](\d{1,2}))?(?![0-9a-z])/i.exec(name);
   if (!m) return 0;
-  const major = Number(m[1]);
-  const minor = Number(m[2] ?? 0);
-  // "cu12" style has no minor and a two-digit major; normalise both forms.
-  return (major > 100 ? major : major * 100) + minor;
+  return Number(m[1]) * 100 + Number(m[2] ?? 0);
 }

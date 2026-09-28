@@ -1,8 +1,10 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import AdmZip from 'adm-zip';
@@ -10,7 +12,16 @@ import * as tar from 'tar';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Accel, BackendId } from '../config.js';
 import { errors } from '../errors.js';
-import { isArchive, selectAsset, type ReleaseAsset } from './release.js';
+import {
+  isArchive,
+  parseDriverCuda,
+  runtimeCompanion,
+  selectAsset,
+  type ReleaseAsset,
+  type SelectionResult,
+} from './release.js';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Binary manager (requirement 6): install the **latest** release of a backend
@@ -151,24 +162,61 @@ export class BinaryInstaller {
 
   /** Download, extract and install the latest release. */
   async install(signal?: AbortSignal): Promise<InstalledBinary> {
-    const release = await this.latestRelease(signal);
-    const { asset, reason } = selectAsset(
-      release.assets ?? [],
-      process.platform,
-      process.arch,
-      this.options.accel,
-    );
+    const maxCuda = this.options.accel === 'cuda' ? await driverCuda() : undefined;
+    const pick = (release: GithubRelease): SelectionResult =>
+      selectAsset(release.assets ?? [], process.platform, process.arch, this.options.accel, maxCuda);
+
+    let release = await this.latestRelease(signal);
+    let selection: SelectionResult;
+    try {
+      selection = pick(release);
+    } catch (latestErr) {
+      // llama.cpp's "latest" became a placeholder carrying only
+      // nightly-tag.txt, with the builds published as pre-releases. Take the
+      // newest release that has a build for this host instead.
+      const found = await this.newestUsable(pick, signal);
+      if (!found) throw errors.backendInstallFailed(this.options.backend, (latestErr as Error).message);
+      [release, selection] = found;
+    }
+    const { asset, reason } = selection;
+    const companion = runtimeCompanion(release.assets ?? [], asset);
     this.log.info(
-      { backend: this.options.backend, tag: release.tag_name, asset: asset.name, accel: reason },
+      {
+        backend: this.options.backend,
+        tag: release.tag_name,
+        asset: asset.name,
+        runtime: companion?.name,
+        accel: reason,
+      },
       'selected release asset',
     );
-    return this.installAsset(asset, release.tag_name, signal);
+    return this.installAsset(asset, release.tag_name, signal, companion);
+  }
+
+  private async newestUsable(
+    pick: (release: GithubRelease) => SelectionResult,
+    signal?: AbortSignal,
+  ): Promise<[GithubRelease, SelectionResult] | null> {
+    const url = `https://api.github.com/repos/${this.options.repo}/releases?per_page=20`;
+    const res = await fetch(url, { headers: this.apiHeaders(), signal });
+    if (!res.ok) return null;
+    for (const release of (await res.json()) as (GithubRelease & { draft?: boolean })[]) {
+      if (release.draft) continue;
+      try {
+        return [release, pick(release)];
+      } catch {
+        // No build for this host in this one; try the next.
+      }
+    }
+    return null;
   }
 
   async installAsset(
     asset: ReleaseAsset,
     tag: string,
     signal?: AbortSignal,
+    /** Extra archive whose libraries are placed next to the binary. */
+    runtime?: ReleaseAsset,
   ): Promise<InstalledBinary> {
     const { backend, installDir } = this.options;
     if (!isArchive(asset.name)) {
@@ -176,25 +224,13 @@ export class BinaryInstaller {
     }
 
     const tmpArchive = join(tmpdir(), `pepper-${backend}-${randomUUID()}-${suffixOf(asset.name)}`);
-    this.log.info({ backend, url: asset.browser_download_url }, 'downloading release archive');
-
-    const res = await fetch(asset.browser_download_url, {
-      headers: { 'User-Agent': 'pepper' },
-      signal,
-      redirect: 'follow',
-    });
-    if (!res.ok || !res.body) {
-      throw errors.backendInstallFailed(
-        backend,
-        `Failed to download ${asset.name}: HTTP ${res.status} ${res.statusText}`,
-      );
-    }
+    const tmpRuntime = runtime
+      ? join(tmpdir(), `pepper-${backend}-${randomUUID()}-${suffixOf(runtime.name)}`)
+      : undefined;
 
     try {
-      await pipeline(
-        Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
-        createWriteStream(tmpArchive),
-      );
+      await this.download(asset, tmpArchive, signal);
+      if (runtime && tmpRuntime) await this.download(runtime, tmpRuntime, signal);
 
       // Extract into a staging directory, then swap it into place — an
       // interrupted extraction never leaves a half-populated install that the
@@ -223,6 +259,26 @@ export class BinaryInstaller {
       }
       await chmod(staged, 0o755);
 
+      // The binary resolves its libraries from its own directory ($ORIGIN),
+      // so the runtime's files go beside it rather than in their own folder.
+      if (runtime && tmpRuntime) {
+        const runtimeDir = join(stagingDir, '.runtime');
+        await mkdir(runtimeDir, { recursive: true });
+        try {
+          await extractArchive(tmpRuntime, runtime.name, runtimeDir);
+          for (const file of await listFilesDeep(runtimeDir)) {
+            await copyFile(file, join(dirname(staged), file.slice(file.lastIndexOf('/') + 1)));
+          }
+        } catch (err) {
+          await rm(stagingDir, { recursive: true, force: true });
+          throw errors.backendInstallFailed(
+            backend,
+            `Failed to extract ${runtime.name}: ${(err as Error).message}`,
+          );
+        }
+        await rm(runtimeDir, { recursive: true, force: true });
+      }
+
       await rm(targetDir, { recursive: true, force: true });
       await rename(stagingDir, targetDir);
 
@@ -243,8 +299,49 @@ export class BinaryInstaller {
       return receipt;
     } finally {
       await rm(tmpArchive, { force: true }).catch(() => {});
+      if (tmpRuntime) await rm(tmpRuntime, { force: true }).catch(() => {});
     }
   }
+
+  private async download(asset: ReleaseAsset, dest: string, signal?: AbortSignal): Promise<void> {
+    const { backend } = this.options;
+    this.log.info({ backend, url: asset.browser_download_url }, 'downloading release archive');
+    const res = await fetch(asset.browser_download_url, {
+      headers: { 'User-Agent': 'pepper' },
+      signal,
+      redirect: 'follow',
+    });
+    if (!res.ok || !res.body) {
+      throw errors.backendInstallFailed(
+        backend,
+        `Failed to download ${asset.name}: HTTP ${res.status} ${res.statusText}`,
+      );
+    }
+    await pipeline(
+      Readable.fromWeb(res.body as Parameters<typeof Readable.fromWeb>[0]),
+      createWriteStream(dest),
+    );
+  }
+}
+
+/** Newest CUDA the NVIDIA driver supports, or undefined without `nvidia-smi`. */
+async function driverCuda(): Promise<number | undefined> {
+  try {
+    const { stdout } = await execFileAsync('nvidia-smi', [], { timeout: 10_000 });
+    return parseDriverCuda(stdout);
+  } catch {
+    return undefined;
+  }
+}
+
+async function listFilesDeep(dir: string): Promise<string[]> {
+  const files: string[] = [];
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...(await listFilesDeep(full)));
+    else if (entry.isFile()) files.push(full);
+  }
+  return files;
 }
 
 function suffixOf(name: string): string {

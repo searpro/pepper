@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadConfig, publicConfig } from '../src/config.js';
 import { assertSafeName, safeResolve } from '../src/paths.js';
-import { selectAsset } from '../src/backends/release.js';
+import { cudaRank, parseDriverCuda, runtimeCompanion, selectAsset } from '../src/backends/release.js';
 import type { FastifyBaseLogger } from 'fastify';
 import { evaluatePolicy } from '../src/backends/monitor.js';
 import { ManagedProcess } from '../src/backends/process.js';
@@ -125,6 +125,27 @@ describe('release asset selection', () => {
 
   it('treats metal as the native macOS build rather than a filename keyword', () => {
     expect(selectAsset(assets, 'darwin', 'arm64', 'metal').asset.browser_download_url).toBe('u5');
+  });
+
+  it('never picks a CUDA build newer than the driver supports', () => {
+    const llama = [
+      { name: 'llama-b1-bin-ubuntu-cuda-12.8-x64.tar.gz', browser_download_url: 'c12' },
+      { name: 'llama-b1-bin-ubuntu-cuda-13.4-x64.tar.gz', browser_download_url: 'c13' },
+      { name: 'cudart-llama-b1-bin-ubuntu-cuda-12.8-x64.tar.gz', browser_download_url: 'rt' },
+    ];
+    expect(selectAsset(llama, 'linux', 'x64', 'cuda').asset.browser_download_url).toBe('c13');
+    // A 12.4 driver runs the 12.8 build (minor-version compatibility), not 13.x.
+    const pick = selectAsset(llama, 'linux', 'x64', 'cuda', parseDriverCuda('| CUDA Version: 12.4 |'));
+    expect(pick.asset.browser_download_url).toBe('c12');
+    expect(runtimeCompanion(llama, pick.asset)?.browser_download_url).toBe('rt');
+    expect(() => selectAsset(llama, 'linux', 'x64', 'cuda', 1104)).toThrow(/driver can run/);
+  });
+
+  it('does not mistake a commit hash or distro version for a CUDA version', () => {
+    expect(cudaRank('sd-cuda-1580abc-linux-x86_64.zip')).toBe(0);
+    expect(cudaRank('linux-cuda-2204')).toBe(0);
+    expect(cudaRank('llama-b4589-bin-ubuntu-x64-cuda-12.4.zip')).toBe(1204);
+    expect(cudaRank('torch-cu12.zip')).toBe(1200);
   });
 
   it('reports which assets existed when nothing matches', () => {
