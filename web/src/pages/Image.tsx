@@ -1328,8 +1328,6 @@ function LoraField({
                 chosen && 'border-primary bg-primary/10',
               )}
             >
-              {/* A div, not a label: a label forwards its click to the switch,
-                  which toggles it a second time. */}
               <div className="flex items-center justify-between gap-3 text-xs">
                 <span className="min-w-0 break-all font-medium" title={name}>
                   {name}
