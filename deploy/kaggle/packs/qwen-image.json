@@ -1,0 +1,19 @@
+{
+  "description": "Qwen-Image 2.1 with the Q4_0 and uncensored Q5_K_M checkpoints, the Qwen3-VL-8B text encoder (also offered as a text model) and vision projector, and the Viggle 6-step and Pruna 8-step turbo LoRAs. About 17 GB.",
+  "catalogue": [
+    {
+      "id": "qwen-image-2.1",
+      "selections": [
+        { "slot": "checkpoint", "url": "https://huggingface.co/leejet/Qwen-Image-2.1-GGUF/resolve/main/qwen_image_2.1-Q4_0.gguf" },
+        { "slot": "checkpoint", "url": "https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF/resolve/main/qwen-image-2.1-UC-Q5_K_M.gguf" },
+        { "slot": "vae", "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors" },
+        { "slot": "clip", "url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/Qwen3VL-8B-Instruct-Q4_K_M.gguf" },
+        { "slot": "clip", "url": "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-8B-Instruct-Q8_0.gguf" }
+      ]
+    }
+  ],
+  "components": [
+    { "kind": "image", "bundle": "qwen-image-2.1", "slot": "lora", "url": "https://huggingface.co/Viggle/Qwen-Image-2.1-viggle-turbo/resolve/main/Qwen-Image-2.1-viggle-turbo-v0.2.1-6step-lora-r128.safetensors" },
+    { "kind": "image", "bundle": "qwen-image-2.1", "slot": "lora", "url": "https://huggingface.co/PrunaAI/Pruna-Qwen-Image-2.1/resolve/main/p_qwen_image_2.1_8step_v0.1.safetensors" }
+  ]
+}

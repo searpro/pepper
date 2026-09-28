@@ -13,6 +13,21 @@ script kernel. On Kaggle it
   5. opens a Cloudflare quick tunnel to it, and
   6. stays up for CONFIG["hours"], then exits.
 
+Two optional modes around that, both for keeping models between runs (Kaggle
+only persists a kernel's /kaggle/working output, up to 20 GB, which other
+kernels can mount read-only):
+
+  - CONFIG["pack"]: build a model pack instead of serving. Pepper runs with
+    DATA_DIR under /kaggle/working, installs the pack's models through its own
+    API (so every model.json is exactly what Pepper writes), and the kernel
+    exits keeping only models/ as its saved output.
+  - CONFIG["packs"]: packs to mount. Before Pepper starts, each pack's bundles
+    are rebuilt under DATA_DIR as real directories whose weight files are
+    symlinks into /kaggle/input — Pepper lists bundle and slot directories
+    without following symlinks, but reads files through them — and model.json
+    is copied so it stays editable. The files are then read once in the
+    background so the first generation is not a cold read over NFS.
+
 A batch kernel's log is only readable once it has finished, so everything it
 prints is also posted back to the launcher (through the launcher's own quick
 tunnel, authenticated by a per-launch secret). That is how the tunnel URL
@@ -39,6 +54,7 @@ TMP = "/tmp"
 SRC = f"{TMP}/pepper"
 DATA = f"{TMP}/pepper-data"
 TOOLS = f"{TMP}/tools"
+PACK_DATA = "/kaggle/working/pepper-data"
 PORT = 3000
 START = time.time()
 
@@ -158,6 +174,128 @@ def wait_healthy(server: subprocess.Popen) -> None:
     raise SystemExit("pepper did not become healthy")
 
 
+def api(method: str, path: str, body: dict | None = None):
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{PORT}{path}", method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as res:
+        raw = res.read()
+    return json.loads(raw) if raw else None
+
+
+# --- Model packs --------------------------------------------------------------
+
+
+def build_pack(server: subprocess.Popen) -> None:
+    """Install CONFIG["pack"] into PACK_DATA, then keep only its models."""
+    pack = CONFIG["pack"]
+    for item in pack.get("catalogue", []):
+        api("POST", f"/v1/catalogue/{item['id']}/install",
+            {"selections": item["selections"], **({"bundle": item["bundle"]} if item.get("bundle") else {})})
+        log(f"queued {item['id']} ({len(item['selections'])} files)")
+    for item in pack.get("components", []):
+        api("POST", f"/v1/models/{item['kind']}/{item['bundle']}/components",
+            {"slot": item["slot"], "url": item["url"]})
+        log(f"queued {item['kind']}/{item['bundle']} {item['slot']}")
+
+    last = ""
+    while True:
+        if server.poll() is not None:
+            raise SystemExit(f"pepper exited while downloading ({server.returncode})")
+        tasks = api("GET", "/v1/downloads")["downloads"]
+        pending = [t for t in tasks if t["status"] in ("queued", "downloading")]
+        failed = [t for t in tasks if t["status"] in ("failed", "cancelled")]
+        got = sum(t["received"] for t in tasks) / 1e9
+        summary = f"{len(tasks) - len(pending)}/{len(tasks)} files, {got:.1f} GB"
+        if summary != last:
+            log(f"downloads: {summary}")
+            last = summary
+        if not pending:
+            break
+        time.sleep(20)
+    if failed:
+        raise SystemExit("downloads failed: " + ", ".join(f"{t['name']} ({t.get('error')})" for t in failed))
+
+    server.terminate()
+    server.wait(60)
+    # Only models/ is the pack: the database, cache and logs are this run's.
+    for entry in os.listdir(PACK_DATA):
+        path = os.path.join(PACK_DATA, entry)
+        if entry != "models":
+            shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
+    files = []
+    for dirpath, _, names in os.walk(f"{PACK_DATA}/models"):
+        for name in names:
+            path = os.path.join(dirpath, name)
+            if name.endswith((".part", ".part.json")):
+                os.remove(path)
+                continue
+            files.append({"path": os.path.relpath(path, PACK_DATA), "size": os.path.getsize(path)})
+    total = sum(f["size"] for f in files)
+    with open(f"{PACK_DATA}/PACK.json", "w") as f:
+        json.dump({"commit": CONFIG["commit"], "built": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                   "bytes": total, "files": files}, f, indent=2)
+    for item in files:
+        log(f"  {item['size'] / 1e9:6.2f} GB  {item['path']}")
+    log(f"pack complete: {len(files)} files, {total / 1e9:.1f} GB")
+
+
+def pack_root(slug: str) -> str | None:
+    user = CONFIG.get("user", "")
+    direct = f"/kaggle/input/notebooks/{user}/{slug}/pepper-data/models"
+    if os.path.isdir(direct):
+        return direct
+    for dirpath, dirs, _ in os.walk("/kaggle/input"):
+        if os.path.basename(dirpath) == slug and "pepper-data" in dirs:
+            return os.path.join(dirpath, "pepper-data", "models")
+    return None
+
+
+def link_packs() -> list[str]:
+    """Rebuild each mounted pack's bundles under DATA as real directories of
+    symlinked files. Returns the linked files, in pack order."""
+    linked: list[str] = []
+    for slug in CONFIG.get("packs", []):
+        root = pack_root(slug)
+        if not root:
+            log(f"pack {slug}: not mounted (build it with --build-pack first); skipping")
+            continue
+        count = size = 0
+        for dirpath, _, names in os.walk(root):
+            target = os.path.join(DATA, "models", os.path.relpath(dirpath, root))
+            os.makedirs(target, exist_ok=True)
+            for name in names:
+                src, dst = os.path.join(dirpath, name), os.path.join(target, name)
+                if os.path.lexists(dst):
+                    continue
+                if name.endswith(".json"):
+                    shutil.copyfile(src, dst)  # model.json stays editable
+                else:
+                    os.symlink(src, dst)
+                    linked.append(src)
+                    count += 1
+                    size += os.path.getsize(src)
+        log(f"pack {slug}: linked {count} files, {size / 1e9:.1f} GB")
+    return linked
+
+
+def warm(files: list[str], budget: float = 16e9) -> None:
+    """Read pack files once so they sit in the page cache (31 GB of RAM on a
+    Kaggle GPU box), turning the first load of each model from a ~190 MB/s
+    NFS read into a memory copy."""
+    started, done = time.time(), 0
+    for path in files:
+        size = os.path.getsize(path)
+        if done + size > budget:
+            break
+        with open(path, "rb", buffering=0) as f:
+            while f.read(16 << 20):
+                pass
+        done += size
+    log(f"warmed {done / 1e9:.1f} GB of pack files in {time.time() - started:.0f}s")
+
+
 def open_tunnel(env: dict) -> tuple[subprocess.Popen, str]:
     found: dict = {}
     ready = threading.Event()
@@ -198,17 +336,32 @@ def main() -> None:
         "PIP_CACHE_DIR": f"{TMP}/pip-cache",
     }
 
+    building_pack = bool(CONFIG.get("pack"))
+    if building_pack:
+        # Downloads land straight in the saved output; no binaries are needed
+        # to download models.
+        env.update({"DATA_DIR": PACK_DATA, "AUTO_INSTALL_BACKENDS": "false"})
+
     install_tools()
     checkout()
 
     # The build needs dev dependencies; production mode is for the server only.
     build({**env, "NODE_ENV": "development"})
 
+    linked = [] if building_pack else link_packs()
+
     server = subprocess.Popen(["node", "dist/index.js"], cwd=f"{SRC}/server", env=env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     threading.Thread(target=forward, args=(server, "[pepper]"), daemon=True).start()
     wait_healthy(server)
     log("pepper is healthy")
+
+    if building_pack:
+        build_pack(server)
+        finish()
+        return
+    if linked:
+        threading.Thread(target=warm, args=(linked,), daemon=True).start()
 
     tunnel, url = open_tunnel(env)
     # Give the quick tunnel's DNS a moment so the URL works when it is shown.

@@ -7,6 +7,8 @@
 
     uv run deploy/kaggle/launch.py                 # 2x T4, up for 6 hours
     uv run deploy/kaggle/launch.py --hours 11 --accel p100
+    uv run deploy/kaggle/launch.py --build-pack starter    # once: save models on Kaggle
+    uv run deploy/kaggle/launch.py --packs starter,qwen-image
 
 Pushes `kernel.py` as a private Kaggle script kernel that builds and serves
 the commit checked out here (plus any uncommitted changes), then streams its
@@ -134,20 +136,23 @@ def open_receiver() -> tuple[ThreadingHTTPServer, subprocess.Popen, str]:
     sys.exit("receiver tunnel never became reachable")
 
 
-def push(user: str, headers: dict[str, str], text: str, accel: str) -> None:
+def push(user: str, headers: dict[str, str], text: str, accel: str | None, slug: str = SLUG,
+         kernel_sources: list[str] | None = None) -> None:
+    """`accel` None pushes a CPU-only kernel (pack builds need no GPU and so
+    spend none of the weekly GPU quota)."""
     body = {
-        "slug": f"{user}/{SLUG}",
-        "newTitle": SLUG,
+        "slug": f"{user}/{slug}",
+        "newTitle": slug,
         "text": text,
         "language": "python",
         "kernelType": "script",
         "isPrivate": True,
-        "enableGpu": True,
+        "enableGpu": accel is not None,
         "enableInternet": True,
-        "acceleratorType": ACCELERATORS[accel],
+        **({"acceleratorType": ACCELERATORS[accel]} if accel else {}),
         "datasetDataSources": [],
         "competitionDataSources": [],
-        "kernelDataSources": [],
+        "kernelDataSources": kernel_sources or [],
         "modelDataSources": [],
         "categoryIds": [],
     }
@@ -156,13 +161,19 @@ def push(user: str, headers: dict[str, str], text: str, accel: str) -> None:
     out = r.json()
     if out.get("error"):
         sys.exit(f"push rejected: {out['error']}")
+    if out.get("invalidKernelSources"):
+        print(f"warning: Kaggle did not attach {out['invalidKernelSources']}", flush=True)
     print(f"pushed {out.get('url')} (version {out.get('versionNumber')})", flush=True)
 
 
-def status(user: str, headers: dict[str, str]) -> dict:
+def status(user: str, headers: dict[str, str], slug: str = SLUG) -> dict:
     r = requests.get(f"{API}/kernels/status", headers=headers,
-                     params={"userName": user, "kernelSlug": SLUG}, timeout=30)
+                     params={"userName": user, "kernelSlug": slug}, timeout=30)
     return r.json() if r.ok else {}
+
+
+def pack_slug(name: str) -> str:
+    return f"pepper-pack-{name}"
 
 
 def main() -> None:
@@ -170,11 +181,31 @@ def main() -> None:
     ap.add_argument("--hours", type=float, default=6, help="how long the server stays up (Kaggle caps a run at 12)")
     ap.add_argument("--accel", default="t4x2", choices=sorted(ACCELERATORS))
     ap.add_argument("--no-patch", action="store_true", help="build the commit only, without local changes")
+    ap.add_argument("--packs", default="", help="comma-separated model packs to mount, e.g. starter,qwen-image")
+    ap.add_argument("--build-pack", metavar="NAME",
+                    help="build deploy/kaggle/packs/NAME.json into a saved pack instead of serving")
     a = ap.parse_args()
 
     user, headers = auth()
     sha, diff = source()
     print(f"building {sha[:7]}" + (" + local changes" if diff and not a.no_patch else ""), flush=True)
+
+    slug, accel, sources, extra = SLUG, a.accel, [], {}
+    if a.build_pack:
+        spec = HERE / "packs" / f"{a.build_pack}.json"
+        if not spec.exists():
+            sys.exit(f"no pack spec at {spec}")
+        slug, accel = pack_slug(a.build_pack), None
+        extra = {"pack": json.loads(spec.read_text())}
+    elif a.packs:
+        names = [n.strip() for n in a.packs.split(",") if n.strip()]
+        for name in names:
+            built = status(user, headers, pack_slug(name)).get("status")
+            if built != "complete":
+                print(f"warning: pack {name} is {built or 'not built'}; "
+                      f"build it with --build-pack {name}", flush=True)
+        sources = [f"{user}/{pack_slug(n)}" for n in names]
+        extra = {"packs": [pack_slug(n) for n in names], "user": user}
 
     Receiver.secret = secrets.token_urlsafe(32)
     _, receiver_tunnel, receiver_url = open_receiver()
@@ -186,14 +217,15 @@ def main() -> None:
         "hours": min(a.hours, 11.9),
         "receiver": receiver_url,
         "secret": Receiver.secret,
+        **extra,
     }
     text = (HERE / "kernel.py").read_text().replace("CONFIG: dict = {}", f"CONFIG: dict = {json.dumps(config)}", 1)
-    push(user, headers, text, a.accel)
+    push(user, headers, text, accel, slug, sources)
 
     last = None
     try:
         while not Receiver.done.is_set():
-            s = status(user, headers).get("status")
+            s = status(user, headers, slug).get("status")
             if s and s != last:
                 print(f"[kaggle] {s}", flush=True)
                 last = s
@@ -202,11 +234,20 @@ def main() -> None:
             Receiver.done.wait(30)
     except KeyboardInterrupt:
         print(f"\nleft the kernel running{f' at {Receiver.url}' if Receiver.url else ''}; "
-              f"stop it at https://www.kaggle.com/code/{user}/{SLUG}")
+              f"stop it at https://www.kaggle.com/code/{user}/{slug}")
     finally:
         receiver_tunnel.terminate()
     if Receiver.error or last in {"error", "cancelled", "cancelAcknowledged"}:
         sys.exit(f"kernel failed: {Receiver.error or last}")
+    if a.build_pack:
+        # The output is only saved once Kaggle marks the version complete.
+        while last not in DONE:
+            time.sleep(20)
+            last = status(user, headers, slug).get("status") or last
+            print(f"[kaggle] {last}", flush=True)
+        if last != "complete":
+            sys.exit(f"pack build ended {last}")
+        print(f"pack saved; launch with --packs {a.build_pack}", flush=True)
 
 
 if __name__ == "__main__":

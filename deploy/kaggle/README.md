@@ -39,6 +39,7 @@ on your own machine; the Kaggle website is only needed to stop a run early.
    | `--hours N` | `6` | How long the server stays up (capped just under Kaggle's 12). |
    | `--accel t4x2\|t4\|p100` | `t4x2` | Which GPU to run on. |
    | `--no-patch` | off | Build the pushed commit only, ignoring local changes. |
+   | `--packs a,b` | none | Mount saved model packs (see [Model packs](#model-packs)). |
 
 3. **Wait for the URL.** The terminal shows `pushed …`, the kernel's status,
    then its setup log (Node, cloudflared, `npm ci`, the build) — a few minutes.
@@ -66,7 +67,40 @@ on your own machine; the Kaggle website is only needed to stop a run early.
   re-download models each run. `df` reports ~1.2 TB free there, but Kaggle
   only lets a session write about 60 GB and kills the kernel (status `ERROR`,
   empty log) when it goes over. Keep the installed models under ~50 GB —
-  delete one video model before installing the next.
+  delete one video model before installing the next. Models mounted from
+  [packs](#model-packs) are read, not written, so they do not count.
+
+## Model packs
+
+A pack is a set of models downloaded once and kept on Kaggle, so a run starts
+with them installed instead of fetching 10–20 GB first. It is a CPU-only kernel
+(`pepper-pack-<name>`, no GPU quota used) whose saved output is Pepper's
+`models/` folder; runs mount it read-only.
+
+```bash
+uv run deploy/kaggle/launch.py --build-pack starter      # once, ~20–30 min
+uv run deploy/kaggle/launch.py --packs starter
+```
+
+| Pack | Contents | Size |
+| --- | --- | --- |
+| `starter` | Z-Image Turbo (Q8_0), whose Qwen3-4B-Instruct text encoder is also offered as a text model; Qwen3-TTS VoiceDesign, Chatterbox (voice cloning), Parakeet (speech recognition) | ~17 GB |
+| `qwen-image` | Qwen-Image 2.1 with the Q4_0 and uncensored Q5_K_M checkpoints, Qwen3-VL-8B encoder (also a text model) and vision projector, Viggle 6-step and Pruna 8-step LoRAs | ~17 GB |
+
+Packs are defined in `packs/<name>.json` as catalogue installs by file URL, so
+adding one is writing a JSON file; rebuild a pack to change it. Limits and
+behaviour worth knowing:
+
+- **20 GB per pack.** Kaggle caps a kernel's saved output there, so keep a pack
+  under ~19 GB and split larger sets. Several packs can be mounted at once.
+- **Pepper sees ordinary bundles.** Each pack's files are symlinked into
+  `/tmp/pepper-data/models` at startup, and `model.json` is copied, so
+  deleting or editing a model in a run only changes that run.
+- **First load is warm.** After Pepper starts, up to 16 GB of pack files are
+  read once in the background (~190 MB/s from Kaggle's mount), so the first
+  generation reads them from memory. Log line: `warmed … GB of pack files`.
+- **Backends still install per run** (~1 min from GitHub releases): each
+  bundles its own CUDA runtime, which would take ~3.5 GB of a pack.
 
 ## Stopping a run
 
