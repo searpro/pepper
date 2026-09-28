@@ -3,6 +3,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { BackendId } from '../config.js';
 import { proxyToBackend } from '../services/proxy.js';
+import { listTextEncoderLlms } from '../models/text-encoders.js';
 
 /**
  * Text generation (requirement 3): an OpenAI-shaped reverse proxy onto
@@ -82,6 +83,41 @@ export async function textRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     forward('/v1/embeddings'),
+  );
+
+  app.get(
+    '/v1/text/models',
+    {
+      schema: {
+        tags: ['text'],
+        summary: 'Models text generation can use',
+        description:
+          'Installed LLM bundles, then the text encoders of image and video models ' +
+          'that are themselves chat LLMs (id `<bundle>@<file>`). Either id is valid ' +
+          'as `model` on text jobs and /v1/llm/*.',
+      },
+    },
+    async () => {
+      const llms = (await app.models.list('llm')).map((bundle) => ({
+        id: bundle.id,
+        name: bundle.name,
+        ready: bundle.ready,
+        source: 'llm' as const,
+      }));
+      const encoders = (await listTextEncoderLlms(app.paths, app.models, app.log)).map((encoder) => ({
+        id: encoder.id,
+        name: encoder.name,
+        ready: true,
+        source: 'text-encoder' as const,
+        description: `Text encoder of ${encoder.bundleName}`,
+        kind: encoder.kind,
+        bundle: encoder.bundle,
+        file: encoder.file,
+        architecture: encoder.architecture,
+        size: encoder.size,
+      }));
+      return { models: [...llms, ...encoders] };
+    },
   );
 
   app.get(

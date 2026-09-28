@@ -10,6 +10,7 @@ import { characters, type CharacterRow } from '../db/schema.js';
 import { AppError, errors } from '../errors.js';
 import type { Job, JobManager } from '../jobs/manager.js';
 import type { ModelManager } from '../models/manager.js';
+import { listTextEncoderLlms } from '../models/text-encoders.js';
 import { safeResolve, type Paths } from '../paths.js';
 import { uniqueOutputName } from '../util/files.js';
 import type { TextService } from './text-gen.js';
@@ -301,9 +302,14 @@ export class CharacterService {
   }
 
   private async pickLlm(requested?: string): Promise<string | null> {
-    const ready = (await this.models.list('llm')).filter((bundle) => bundle.ready);
-    if (requested) return ready.some((bundle) => bundle.id === requested) ? requested : null;
-    return ready[0]?.id ?? null;
+    // An installed LLM is preferred; failing that, an image or video model's
+    // text encoder that is itself a chat LLM.
+    const ids = [
+      ...(await this.models.list('llm')).filter((bundle) => bundle.ready).map((bundle) => bundle.id),
+      ...(await listTextEncoderLlms(this.paths, this.models, this.log)).map((encoder) => encoder.id),
+    ];
+    if (requested) return ids.includes(requested) ? requested : null;
+    return ids[0] ?? null;
   }
 
   // --- Generation --------------------------------------------------------------
@@ -527,12 +533,49 @@ export function parseJsonObject(text: string): Record<string, unknown> | null {
   const start = cleaned.indexOf('{');
   const end = cleaned.lastIndexOf('}');
   if (start < 0 || end <= start) return null;
-  try {
-    const value = JSON.parse(cleaned.slice(start, end + 1));
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
-  } catch {
-    return null;
+  const candidate = cleaned.slice(start, end + 1);
+  for (const text of [candidate, escapeStrayQuotes(candidate)]) {
+    try {
+      const value = JSON.parse(text);
+      return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+    } catch {
+      // Try the repaired text next.
+    }
   }
+  return null;
+}
+
+/**
+ * Escape double quotes a model left bare inside a string value — heights like
+ * `5'8"` are the usual culprit. A quote inside a string only closes it when
+ * what follows is structural: `:` `}` `]`, or a comma that starts the next
+ * key or value. `5'8", lean` is text; `"x", "y"` is two values.
+ */
+export function escapeStrayQuotes(json: string): string {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < json.length; i += 1) {
+    const ch = json[i];
+    if (inString && ch === '\\') {
+      out += ch + (json[i + 1] ?? '');
+      i += 1;
+      continue;
+    }
+    if (ch === '"') {
+      if (!inString) {
+        inString = true;
+      } else {
+        const rest = json.slice(i + 1);
+        if (/^\s*($|[:}\]]|,\s*["{[\d\-tfn])/.test(rest)) inString = false;
+        else {
+          out += '\\"';
+          continue;
+        }
+      }
+    }
+    out += ch;
+  }
+  return out;
 }
 
 function definedOnly<T extends Record<string, unknown>>(values: T): Partial<T> {

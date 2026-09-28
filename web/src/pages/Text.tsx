@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { MessageSquareText, SendHorizontal, Square } from 'lucide-react';
-import { api, useResource, waitForJob, type BundleInfo } from '@/lib/api';
+import { api, useResource, waitForJob, type TextModel } from '@/lib/api';
 import { Button, Card, EmptyState, ErrorNote, Field, Select, Spinner, Textarea } from '@/components/ui';
 import { Page } from '@/components/layout';
 import { cn } from '@/lib/utils';
@@ -21,7 +21,8 @@ interface Message {
  * clients that want it.
  */
 export function TextPage() {
-  const models = useResource<{ models: BundleInfo[] }>('/v1/models?kind=llm');
+  // LLM bundles plus image/video text encoders that are chat LLMs themselves.
+  const models = useResource<{ models: TextModel[] }>('/v1/text/models');
   const [model, setModel] = React.useState('');
   const [input, setInput] = React.useState('');
   const [messages, setMessages] = React.useState<Message[]>([]);
@@ -89,7 +90,7 @@ export function TextPage() {
         <EmptyState
           icon={MessageSquareText}
           title="No text models installed"
-          description="Open Models in the top bar to install a GGUF model from the catalogue."
+          description="Open Models in the top bar to install a GGUF model from the catalogue. Image models whose text encoder is an LLM (Z-Image, FLUX.2, Qwen-Image) also appear here."
         />
       ) : (
         <Card className="flex h-[calc(100dvh-11rem)] flex-col overflow-hidden">
@@ -98,7 +99,11 @@ export function TextPage() {
               <Select
                 value={model}
                 onValueChange={setModel}
-                options={ready.map((entry) => ({ value: entry.id, label: entry.name }))}
+                options={ready.map((entry) => ({
+                  value: entry.id,
+                  label: entry.name,
+                  description: entry.description,
+                }))}
               />
             </Field>
             {messages.length > 0 ? (

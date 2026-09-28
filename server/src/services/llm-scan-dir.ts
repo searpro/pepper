@@ -2,6 +2,7 @@ import { mkdir, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { ModelManager } from '../models/manager.js';
+import { listTextEncoderLlms } from '../models/text-encoders.js';
 import type { Paths } from '../paths.js';
 
 /**
@@ -27,6 +28,10 @@ import type { Paths } from '../paths.js';
  *
  * `aux/` files (mmproj projectors) are deliberately not linked — llama.cpp
  * would load a projector as though it were a model.
+ *
+ * Image and video models whose text encoder is a whole chat LLM get an entry
+ * too, named `<bundle>@<file stem>` (see models/text-encoders.ts), so the
+ * same file serves both jobs.
  */
 
 export const LLM_SCAN_DIR = 'llm-scan';
@@ -61,6 +66,13 @@ export async function writeLlmScanDir(
       await symlink(join(paths.modelsDir, 'llm', bundle.id, 'weights', file.name), join(bundleDir, file.name));
     }
     modelIds.push(bundle.id);
+  }
+
+  for (const encoder of await listTextEncoderLlms(paths, models, log)) {
+    const dir = join(path, encoder.id);
+    await mkdir(dir, { recursive: true });
+    await symlink(encoder.path, join(dir, encoder.file));
+    modelIds.push(encoder.id);
   }
 
   return { path, modelIds };

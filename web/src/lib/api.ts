@@ -271,6 +271,16 @@ export interface BundleInfo {
   readyReason?: string;
 }
 
+/** An entry of GET /v1/text/models: an LLM bundle, or a text encoder that is one. */
+export interface TextModel {
+  id: string;
+  name: string;
+  ready: boolean;
+  source: 'llm' | 'text-encoder';
+  /** Text encoders only, e.g. "Text encoder of Qwen-Image 2.1". */
+  description?: string;
+}
+
 export interface DownloadTask {
   id: string;
   kind: ModelKind;

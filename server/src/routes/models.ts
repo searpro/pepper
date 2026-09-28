@@ -126,8 +126,9 @@ export async function modelRoutes(fastify: FastifyInstance): Promise<void> {
       if (req.params.kind === 'audio') {
         app.backends.scheduleRestart('audiocpp', 'audio model deleted');
       }
-      if (req.params.kind === 'llm') {
-        app.backends.scheduleRestart('llamacpp', 'llm model deleted');
+      if (req.params.kind !== 'audio') {
+        // Image and video bundles can carry a text encoder served as an LLM.
+        app.backends.scheduleRestart('llamacpp', `${req.params.kind} model deleted`);
       }
       return reply.code(204).send(null);
     },
@@ -150,6 +151,9 @@ export async function modelRoutes(fastify: FastifyInstance): Promise<void> {
         parseSlot(req.params.slot),
         req.params.name,
       );
+      if (req.params.kind === 'llm' || req.params.slot === 'clip') {
+        app.backends.scheduleRestart('llamacpp', 'text model file deleted');
+      }
       return reply.code(204).send(null);
     },
   );

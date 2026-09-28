@@ -116,6 +116,10 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     // rescan. Debounced inside the process manager, so a bundle whose
     // components finish together restarts once rather than five times.
     if (task.kind === 'llm') backends.scheduleRestart('llamacpp', 'llm model downloaded');
+    // A text encoder can double as a chat model (models/text-encoders.ts).
+    if ((task.kind === 'image' || task.kind === 'video') && task.slot === 'clip') {
+      backends.scheduleRestart('llamacpp', 'text encoder downloaded');
+    }
     if (task.kind === 'audio') backends.scheduleRestart('audiocpp', 'audio model downloaded');
   });
 

@@ -10,6 +10,7 @@ import {
   validateDimensions,
 } from '../schemas/generate.js';
 import { errors } from '../errors.js';
+import { listTextEncoderLlms } from '../models/text-encoders.js';
 import { startSse, startWs, type SseStream } from '../util/sse.js';
 import type { JobKind } from '../jobs/manager.js';
 
@@ -112,7 +113,11 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (req, reply) => {
       const bundle = await app.models.find(req.body.model, ['llm']);
-      if (!bundle) throw errors.modelNotFound(req.body.model);
+      // An image/video model's text encoder can also serve (models/text-encoders.ts).
+      const encoder =
+        !bundle &&
+        (await listTextEncoderLlms(app.paths, app.models, app.log)).some((e) => e.id === req.body.model);
+      if (!bundle && !encoder) throw errors.modelNotFound(req.body.model);
       return reply.code(202).send(app.jobs.create('text', req.body));
     },
   );

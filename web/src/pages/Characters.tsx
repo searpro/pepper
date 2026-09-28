@@ -24,6 +24,7 @@ import {
   useResource,
   type BundleInfo,
   type Job,
+  type TextModel,
 } from '@/lib/api';
 import { copyText, inputUrl, setVideoHandoff } from '@/lib/images';
 import {
@@ -202,6 +203,15 @@ export function CharactersPage() {
 
 // --- Creating ------------------------------------------------------------------
 
+/** LLM bundles, then image/video text encoders that are chat LLMs. */
+function useTextModels() {
+  const models = useResource<{ models: TextModel[] }>('/v1/text/models');
+  return React.useMemo(
+    () => (models.data?.models ?? []).filter((model) => model.ready),
+    [models.data],
+  );
+}
+
 function useModels(kind: 'image' | 'llm' | 'audio') {
   const models = useResource<{ models: BundleInfo[] }>(`/v1/models?kind=${kind}`);
   return React.useMemo(
@@ -219,7 +229,7 @@ function NewCharacterDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: (character: Character) => void;
 }) {
-  const llms = useModels('llm');
+  const llms = useTextModels();
   const imageModels = useModels('image');
   const audioModels = useModels('audio').filter((m) => (m.manifest?.task as string) !== 'asr');
   const [brief, setBrief] = React.useState('');
@@ -326,7 +336,11 @@ function NewCharacterDialog({
                 onValueChange={setLlm}
                 options={[
                   { value: 'auto', label: llms[0] ? `Auto (${llms[0].name})` : 'Auto' },
-                  ...llms.map((model) => ({ value: model.id, label: model.name })),
+                  ...llms.map((model) => ({
+                    value: model.id,
+                    label: model.name,
+                    description: model.description,
+                  })),
                   { value: 'none', label: 'No LLM — use my idea as written' },
                 ]}
               />
@@ -487,7 +501,7 @@ function DesignCard({
   character: Character;
   onSave: (patch: Partial<Character>) => Promise<void>;
 }) {
-  const llms = useModels('llm');
+  const llms = useTextModels();
   const [llm, setLlm] = React.useState('auto');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
@@ -545,7 +559,11 @@ function DesignCard({
           onValueChange={setLlm}
           options={[
             { value: 'auto', label: llms[0] ? `Auto (${llms[0].name})` : 'Auto' },
-            ...llms.map((model) => ({ value: model.id, label: model.name })),
+            ...llms.map((model) => ({
+              value: model.id,
+              label: model.name,
+              description: model.description,
+            })),
           ]}
           className="flex-1"
         />

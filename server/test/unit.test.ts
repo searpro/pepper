@@ -22,6 +22,8 @@ import {
   alignFrames,
 } from '../src/models/bundle.js';
 import { Semaphore } from '../src/util/semaphore.js';
+import { readGgufInfo } from '../src/util/gguf.js';
+import { isChatLlm } from '../src/models/text-encoders.js';
 import { buildImageArgs } from '../src/services/image-args.js';
 import { probeAudio, sliceAudio } from '../src/util/ffmpeg.js';
 import { UpscaleService, upscalerPreferencesKey, type UpscalerPreferences } from '../src/services/upscale.js';
@@ -1189,6 +1191,11 @@ describe('character studio', () => {
       name: 'Gronk',
       appearance: 'a dwarf',
     });
+    // A bare quote inside a value (a height in inches) is repaired, not fatal.
+    expect(parseJsonObject('{"appearance": "30s, 5\'8", lean", "name": "Mara"}')).toEqual({
+      appearance: '30s, 5\'8", lean',
+      name: 'Mara',
+    });
     expect(parseJsonObject('no json here')).toBeNull();
     expect(parseJsonObject('[1,2]')).toBeNull();
   });
@@ -1347,5 +1354,60 @@ describe('Python runner protocol', () => {
         params: { prompt: 'x', model: 'fake' },
       }),
     ).rejects.toThrow(/Unknown runner 'no_such_runner'/);
+  });
+});
+
+describe('text encoders as chat models', () => {
+  /** A header-only GGUF v3 with the given string / string-array metadata. */
+  function gguf(kv: Record<string, string | string[]>): Buffer {
+    const parts: Buffer[] = [];
+    const u32 = (n: number) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b; };
+    const u64 = (n: number) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b; };
+    const str = (s: string) => Buffer.concat([u64(Buffer.byteLength(s)), Buffer.from(s)]);
+    parts.push(Buffer.from('GGUF'), u32(3), u64(0), u64(Object.keys(kv).length + 1));
+    // A fixed-size array first, so skipping by length is exercised too.
+    parts.push(str('tokenizer.ggml.token_type'), u32(9), u32(5), u64(3), u32(1), u32(1), u32(1));
+    for (const [key, value] of Object.entries(kv)) {
+      parts.push(str(key));
+      if (Array.isArray(value)) parts.push(u32(9), u32(8), u64(value.length), ...value.map(str));
+      else parts.push(u32(8), str(value));
+    }
+    return Buffer.concat(parts);
+  }
+
+  async function info(kv: Record<string, string | string[]>) {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-gguf-'));
+    await writeFile(join(dir, 'm.gguf'), gguf(kv));
+    return readGgufInfo(join(dir, 'm.gguf'));
+  }
+
+  const tokenizer = { 'tokenizer.ggml.model': 'gpt2', 'tokenizer.ggml.tokens': ['a', 'b', 'c'] };
+
+  it('reads the architecture past large arrays', async () => {
+    const i = await info({ ...tokenizer, 'general.architecture': 'qwen3' });
+    expect(i.architecture).toBe('qwen3');
+    expect(i.keys.has('tokenizer.ggml.tokens')).toBe(true);
+  });
+
+  it('accepts a decoder LLM with a chat template (Z-Image / Qwen-Image encoders)', async () => {
+    const i = await info({ 'general.architecture': 'qwen3vl', ...tokenizer, 'tokenizer.chat_template': '{{x}}' });
+    expect(isChatLlm(i)).toBe(true);
+  });
+
+  it('rejects ~1-bit quants, which condition images fine but cannot chat', async () => {
+    const i = await info({ 'general.architecture': 'qwen3', ...tokenizer, 'tokenizer.chat_template': '{{x}}' });
+    expect(isChatLlm({ ...i, fileType: 24 })).toBe(false); // IQ1_S
+    expect(isChatLlm({ ...i, fileType: 15 })).toBe(true); // Q4_K_M
+  });
+
+  it('rejects umT5 (no chat template) and vision projectors (no tokenizer)', async () => {
+    expect(isChatLlm(await info({ 'general.architecture': 't5encoder', ...tokenizer }))).toBe(false);
+    expect(isChatLlm(await info({ 'general.architecture': 'clip' }))).toBe(false);
+  });
+
+  it('refuses a file that is not GGUF', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-gguf-'));
+    await writeFile(join(dir, 'x.gguf'), 'not a model');
+    await expect(readGgufInfo(join(dir, 'x.gguf'))).rejects.toThrow();
   });
 });
