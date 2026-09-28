@@ -66,6 +66,19 @@ export interface BuildArgsInput {
   backendArgs?: string[];
 }
 
+/**
+ * Appends `<lora:name:weight>` for each selected LoRA. sd-cli strips the tags
+ * from the text before encoding it, so they only select weights. Names are
+ * checked against the bundle before this is reached; the character filter is
+ * a second line of defence against a name closing the tag early.
+ */
+export function withLoraTags(prompt: string, loras: GenerateParams['loras']): string {
+  const tags = (loras ?? [])
+    .filter((lora) => /^[^<>:]+$/.test(lora.name))
+    .map((lora) => `<lora:${lora.name}:${lora.weight ?? 1}>`);
+  return tags.length ? `${prompt} ${tags.join(' ')}` : prompt;
+}
+
 export function buildImageArgs(input: BuildArgsInput): string[] {
   const { params, bundle, outputPath, images, audio, backendArgs = [] } = input;
   const args: string[] = [];
@@ -123,7 +136,7 @@ export function buildImageArgs(input: BuildArgsInput): string[] {
   if (bundle.loraDir) args.push('--lora-model-dir', bundle.loraDir);
 
   args.push('-o', outputPath);
-  args.push(FLAG_MAP.prompt, params.prompt);
+  args.push(FLAG_MAP.prompt, withLoraTags(params.prompt, params.loras));
 
   if (params.negative_prompt) args.push(FLAG_MAP.negative_prompt, params.negative_prompt);
   if (params.steps !== undefined) args.push(FLAG_MAP.steps, String(params.steps));

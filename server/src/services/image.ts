@@ -112,6 +112,15 @@ export class ImageService {
       seed: params.seed !== undefined && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 31 - 1),
     };
 
+    for (const lora of params.loras ?? []) {
+      if (!bundle.loras.includes(lora.name)) {
+        throw errors.validation(
+          `LoRA "${lora.name}" is not installed in model "${bundle.id}".` +
+            (bundle.loras.length ? ` Installed: ${bundle.loras.join(', ')}.` : ''),
+        );
+      }
+    }
+
     const images = {
       init: params.init_image ? await this.resolveUpload(params.init_image) : undefined,
       mask: params.mask ? await this.resolveUpload(params.mask) : undefined,

@@ -421,6 +421,7 @@ function registerExecutors(
         ref_images: result.params.ref_images,
         img_cfg_scale: result.params.ref_images?.length ? result.params.img_cfg_scale : undefined,
         increase_ref_index: result.params.increase_ref_index,
+        loras: result.params.loras,
         duration_ms: result.durationMs,
         output_dir: paths.outputDir,
       },

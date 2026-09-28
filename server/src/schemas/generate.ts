@@ -70,6 +70,20 @@ export const generateSchema = z.object({
   audio_overlap_seconds: z.number().min(0).max(5).optional(),
 
   // --- Additions ---
+  /**
+   * LoRAs from the bundle's `lora/` directory, by filename without extension.
+   * Applied as `<lora:name:weight>` tags, which is also how sd-api clients can
+   * still pass them inline in the prompt.
+   */
+  loras: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        weight: z.number().min(-4).max(4).optional(),
+      }),
+    )
+    .max(8)
+    .optional(),
   /** Number of images to produce; each becomes its own job. */
   batch: z.number().int().min(1).max(16).optional(),
 
@@ -109,6 +123,7 @@ export const generateResultSchema = z.object({
     /** Speech-to-video only: how the run was split, and over how much audio. */
     audio_duration_s: z.number().optional(),
     audio_chunks: z.number().optional(),
+    loras: z.array(z.object({ name: z.string(), weight: z.number().optional() })).optional(),
     duration_ms: z.number(),
   }),
 });

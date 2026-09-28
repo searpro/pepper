@@ -138,6 +138,13 @@ interface FormState {
   /** Send one of the character's images as reference image 1. */
   characterRef: boolean;
   characterImage?: string;
+  /** LoRAs from the chosen model's `lora/` folder, by reference name. */
+  loras: LoraChoice[];
+}
+
+interface LoraChoice {
+  name: string;
+  weight: number;
 }
 
 const DEFAULTS: FormState = {
@@ -161,6 +168,7 @@ const DEFAULTS: FormState = {
   increase_ref_index: false,
   characterPrompt: true,
   characterRef: false,
+  loras: [],
 };
 
 const STORE_KEY = 'pepper-image-form';
@@ -256,6 +264,12 @@ export function ImagePage() {
     [models.data],
   );
   const selectedModel = ready.find((model) => model.id === form.model);
+  const installedLoras = (selectedModel?.components ?? [])
+    .filter((file) => file.slot === 'lora' && file.ref)
+    .map((file) => file.ref!);
+  // A stored choice whose file has since been deleted is dropped silently
+  // rather than failing the job.
+  const activeLoras = form.loras.filter((lora) => installedLoras.includes(lora.name));
   const defaults = modelDefaults(selectedModel);
 
   React.useEffect(() => {
@@ -281,6 +295,10 @@ export function ImagePage() {
         if (settings.steps !== undefined) next.steps = settings.steps;
         if (settings.cfg_scale !== undefined) next.cfg_scale = settings.cfg_scale;
         if (settings.sampler) next.sampler = settings.sampler;
+        next.loras = (settings.loras ?? []).map((lora) => ({
+          name: lora.name,
+          weight: lora.weight ?? 1,
+        }));
         if (settings.seed !== undefined) next.seed = settings.seed;
         // An upscaled image records its own (bigger) size; the size to reuse
         // is the one it was generated at.
@@ -408,6 +426,7 @@ export function ImagePage() {
     if (form.negative_prompt.trim()) body.negative_prompt = form.negative_prompt.trim();
     if (form.seed >= 0) body.seed = form.seed;
     if (character) body.character_id = character.id;
+    if (activeLoras.length) body.loras = activeLoras;
     if (form.mode === 'edit') {
       // The character's image leads, so an instruction can call it "image 1".
       body.ref_images = [...characterRefs, ...form.ref_images.filter((ref) => !characterRefs.includes(ref))].slice(0, MAX_REFS);
@@ -584,6 +603,8 @@ export function ImagePage() {
                     steps: null,
                     cfg_scale: null,
                     sampler: null,
+                    // LoRAs are trained against one base model.
+                    loras: [],
                   }))
                 }
                 options={ready.map((model) => {
@@ -600,6 +621,18 @@ export function ImagePage() {
               />
             )}
           </Field>
+
+          {selectedModel && (
+            <LoraField
+              installed={installedLoras}
+              value={activeLoras}
+              onChange={(loras) => update('loras', loras)}
+              onUseSteps={(count) =>
+                setForm((state) => ({ ...state, steps: count, cfg_scale: 1 }))
+              }
+              steps={steps}
+            />
+          )}
 
           <CharacterField
             character={character}
@@ -1243,6 +1276,103 @@ export function ImagePage() {
 }
 
 // --- Pieces ------------------------------------------------------------------
+
+/** Step count a distillation LoRA was trained for, read from its filename ("…-4step-…"). */
+function loraSteps(name: string): number | undefined {
+  const match = /(\d+)[-_ ]?steps?/i.exec(name);
+  return match ? Number(match[1]) : undefined;
+}
+
+function LoraField({
+  installed,
+  value,
+  onChange,
+  onUseSteps,
+  steps,
+}: {
+  installed: string[];
+  value: LoraChoice[];
+  onChange: (loras: LoraChoice[]) => void;
+  onUseSteps: (steps: number) => void;
+  steps: number;
+}) {
+  if (installed.length === 0) {
+    return (
+      <Field label="LoRA">
+        <p className="text-xs text-muted-foreground">
+          None installed for this model. In <strong>Models</strong>, use <em>Add to bundle</em>{' '}
+          with the <strong>LORA</strong> slot and a .safetensors URL.
+        </p>
+      </Field>
+    );
+  }
+  const set = (name: string, choice: LoraChoice | null) =>
+    onChange(
+      choice
+        ? value.some((lora) => lora.name === name)
+          ? value.map((lora) => (lora.name === name ? choice : lora))
+          : [...value, choice]
+        : value.filter((lora) => lora.name !== name),
+    );
+  return (
+    <Field label={`LoRA${value.length ? ` · ${value.length} on` : ''}`}>
+      <div className="flex flex-col gap-2">
+        {installed.map((name) => {
+          const chosen = value.find((lora) => lora.name === name);
+          const tuned = loraSteps(name);
+          return (
+            <div
+              key={name}
+              className={cn(
+                'flex flex-col gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2',
+                chosen && 'border-primary bg-primary/10',
+              )}
+            >
+              {/* A div, not a label: a label forwards its click to the switch,
+                  which toggles it a second time. */}
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <span className="min-w-0 break-all font-medium" title={name}>
+                  {name}
+                </span>
+                <Switch
+                  checked={Boolean(chosen)}
+                  onCheckedChange={(on) => set(name, on ? { name, weight: 1 } : null)}
+                />
+              </div>
+              {chosen && (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                      <Slider
+                        value={chosen.weight}
+                        min={0}
+                        max={2}
+                        step={0.05}
+                        onValueChange={(weight) => set(name, { name, weight })}
+                      />
+                    </div>
+                    <span className="w-9 text-right text-xs tabular-nums text-muted-foreground">
+                      {chosen.weight.toFixed(2)}
+                    </span>
+                  </div>
+                  {tuned !== undefined && tuned !== steps && (
+                    <button
+                      type="button"
+                      onClick={() => onUseSteps(tuned)}
+                      className="self-start text-[11px] text-primary underline-offset-2 hover:underline"
+                    >
+                      Distilled for {tuned} steps — use {tuned} steps, CFG 1
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
 
 function jobLabel(job: Job): string {
   if (job.params.task === 'upscale')

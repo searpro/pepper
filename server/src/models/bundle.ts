@@ -325,6 +325,8 @@ export interface ResolvedImageBundle {
   defaults: NonNullable<ModelManifest['defaults']>;
   extraArgs: string[];
   loraDir?: string;
+  /** How each installed LoRA is referenced: its filename without extension. */
+  loras: string[];
   capabilities: string[];
   /** A separate speech encoder in `aux/`, for models that need one. */
   audioEncoderPath?: string;
@@ -635,6 +637,7 @@ export async function resolveImageBundle(
     defaults: info.manifest?.defaults ?? {},
     extraArgs: info.manifest?.extra_args ?? [],
     loraDir: loras.length > 0 ? join(bundlePath, 'lora') : undefined,
+    loras: loras.map((file) => stripExt(file.name)),
     capabilities,
     audioEncoderPath: audioEncoder ? join(bundlePath, 'aux', audioEncoder.name) : undefined,
     s2v: capabilities.includes('s2v') ? resolveS2vConfig(info.manifest) : undefined,

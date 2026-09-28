@@ -22,6 +22,7 @@ export interface ImageSettings {
   ref_images?: string[];
   img_cfg_scale?: number;
   increase_ref_index?: boolean;
+  loras?: { name: string; weight?: number }[];
   duration_ms?: number;
   /** Set on upscaled outputs. */
   task?: 'upscale';
@@ -109,6 +110,8 @@ export function formatSettings(settings: ImageSettings): string {
       settings.seed !== undefined && `Seed: ${settings.seed}`,
       settings.strength !== undefined && `Denoising strength: ${settings.strength}`,
       settings.img_cfg_scale !== undefined && `Image CFG scale: ${settings.img_cfg_scale}`,
+      settings.loras?.length &&
+        `LoRA: ${settings.loras.map((lora) => `${lora.name}:${lora.weight ?? 1}`).join(' ')}`,
     ]
       .filter(Boolean)
       .join(', '),

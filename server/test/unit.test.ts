@@ -503,6 +503,30 @@ describe('image generation arguments', () => {
     expect(args.filter((arg) => arg === '-r')).toHaveLength(2);
     expect(args[args.indexOf('-r') + 1]).toBe('/in/a.png');
   });
+
+  it('turns selected LoRAs into prompt tags and points sd-cli at their directory', () => {
+    const args = buildImageArgs({
+      params: {
+        prompt: 'a cat',
+        model: 'kontext',
+        loras: [{ name: 'turbo-4step', weight: 0.8 }, { name: 'style' }],
+      },
+      bundle: { ...bundle, loraDir: '/models/kontext/lora', loras: ['turbo-4step', 'style'] } as never,
+      outputPath: '/out/x.png',
+    });
+
+    expect(args[args.indexOf('-p') + 1]).toBe('a cat <lora:turbo-4step:0.8> <lora:style:1>');
+    expect(args[args.indexOf('--lora-model-dir') + 1]).toBe('/models/kontext/lora');
+  });
+
+  it('never lets a LoRA name close its tag early', () => {
+    const args = buildImageArgs({
+      params: { prompt: 'a cat', model: 'kontext', loras: [{ name: 'x:9><lora:y' }] },
+      bundle: bundle as never,
+      outputPath: '/out/x.png',
+    });
+    expect(args[args.indexOf('-p') + 1]).toBe('a cat');
+  });
 });
 
 describe('speech-to-video', () => {
