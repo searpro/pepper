@@ -80,6 +80,7 @@ class Receiver(BaseHTTPRequestHandler):
     error: str | None = None
     done = threading.Event()
     got_url = threading.Event()
+    got_line = threading.Event()
 
     def do_POST(self) -> None:
         if self.headers.get("X-Pepper-Secret") != self.secret:
@@ -90,6 +91,7 @@ class Receiver(BaseHTTPRequestHandler):
         self.send_response(204)
         self.end_headers()
         for line in body.get("lines", []):
+            Receiver.got_line.set()
             print(line, flush=True)
         if body.get("url"):
             Receiver.url = body["url"]
@@ -167,9 +169,16 @@ def push(user: str, headers: dict[str, str], text: str, accel: str | None, slug:
 
 
 def status(user: str, headers: dict[str, str], slug: str = SLUG) -> dict:
-    r = requests.get(f"{API}/kernels/status", headers=headers,
-                     params={"userName": user, "kernelSlug": slug}, timeout=30)
-    return r.json() if r.ok else {}
+    """The kernel's status, or {} when Kaggle cannot be reached. A poll that
+    fails is simply retried on the next one: letting it raise would end the
+    launcher, and with it the tunnel the running kernel reports through."""
+    try:
+        r = requests.get(f"{API}/kernels/status", headers=headers,
+                         params={"userName": user, "kernelSlug": slug}, timeout=30)
+        return r.json() if r.ok else {}
+    except (requests.RequestException, ValueError) as exc:
+        print(f"[kaggle] status check failed ({type(exc).__name__}); retrying", flush=True)
+        return {}
 
 
 def pack_slug(name: str) -> str:
@@ -223,12 +232,23 @@ def main() -> None:
     push(user, headers, text, accel, slug, sources)
 
     last = None
+    running_since = None
+    hinted = False
     try:
         while not Receiver.done.is_set():
             s = status(user, headers, slug).get("status")
             if s and s != last:
                 print(f"[kaggle] {s}", flush=True)
                 last = s
+                running_since = time.time() if s == "running" else running_since
+            if running_since and not hinted and not Receiver.got_line.is_set() \
+                    and time.time() - running_since > 120:
+                # Kaggle reports "running" while it is still attaching data
+                # sources; with packs that alone has taken ~8 minutes.
+                print("[kaggle] no log yet: Kaggle is still preparing the session"
+                      + (" and attaching the packs" if sources else "")
+                      + "; this can take several minutes", flush=True)
+                hinted = True
             if s in DONE:
                 break
             Receiver.done.wait(30)
