@@ -4,28 +4,53 @@
     {
       "id": "z-image-turbo",
       "selections": [
-        { "slot": "checkpoint", "url": "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q8_0.gguf" },
-        { "slot": "vae", "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors" },
-        { "slot": "clip", "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q8_0.gguf" }
+        {
+          "slot": "checkpoint",
+          "url": "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q8_0.gguf"
+        },
+        {
+          "slot": "vae",
+          "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors"
+        },
+        {
+          "slot": "clip",
+          "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q8_0.gguf"
+        }
       ]
     },
     {
       "id": "qwen3-tts-voicedesign",
       "selections": [
-        { "slot": "weights", "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Qwen3-TTS-12Hz-1.7B-VoiceDesign-GGUF/qwen3-tts-12hz-1.7b-voicedesign-q8_0.gguf" }
-      ]
+        {
+          "slot": "weights",
+          "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Qwen3-TTS-12Hz-1.7B-VoiceDesign-GGUF/qwen3-tts-12hz-1.7b-voicedesign-q8_0.gguf"
+        }
+      ],
+      "manifest": {
+        "task": "vdes"
+      }
     },
     {
       "id": "chatterbox",
       "selections": [
-        { "slot": "weights", "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Chatterbox-GGUF/chatterbox-q8_0.gguf" }
-      ]
+        {
+          "slot": "weights",
+          "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Chatterbox-GGUF/chatterbox-q8_0.gguf"
+        }
+      ],
+      "manifest": {
+        "task": "clon"
+      }
     },
     {
       "id": "parakeet-tdt-0.6b-v3",
       "selections": [
-        { "slot": "weights", "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Parakeet-TDT-0.6B-v3-GGUF/parakeet-tdt-0.6b-v3-q8_0.gguf" }
+        {
+          "slot": "weights",
+          "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Parakeet-TDT-0.6B-v3-GGUF/parakeet-tdt-0.6b-v3-q8_0.gguf"
+        }
       ]
     }
-  ]
+  ],
+  "notes": "audio.cpp's server registry takes short task codes; the catalogue's \"tts\" for these two stops audio.cpp at startup (\"Qwen3 voice design model only supports the VoiceDesign task\", \"Chatterbox supports VoiceCloning and VoiceConversion\")."
 }

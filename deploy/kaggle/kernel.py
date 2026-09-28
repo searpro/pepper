@@ -191,9 +191,14 @@ def build_pack(server: subprocess.Popen) -> None:
     """Install CONFIG["pack"] into PACK_DATA, then keep only its models."""
     pack = CONFIG["pack"]
     for item in pack.get("catalogue", []):
-        api("POST", f"/v1/catalogue/{item['id']}/install",
-            {"selections": item["selections"], **({"bundle": item["bundle"]} if item.get("bundle") else {})})
+        installed = api("POST", f"/v1/catalogue/{item['id']}/install",
+                        {"selections": item["selections"], **({"bundle": item["bundle"]} if item.get("bundle") else {})})
         log(f"queued {item['id']} ({len(item['selections'])} files)")
+        if item.get("manifest"):
+            # Merged into the model.json the catalogue wrote, for entries whose
+            # catalogue metadata is wrong for the backend.
+            api("PUT", f"/v1/models/{installed['kind']}/{installed['bundle']}/manifest", item["manifest"])
+            log(f"  manifest: {item['manifest']}")
     for item in pack.get("components", []):
         api("POST", f"/v1/models/{item['kind']}/{item['bundle']}/components",
             {"slot": item["slot"], "url": item["url"]})
