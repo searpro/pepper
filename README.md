@@ -58,11 +58,12 @@ where it has to live. Every setting in `.env.example` is commented out and
 annotated with its default, so an empty file behaves exactly like no file.
 
 One override is worth knowing about before the first run: `SDCPP_RELEASE_REPO`
-defaults to a fork that currently publishes a single Linux x64 CUDA prerelease,
-so image generation has no binary to install on macOS, on Windows, or on
-non-CUDA Linux. The checked-in example points local development at upstream
-`leejet/stable-diffusion.cpp`, which builds the same commit for every platform
-and acceleration.
+and `LLAMACPP_RELEASE_REPO` default to forks that publish only Linux x64 CUDA
+builds (made on Ubuntu 22.04, which upstream's llama.cpp builds no longer run
+on), so image and text generation have no binary to install on macOS, on
+Windows, or on non-CUDA Linux. Point local development at upstream
+`leejet/stable-diffusion.cpp` and `ggml-org/llama.cpp`, which build every
+platform and acceleration.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -78,7 +79,7 @@ and acceleration.
 | `ACCEL` | `metal` on macOS, else `cpu` | Selects release assets and backend flags: `cpu`, `cuda`, `metal`, `vulkan`, `rocm`. |
 | `AUTO_INSTALL_BACKENDS` | `true` | Install missing backend binaries at startup. |
 | `SDCPP_RELEASE_REPO` | `searpro/stable-diffusion.cpp` | Repo whose **latest** release is installed. |
-| `LLAMACPP_RELEASE_REPO` | `ggml-org/llama.cpp` | ditto |
+| `LLAMACPP_RELEASE_REPO` | `searpro/llama.cpp` | ditto |
 | `AUDIOCPP_RELEASE_REPO` | `searpro/audio.cpp` | ditto |
 | `PYTHON_RELEASE_REPO` | `comfyanonymous/ComfyUI` | Experimental Python backend package. |
 | `SDCPP_TIMEOUT` | `600000` | Ceiling on one image generation. |

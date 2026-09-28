@@ -129,7 +129,10 @@ export interface Config {
 
 const DEFAULT_RELEASE_REPOS: Record<BackendId, string> = {
   sdcpp: 'searpro/stable-diffusion.cpp',
-  llamacpp: 'ggml-org/llama.cpp',
+  // Upstream's Linux builds moved to Ubuntu 24.04 (glibc 2.38) and do not
+  // start on 22.04 hosts (Kaggle, the vLLM-Omni base image); the fork builds
+  // upstream tags on 22.04 with the CUDA runtime bundled.
+  llamacpp: 'searpro/llama.cpp',
   audiocpp: 'searpro/audio.cpp',
   // No fork exists yet — the Python backend installs a runtime rather than a
   // release archive, and this is the hook for wherever that eventually lives.
