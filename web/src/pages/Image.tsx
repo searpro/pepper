@@ -21,7 +21,9 @@ import {
   useEventStream,
   useResource,
   type BundleInfo,
+  type ComponentFile,
   type Job,
+  type LoraPreset,
   type MediaItem,
 } from '@/lib/api';
 import {
@@ -140,6 +142,16 @@ interface FormState {
   characterImage?: string;
   /** LoRAs from the chosen model's `lora/` folder, by reference name. */
   loras: LoraChoice[];
+  /** A custom denoising schedule, from a LoRA's preset or a reused image. */
+  schedule: Schedule | null;
+}
+
+interface Schedule {
+  /** Highest noise first, without the terminal 0. */
+  sigmas: number[];
+  shift?: LoraPreset['sigma_shift'];
+  /** The LoRA it came from; the schedule is dropped when that LoRA is off. */
+  lora?: string;
 }
 
 interface LoraChoice {
@@ -169,6 +181,7 @@ const DEFAULTS: FormState = {
   characterPrompt: true,
   characterRef: false,
   loras: [],
+  schedule: null,
 };
 
 const STORE_KEY = 'pepper-image-form';
@@ -264,9 +277,10 @@ export function ImagePage() {
     [models.data],
   );
   const selectedModel = ready.find((model) => model.id === form.model);
-  const installedLoras = (selectedModel?.components ?? [])
-    .filter((file) => file.slot === 'lora' && file.ref)
-    .map((file) => file.ref!);
+  const loraFiles = (selectedModel?.components ?? []).filter(
+    (file) => file.slot === 'lora' && file.ref,
+  );
+  const installedLoras = loraFiles.map((file) => file.ref!);
   // A stored choice whose file has since been deleted is dropped silently
   // rather than failing the job.
   const activeLoras = form.loras.filter((lora) => installedLoras.includes(lora.name));
@@ -299,6 +313,10 @@ export function ImagePage() {
           name: lora.name,
           weight: lora.weight ?? 1,
         }));
+        // Recorded already shifted for the image's size and ending in 0.
+        next.schedule = settings.sigmas?.length
+          ? { sigmas: settings.sigmas.filter((sigma, i, all) => i < all.length - 1 || sigma > 0) }
+          : null;
         if (settings.seed !== undefined) next.seed = settings.seed;
         // An upscaled image records its own (bigger) size; the size to reuse
         // is the one it was generated at.
@@ -381,7 +399,12 @@ export function ImagePage() {
           ? fit(refSize[0], refSize[1], form.resolution)
           : fit(1, 1, form.resolution)
         : fit(...ASPECTS[aspect], form.resolution);
-  const steps = form.steps ?? presetSteps(defaults, form.speed);
+  const schedule =
+    form.schedule && (!form.schedule.lora || activeLoras.some((l) => l.name === form.schedule!.lora))
+      ? form.schedule
+      : null;
+  // sd-cli takes the step count from the schedule's length.
+  const steps = schedule ? schedule.sigmas.length : (form.steps ?? presetSteps(defaults, form.speed));
 
   // --- Jobs --------------------------------------------------------------------
 
@@ -427,6 +450,7 @@ export function ImagePage() {
     if (form.seed >= 0) body.seed = form.seed;
     if (character) body.character_id = character.id;
     if (activeLoras.length) body.loras = activeLoras;
+    if (schedule) body.sigmas = [...shiftSigmas(schedule, width, height), 0];
     if (form.mode === 'edit') {
       // The character's image leads, so an instruction can call it "image 1".
       body.ref_images = [...characterRefs, ...form.ref_images.filter((ref) => !characterRefs.includes(ref))].slice(0, MAX_REFS);
@@ -605,6 +629,7 @@ export function ImagePage() {
                     sampler: null,
                     // LoRAs are trained against one base model.
                     loras: [],
+                    schedule: null,
                   }))
                 }
                 options={ready.map((model) => {
@@ -624,13 +649,24 @@ export function ImagePage() {
 
           {selectedModel && (
             <LoraField
-              installed={installedLoras}
+              files={loraFiles}
               value={activeLoras}
               onChange={(loras) => update('loras', loras)}
-              onUseSteps={(count) =>
-                setForm((state) => ({ ...state, steps: count, cfg_scale: 1 }))
+              onApply={(name, preset) =>
+                setForm((state) => ({
+                  ...state,
+                  steps: preset.steps ?? state.steps,
+                  cfg_scale: preset.cfg_scale ?? state.cfg_scale,
+                  schedule: preset.sigmas?.length
+                    ? { sigmas: preset.sigmas, shift: preset.sigma_shift, lora: name }
+                    : null,
+                }))
               }
-              steps={steps}
+              applied={(preset) =>
+                (preset.steps === undefined || preset.steps === steps) &&
+                (preset.cfg_scale === undefined || preset.cfg_scale === form.cfg_scale) &&
+                (!preset.sigmas?.length || String(schedule?.sigmas) === String(preset.sigmas))
+              }
             />
           )}
 
@@ -819,7 +855,7 @@ export function ImagePage() {
                   key={speed}
                   type="button"
                   aria-pressed={form.speed === speed && form.steps === null}
-                  onClick={() => setForm((state) => ({ ...state, speed, steps: null }))}
+                  onClick={() => setForm((state) => ({ ...state, speed, steps: null, schedule: null }))}
                   className={cn(
                     'flex flex-col items-center rounded-lg border border-border bg-muted/50 px-2 py-2 text-center transition hover:bg-accent',
                     form.speed === speed &&
@@ -937,15 +973,32 @@ export function ImagePage() {
               </Field>
 
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Steps">
+                <Field
+                  label="Steps"
+                  hint={
+                    schedule ? (
+                      <button
+                        type="button"
+                        className="text-primary underline-offset-2 hover:underline"
+                        onClick={() => update('schedule', null)}
+                      >
+                        Custom schedule · clear
+                      </button>
+                    ) : undefined
+                  }
+                >
                   <Input
                     type="number"
                     min={1}
                     max={200}
-                    value={form.steps ?? ''}
+                    value={schedule ? steps : (form.steps ?? '')}
                     placeholder={`${presetSteps(defaults, form.speed)} (preset)`}
                     onChange={(event) =>
-                      update('steps', event.target.value ? Number(event.target.value) : null)
+                      setForm((state) => ({
+                        ...state,
+                        steps: event.target.value ? Number(event.target.value) : null,
+                        schedule: null,
+                      }))
                     }
                   />
                 </Field>
@@ -1277,26 +1330,53 @@ export function ImagePage() {
 
 // --- Pieces ------------------------------------------------------------------
 
-/** Step count a distillation LoRA was trained for, read from its filename ("…-4step-…"). */
-function loraSteps(name: string): number | undefined {
-  const match = /(\d+)[-_ ]?steps?/i.exec(name);
-  return match ? Number(match[1]) : undefined;
+/**
+ * Applies a preset's resolution-dependent shift, as diffusers' flow-match
+ * scheduler does: the latent is 1/8 of the image and patchified 2×2, so the
+ * token count is (width/16)·(height/16).
+ */
+function shiftSigmas(schedule: Schedule, width: number, height: number): number[] {
+  const shift = schedule.shift;
+  if (!shift) return schedule.sigmas;
+  const tokens = (width / 16) * (height / 16);
+  const slope = (shift.max_shift - shift.base_shift) / (shift.max_seq_len - shift.base_seq_len);
+  const mu = shift.base_shift + slope * (tokens - shift.base_seq_len);
+  return schedule.sigmas.map((sigma) =>
+    sigma <= 0 ? 0 : Number((Math.exp(mu) / (Math.exp(mu) + (1 / sigma - 1))).toFixed(5)),
+  );
+}
+
+/** A preset for a LoRA without one, from a step count in its filename ("…-4step-…"). */
+function presetFor(file: ComponentFile): LoraPreset | undefined {
+  if (file.preset) return file.preset;
+  const match = /(\d+)[-_ ]?steps?/i.exec(file.ref ?? '');
+  return match ? { steps: Number(match[1]), cfg_scale: 1 } : undefined;
+}
+
+function describePreset(preset: LoraPreset): string {
+  return [
+    preset.steps !== undefined && `${preset.steps} steps`,
+    preset.cfg_scale !== undefined && `CFG ${preset.cfg_scale}`,
+    preset.sigmas?.length && 'its schedule',
+  ]
+    .filter(Boolean)
+    .join(', ');
 }
 
 function LoraField({
-  installed,
+  files,
   value,
   onChange,
-  onUseSteps,
-  steps,
+  onApply,
+  applied,
 }: {
-  installed: string[];
+  files: ComponentFile[];
   value: LoraChoice[];
   onChange: (loras: LoraChoice[]) => void;
-  onUseSteps: (steps: number) => void;
-  steps: number;
+  onApply: (name: string, preset: LoraPreset) => void;
+  applied: (preset: LoraPreset) => boolean;
 }) {
-  if (installed.length === 0) {
+  if (files.length === 0) {
     return (
       <Field label="LoRA">
         <p className="text-xs text-muted-foreground">
@@ -1317,9 +1397,10 @@ function LoraField({
   return (
     <Field label={`LoRA${value.length ? ` · ${value.length} on` : ''}`}>
       <div className="flex flex-col gap-2">
-        {installed.map((name) => {
+        {files.map((file) => {
+          const name = file.ref!;
           const chosen = value.find((lora) => lora.name === name);
-          const tuned = loraSteps(name);
+          const preset = presetFor(file);
           return (
             <div
               key={name}
@@ -1334,7 +1415,12 @@ function LoraField({
                 </span>
                 <Switch
                   checked={Boolean(chosen)}
-                  onCheckedChange={(on) => set(name, on ? { name, weight: 1 } : null)}
+                  onCheckedChange={(on) => {
+                    set(name, on ? { name, weight: 1 } : null);
+                    // A distilled LoRA is unusable on the base schedule, so
+                    // switching one on brings its settings with it.
+                    if (on && preset) onApply(name, preset);
+                  }}
                 />
               </div>
               {chosen && (
@@ -1353,14 +1439,17 @@ function LoraField({
                       {chosen.weight.toFixed(2)}
                     </span>
                   </div>
-                  {tuned !== undefined && tuned !== steps && (
+                  {preset && !applied(preset) && (
                     <button
                       type="button"
-                      onClick={() => onUseSteps(tuned)}
-                      className="self-start text-[11px] text-primary underline-offset-2 hover:underline"
+                      onClick={() => onApply(name, preset)}
+                      className="self-start text-left text-[11px] text-primary underline-offset-2 hover:underline"
                     >
-                      Distilled for {tuned} steps — use {tuned} steps, CFG 1
+                      Use its settings: {describePreset(preset)}
                     </button>
+                  )}
+                  {preset?.note && (
+                    <p className="text-[11px] text-muted-foreground">{preset.note}</p>
                   )}
                 </>
               )}

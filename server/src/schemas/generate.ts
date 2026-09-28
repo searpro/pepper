@@ -84,6 +84,12 @@ export const generateSchema = z.object({
     )
     .max(8)
     .optional(),
+  /**
+   * Custom denoising schedule, highest noise first, ending in 0 (sd-cli's
+   * `--sigmas`). Distilled LoRAs need the schedule they were trained on; sd-cli
+   * takes the step count from its length.
+   */
+  sigmas: z.array(z.number().min(0).max(1000)).min(2).max(201).optional(),
   /** Number of images to produce; each becomes its own job. */
   batch: z.number().int().min(1).max(16).optional(),
 
@@ -124,6 +130,7 @@ export const generateResultSchema = z.object({
     audio_duration_s: z.number().optional(),
     audio_chunks: z.number().optional(),
     loras: z.array(z.object({ name: z.string(), weight: z.number().optional() })).optional(),
+    sigmas: z.array(z.number()).optional(),
     duration_ms: z.number(),
   }),
 });

@@ -240,6 +240,18 @@ export interface ComponentFile {
   slot: string;
   role?: string;
   ref?: string;
+  /** LoRAs only: the settings it was trained for, when known. */
+  preset?: LoraPreset;
+}
+
+export interface LoraPreset {
+  steps?: number;
+  cfg_scale?: number;
+  /** Highest noise first, without the terminal 0. */
+  sigmas?: number[];
+  /** diffusers' resolution-dependent exponential time shift. */
+  sigma_shift?: { base_shift: number; max_shift: number; base_seq_len: number; max_seq_len: number };
+  note?: string;
 }
 
 export interface BundleInfo {

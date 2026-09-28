@@ -373,6 +373,20 @@ describe('model bundles', () => {
     ]);
   });
 
+  it('attaches LoRA presets, preferring the bundle\'s own over the built-in ones', async () => {
+    const root = await makeBundle();
+    await writeFile(join(root, 'lora', 'p_qwen_image_2.1_8step_v0.1.safetensors'), 'x');
+    await writeFile(
+      join(root, 'model.json'),
+      JSON.stringify({ name: 'Flux', lora_presets: { lineart: { steps: 12 } } }),
+    );
+    const info = await inspectBundle(root, 'flux', 'image');
+    const preset = (ref: string) => info.components.find((c) => c.ref === ref)?.preset;
+
+    expect(preset('lineart')).toEqual({ steps: 12 });
+    expect(preset('p_qwen_image_2.1_8step_v0.1')?.sigmas).toHaveLength(8);
+  });
+
   it('excludes in-progress downloads from the component list', async () => {
     const info = await inspectBundle(await makeBundle(), 'flux', 'image');
     expect(info.components.some((c) => c.name.endsWith('.part'))).toBe(false);
@@ -517,6 +531,15 @@ describe('image generation arguments', () => {
 
     expect(args[args.indexOf('-p') + 1]).toBe('a cat <lora:turbo-4step:0.8> <lora:style:1>');
     expect(args[args.indexOf('--lora-model-dir') + 1]).toBe('/models/kontext/lora');
+  });
+
+  it('passes a custom schedule as one comma-separated --sigmas value', () => {
+    const args = buildImageArgs({
+      params: { prompt: 'a cat', model: 'kontext', sigmas: [1, 0.5, 0.25, 0] },
+      bundle: bundle as never,
+      outputPath: '/out/x.png',
+    });
+    expect(args[args.indexOf('--sigmas') + 1]).toBe('1,0.5,0.25,0');
   });
 
   it('never lets a LoRA name close its tag early', () => {

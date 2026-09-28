@@ -145,6 +145,7 @@ export function buildImageArgs(input: BuildArgsInput): string[] {
   if (params.height !== undefined) args.push(FLAG_MAP.height, String(params.height));
   if (params.seed !== undefined) args.push(FLAG_MAP.seed, String(params.seed));
   if (params.sampler) args.push(FLAG_MAP.sampler, params.sampler);
+  if (params.sigmas?.length) args.push('--sigmas', params.sigmas.join(','));
 
   // Video parameters. I2V's conditioning image reuses -i above.
   if (params.video_frames !== undefined) {

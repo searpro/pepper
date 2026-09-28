@@ -23,6 +23,7 @@ export interface ImageSettings {
   img_cfg_scale?: number;
   increase_ref_index?: boolean;
   loras?: { name: string; weight?: number }[];
+  sigmas?: number[];
   duration_ms?: number;
   /** Set on upscaled outputs. */
   task?: 'upscale';

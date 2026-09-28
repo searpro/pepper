@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { errors } from '../errors.js';
 import { assertSafeName, safeResolve, type ModelKind } from '../paths.js';
 import { listFiles, stripExt, type FileEntry } from '../util/files.js';
+import { KNOWN_LORA_PRESETS, loraPresetSchema, type LoraPreset } from './lora-presets.js';
 
 /**
  * The model bundle layout (requirement 8: "each model should go into its own
@@ -220,6 +221,11 @@ export const manifestSchema = z.object({
     .optional(),
   /** Raw backend flags appended verbatim. */
   extra_args: z.array(z.string()).optional(),
+  /**
+   * Recommended settings per LoRA, keyed by its filename without extension.
+   * Overrides the built-in presets for published LoRAs.
+   */
+  lora_presets: z.record(loraPresetSchema).optional(),
   // --- audio.cpp ---
   /** audio.cpp model family, matching its `model_specs/<family>.json`. */
   family: z.string().optional(),
@@ -255,6 +261,8 @@ export interface ComponentFile extends FileEntry {
   role?: ClipRole;
   /** Only for `lora/` files: how the prompt refers to it. */
   ref?: string;
+  /** Only for `lora/` files: the settings it was trained for, when known. */
+  preset?: LoraPreset;
 }
 
 /** An interrupted download left on disk, resumable. */
@@ -470,6 +478,7 @@ export async function inspectBundle(
             ? (manifestRoleFor(manifest, file.name) ?? detectClipRole(file.name) ?? undefined)
             : undefined,
         ref: slot === 'lora' ? stripExt(file.name) : undefined,
+        preset: slot === 'lora' ? loraPreset(manifest, stripExt(file.name)) : undefined,
       });
     }
     partials.push(...(await listPartials(slotDir, slot)));
@@ -647,4 +656,8 @@ export async function resolveImageBundle(
 /** Absolute path to a component file inside a bundle. */
 export function componentPath(bundlePath: string, slot: ComponentSlot, name: string): string {
   return safeResolve(join(bundlePath, slotDirName(slot)), name);
+}
+
+function loraPreset(manifest: ModelManifest | null, ref: string): LoraPreset | undefined {
+  return manifest?.lora_presets?.[ref] ?? KNOWN_LORA_PRESETS[ref];
 }
