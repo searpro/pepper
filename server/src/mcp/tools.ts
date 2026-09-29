@@ -265,12 +265,51 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
             id: m.id,
             name: m.name,
             ready: m.ready,
-            mode: m.mode,
+            // Only image bundles distinguish image from video; for every
+            // other kind `mode` is a meaningless default.
+            mode: m.kind === 'image' || m.kind === 'video' ? m.mode : undefined,
             capabilities: (m.capabilities as unknown[] | undefined)?.length ? m.capabilities : undefined,
           }),
         );
       }
-      return { content: [json({ ...status, base_url: ctx.baseUrl, models: byKind })] };
+
+      // The status route serves the Preferences screen, so each backend
+      // carries its whole CLI argument table. That is thousands of tokens a
+      // model never needs on every status call; keep what says whether a
+      // backend can run and why it cannot.
+      const backends = (status.backends as Array<Record<string, unknown>>).map((b) =>
+        defined({
+          backend: b.backend,
+          label: b.label,
+          status: b.status,
+          installed: b.installed,
+          release: b.releaseTag,
+          restarts: b.restarts || undefined,
+          error: b.lastError,
+          // Why an on-demand backend was skipped, e.g. no models installed.
+          note: b.note,
+          recent_output: (b.recentOutput as unknown[] | undefined)?.length
+            ? (b.recentOutput as unknown[]).slice(-5)
+            : undefined,
+        }),
+      );
+      return {
+        content: [
+          json(
+            defined({
+              version: status.version,
+              uptime_s: status.uptime,
+              accel: status.accel,
+              base_url: ctx.baseUrl,
+              resources: status.resources,
+              jobs: status.jobs,
+              catalogue: status.catalogue,
+              backends,
+              models: byKind,
+            }),
+          ),
+        ],
+      };
     },
   );
 
