@@ -296,7 +296,9 @@ def main() -> None:
         **({"catalogue_url": CATALOGUE_RAW.format(branch=a.catalogue_branch)} if a.catalogue_branch else {}),
         **extra,
     }
-    text = (HERE / "kernel.py").read_text().replace("CONFIG: dict = {}", f"CONFIG: dict = {json.dumps(config)}", 1)
+    # repr, not json.dumps: this is Python source, where JSON's true/false/null
+    # are NameErrors that kill the kernel before it can log anything.
+    text = (HERE / "kernel.py").read_text().replace("CONFIG: dict = {}", f"CONFIG: dict = {config!r}", 1)
     push(user, headers, text, accel, slug, sources)
 
     last = None
