@@ -10,4 +10,5 @@ web/dist/
 *.tsbuildinfo
 __pycache__/
 deploy/kaggle/.last-url
+deploy/runpod/.pod
 .claude/settings.local.json

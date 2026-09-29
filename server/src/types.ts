@@ -14,6 +14,7 @@ import type { UpscaleService } from './services/upscale.js';
 import type { PythonVideoService } from './services/python-video.js';
 import type { CharacterService } from './services/characters.js';
 import type { ResourceMonitor } from './services/resources.js';
+import type { ActivityTracker } from './services/activity.js';
 
 /**
  * Services decorated onto the Fastify instance. Constructed once in
@@ -39,6 +40,7 @@ declare module 'fastify' {
     pythonVideo: PythonVideoService;
     characters: CharacterService;
     resources: ResourceMonitor;
+    activity: ActivityTracker;
     appVersion: string;
   }
 }

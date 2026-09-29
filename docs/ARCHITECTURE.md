@@ -189,7 +189,7 @@ places it genuinely differs, and why:
   from `*_RELEASE_REPO` at first boot. vLLM has no equivalent — it is a
   PyTorch + CUDA wheel chain whose versions must match exactly, which is
   precisely what vLLM-Omni's own published Docker image already gets right.
-  So the Dockerfile's runtime stage is rebased onto `vllm/vllm-omni` instead,
+  So Dockerfile.vllm's runtime stage is rebased onto `vllm/vllm-omni` instead,
   and `BackendManager.checkVllmBinary()` just verifies `vllm` is on `PATH` —
   there is no install step to run. (The `better-sqlite3` native binding is
   compiled in a *builder* stage on that same base image, not
@@ -321,6 +321,17 @@ clients time out sooner, so videos return a job id for `get_job`. Finished
 images come back inline (a 1024 px JPEG via ffmpeg when available) plus an
 absolute link built from the caller's `Host`/`X-Forwarded-*` headers.
 
+### Idle is defined by actions, not requests
+
+On RunPod a pod bills per second, so the container entrypoint
+(`deploy/runpod/entrypoint.mjs`) terminates the pod after a configurable idle
+period, using `activity` from `/v1/system/status` (`services/activity.ts`).
+Reads never count: the web app polls status every few seconds for as long as
+a tab is open, and a forgotten tab must not keep a GPU billing. Activity is a
+successful non-GET request (401s from scanners do not count) or work in
+progress — a queued or running job, an active download — which counts for as
+long as it lasts, so a 20-minute video never looks idle.
+
 ## Gotchas worth keeping
 
 These cost real debugging time; the code comments carry the short version.
@@ -376,7 +387,7 @@ These cost real debugging time; the code comments carry the short version.
   every JS module request fell through to the SPA fallback and returned
   `index.html` with a `text/html` MIME type. The page renders blank with one
   console error about strict MIME checking.
-- **The vLLM-Omni Dockerfile build needs a fast, stable connection.** The
+- **The vLLM-Omni build (`Dockerfile.vllm`) needs a fast, stable connection.** The
   `vllm/vllm-omni` base image is several GB (CUDA + PyTorch), and on a slow
   or flaky link the NodeSource `apt-get install nodejs` step that follows it
   can fail with a connection reset partway through — confirmed on a local

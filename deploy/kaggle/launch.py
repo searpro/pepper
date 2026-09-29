@@ -253,6 +253,16 @@ def main() -> None:
     if not a.build_pack and not api_token and not a.no_auth:
         sys.exit(f"no PEPPER_API_TOKEN in {ENV_FILE} or the environment. A public Pepper without one "
                  "lets anyone use the GPU; generate one with `openssl rand -base64 32`, or pass --no-auth.")
+    if named and not a.build_pack:
+        # One instance per hostname: two connectors on one tunnel split
+        # traffic between them at random (RunPod's launcher checks the same).
+        try:
+            up = requests.get(f"https://{env['PEPPER_HOSTNAME']}/health", timeout=8).ok
+        except requests.RequestException:
+            up = False
+        if up:
+            sys.exit(f"https://{env['PEPPER_HOSTNAME']} is already serving (another Kaggle run, or a "
+                     "RunPod pod); stop it first, or pass --quick-tunnel")
     Receiver.secrets = {k: v for k, v in {
         "api_token": api_token,
         "tunnel_token": env.get("PEPPER_TUNNEL_TOKEN") if named else None,

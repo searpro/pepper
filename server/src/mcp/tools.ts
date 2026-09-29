@@ -303,6 +303,7 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
               base_url: ctx.baseUrl,
               resources: status.resources,
               jobs: status.jobs,
+              activity: status.activity,
               catalogue: status.catalogue,
               backends,
               models: byKind,

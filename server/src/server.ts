@@ -39,6 +39,7 @@ import { AudioService } from './services/audio-gen.js';
 import { TextService } from './services/text-gen.js';
 import { CharacterService } from './services/characters.js';
 import { ResourceMonitor } from './services/resources.js';
+import { ActivityTracker, isActivity } from './services/activity.js';
 import { systemRoutes } from './routes/system.js';
 import { modelRoutes } from './routes/models.js';
 import { downloadRoutes } from './routes/downloads.js';
@@ -220,6 +221,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   app.decorate('pythonVideo', pythonVideo);
   app.decorate('characters', characterService);
   app.decorate('resources', new ResourceMonitor());
+  app.decorate('activity', new ActivityTracker());
   // `version` is taken by Fastify itself, so the app's own version needs a
   // distinct name rather than shadowing the framework's.
   app.decorate('appVersion', VERSION);
@@ -228,6 +230,9 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 
   // First, so the token check covers every route below — /docs included.
   registerAuthHook(app, config.apiToken);
+  app.addHook('onResponse', async (request, reply) => {
+    if (isActivity(request.method, request.url, reply.statusCode)) app.activity.touch();
+  });
 
   await app.register(fastifyMultipart, {
     limits: { fileSize: 512 * 1024 * 1024 },

@@ -27,7 +27,8 @@
       "Read(./.env)",
       "Read(./.env.local)",
       "Read(./deploy/kaggle/.last-url)",
-      "Read(./deploy/kaggle/.env)"
+      "Read(./deploy/kaggle/.env)",
+      "Read(./deploy/runpod/.env)"
     ]
   }
 }

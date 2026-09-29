@@ -144,7 +144,7 @@ const DEFAULT_RELEASE_REPOS: Record<BackendId, string> = {
   // No fork exists yet — the Python backend installs a runtime rather than a
   // release archive, and this is the hook for wherever that eventually lives.
   python: 'comfyanonymous/ComfyUI',
-  // Unused: vLLM is baked into the production image (see Dockerfile) rather
+  // Unused: vLLM is baked into the production image (see Dockerfile.vllm) rather
   // than installed from a GitHub release. Kept only so `Record<BackendId, string>`
   // stays total; `BackendManager` never reads it for this backend.
   vllm: 'vllm-project/vllm-omni',

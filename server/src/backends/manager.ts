@@ -251,7 +251,7 @@ export class BackendManager {
 
   /**
    * vLLM has no release-archive install path: it is baked into the production
-   * image (see Dockerfile) rather than downloaded, so `vllm` on PATH is either
+   * image (see Dockerfile.vllm) rather than downloaded, so `vllm` on PATH is either
    * there from the image or not there at all. A developer without it locally
    * gets a clear "not found" rather than a pip-install attempt against
    * whatever CUDA/PyTorch happens to be on their machine.

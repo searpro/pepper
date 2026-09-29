@@ -21,7 +21,16 @@ works until stage 2 has run.
 4. UI changes: verify with the `web` preview (`.claude/launch.json`), which
    proxies to an API on :3004.
 
-## Stage 2 — on Kaggle
+## Stage 2 — on a GPU (Kaggle, or RunPod)
+
+Kaggle is free and runs your checkout including uncommitted changes. RunPod
+(`deploy/runpod/README.md`) costs money but has bigger GPUs and keeps models
+on a volume; it runs the *published image*, so a change must be pushed to
+`main` and the `image` workflow finished (`gh run watch`) before
+`uv run deploy/runpod/launch.py up`. Both serve the same hostname, so only
+one can run at a time; the launchers refuse to start a second. The steps below
+use Kaggle; on RunPod swap the launch command and run `launch.py down` when
+done.
 
 The launcher builds the commit you have checked out **plus uncommitted
 changes to tracked files**; untracked files are not sent. So either commit

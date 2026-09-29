@@ -33,6 +33,7 @@ import type { ImageService } from '../src/services/image.js';
 import { redactTokenPath, requiresAuth, secretsMatch, sessionValue } from '../src/auth.js';
 import { buildServer } from '../src/server.js';
 import { selectFiles, type CatalogueComponent } from '../src/mcp/tools.js';
+import { ActivityTracker, isActivity } from '../src/services/activity.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -1570,6 +1571,52 @@ describe('mcp', () => {
 
       const missing = await rpc('tools/call', { name: 'get_job', arguments: { id: 'nope', wait_seconds: 0 } });
       expect(missing.result.isError).toBe(true);
+    } finally {
+      await app.close();
+      closeDb();
+    }
+  });
+});
+
+describe('idle tracking', () => {
+  it('counts actions, not reads, polling or rejected requests', () => {
+    expect(isActivity('POST', '/v1/jobs', 202)).toBe(true);
+    expect(isActivity('POST', '/mcp', 200)).toBe(true);
+    expect(isActivity('DELETE', '/v1/models/image/x', 204)).toBe(true);
+    expect(isActivity('GET', '/v1/system/status', 200)).toBe(false);
+    expect(isActivity('POST', '/mcp', 401)).toBe(false);
+    expect(isActivity('POST', '/v1/session', 204)).toBe(false);
+  });
+
+  it('never reports idle while work is in progress', () => {
+    const tracker = new ActivityTracker();
+    (tracker as unknown as { last: number }).last = Date.now() - 3_600_000;
+    expect(tracker.snapshot(false).idleSeconds).toBeGreaterThanOrEqual(3599);
+    expect(tracker.snapshot(true).idleSeconds).toBe(0);
+    // Finishing the work starts the idle clock from then, not from the request.
+    expect(tracker.snapshot(false).idleSeconds).toBe(0);
+  });
+
+  it('is reported by the status route and reset by an action', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-idle-'));
+    const { app, closeDb } = await buildServer(
+      loadConfig({ DATA_DIR: dir, OUTPUT_DIR: join(dir, 'out'), LOG_LEVEL: 'fatal' }),
+    );
+    await app.ready();
+    try {
+      (app.activity as unknown as { last: number }).last = Date.now() - 600_000;
+      const status = async () => (await app.inject({ url: '/v1/system/status' })).json().activity;
+      expect((await status()).idleSeconds).toBeGreaterThanOrEqual(599);
+      // Reading status is not activity...
+      expect((await status()).idleSeconds).toBeGreaterThanOrEqual(599);
+      // ...but an action is, even a cheap one.
+      await app.inject({
+        method: 'POST',
+        url: '/mcp',
+        headers: { accept: 'application/json, text/event-stream' },
+        payload: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
+      });
+      expect((await status()).idleSeconds).toBeLessThan(5);
     } finally {
       await app.close();
       closeDb();

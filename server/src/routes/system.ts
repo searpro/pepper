@@ -14,6 +14,16 @@ import { hfWhoami, maskToken, setHfToken } from '../util/hf.js';
 export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
+  /** Work in progress, which keeps the server from counting as idle. */
+  function isBusy(): boolean {
+    const jobs = app.jobs.stats();
+    return (
+      jobs.running + jobs.queued > 0 ||
+      app.downloads.list({ status: ['queued', 'downloading'] }).length > 0 ||
+      app.snapshotDownloads.list().some((task) => task.status === 'downloading')
+    );
+  }
+
   app.get(
     '/health',
     {
@@ -60,6 +70,7 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       resources: await app.resources.sample(),
       idleTimeoutMs: app.backends.idleTimeoutMs(),
       jobs: app.jobs.stats(),
+      activity: app.activity.snapshot(isBusy()),
       catalogue: app.catalogue.state(),
       generators: app.images.stats,
       paths: {
