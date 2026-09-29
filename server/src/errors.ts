@@ -47,6 +47,7 @@ export type ErrorCode =
   | 'BACKEND_INSTALL_FAILED'
   | 'CATALOGUE_UNAVAILABLE'
   | 'JOB_CONFLICT'
+  | 'UNAUTHORIZED'
   | 'UNSUPPORTED';
 
 export class AppError extends Error {
@@ -124,6 +125,12 @@ export const errors = {
   audioVoiceRefNotFound: (name: string) =>
     new AppError('AUDIO_VOICE_REF_NOT_FOUND', `Voice reference audio not found: ${name}`, 404),
   catalogueUnavailable: (msg: string) => new AppError('CATALOGUE_UNAVAILABLE', msg, 503),
+  unauthorized: () =>
+    new AppError(
+      'UNAUTHORIZED',
+      'This server requires an API token: send "Authorization: Bearer <token>" or sign in to the web app.',
+      401,
+    ),
   unsupported: (msg: string) => new AppError('UNSUPPORTED', msg, 501),
   internal: (msg: string) => new AppError('INTERNAL_ERROR', msg, 500),
 

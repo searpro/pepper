@@ -27,6 +27,12 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * Dispatched on `window` when the server rejects a request for want of a
+ * token, so the sign-in screen (components/SignIn.tsx) can take over.
+ */
+export const UNAUTHORIZED_EVENT = 'pepper:unauthorized';
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -46,6 +52,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       code: 'HTTP_ERROR',
       message: `${response.status} ${response.statusText}`,
     };
+    if (response.status === 401 && error.code === 'UNAUTHORIZED' && path !== '/v1/session') {
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
     throw new ApiRequestError(response.status, error);
   }
   return body as T;

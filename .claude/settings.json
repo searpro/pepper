@@ -26,7 +26,8 @@
       "Read(./server/.env)",
       "Read(./.env)",
       "Read(./.env.local)",
-      "Read(./deploy/kaggle/.last-url)"
+      "Read(./deploy/kaggle/.last-url)",
+      "Read(./deploy/kaggle/.env)"
     ]
   }
 }

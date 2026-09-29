@@ -30,6 +30,9 @@ import { UpscaleService, upscalerPreferencesKey, type UpscalerPreferences } from
 import { catalogueEntryFor, sdcppCompatible, UPSCALER_CATALOGUE } from '../src/services/upscalers-catalogue.js';
 import { parseJsonObject, speechParams, SHEET_TEMPLATE } from '../src/services/characters.js';
 import type { ImageService } from '../src/services/image.js';
+import { redactTokenPath, requiresAuth, secretsMatch, sessionValue } from '../src/auth.js';
+import { buildServer } from '../src/server.js';
+import { selectFiles, type CatalogueComponent } from '../src/mcp/tools.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -89,6 +92,12 @@ describe('config', () => {
     const shown = publicConfig(loadConfig({ HF_TOKEN: 'hf_secret' }));
     expect(JSON.stringify(shown)).not.toContain('hf_secret');
     expect(shown.hfTokenConfigured).toBe(true);
+  });
+
+  it('never exposes the API token through the public config', () => {
+    const shown = publicConfig(loadConfig({ PEPPER_API_TOKEN: 'pepper_secret' }));
+    expect(JSON.stringify(shown)).not.toContain('pepper_secret');
+    expect(shown.apiTokenConfigured).toBe(true);
   });
 
   it('rejects a malformed release repo rather than silently defaulting', () => {
@@ -1409,5 +1418,161 @@ describe('text encoders as chat models', () => {
     const dir = await mkdtemp(join(tmpdir(), 'pepper-gguf-'));
     await writeFile(join(dir, 'x.gguf'), 'not a model');
     await expect(readGgufInfo(join(dir, 'x.gguf'))).rejects.toThrow();
+  });
+});
+
+describe('auth', () => {
+  it('guards the API, MCP and docs but not the web app shell or health', () => {
+    for (const url of ['/v1/models', '/v1/outputs/a.png?x=1', '/mcp', '/mcp/abc', '/docs', '/docs/json']) {
+      expect(requiresAuth(url), url).toBe(true);
+    }
+    for (const url of ['/health', '/', '/image', '/assets/index.js', '/v1/session', '/v1/session?x']) {
+      expect(requiresAuth(url), url).toBe(false);
+    }
+  });
+
+  it('compares secrets exactly', () => {
+    expect(secretsMatch('abc', 'abc')).toBe(true);
+    expect(secretsMatch('abc', 'abcd')).toBe(false);
+    expect(secretsMatch('abc', '')).toBe(false);
+    expect(secretsMatch('abc', undefined)).toBe(false);
+  });
+
+  it('derives the session cookie from the token instead of storing it', () => {
+    expect(sessionValue('t')).not.toContain('t'.repeat(2));
+    expect(sessionValue('t')).toBe(sessionValue('t'));
+    expect(sessionValue('t')).not.toBe(sessionValue('u'));
+  });
+
+  it('censors the token in /mcp/<token> urls', () => {
+    expect(redactTokenPath('/mcp/s3cret')).toBe('/mcp/[redacted]');
+    expect(redactTokenPath('/mcp')).toBe('/mcp');
+    expect(redactTokenPath('/v1/models')).toBe('/v1/models');
+  });
+
+  async function server(env: Record<string, string> = {}) {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-auth-'));
+    const built = await buildServer(
+      loadConfig({ DATA_DIR: dir, OUTPUT_DIR: join(dir, 'out'), LOG_LEVEL: 'fatal', ...env }),
+    );
+    await built.app.ready();
+    return built;
+  }
+
+  it('accepts a Bearer token, a session cookie or the MCP path, and nothing else', async () => {
+    const { app, closeDb } = await server({ PEPPER_API_TOKEN: 'tok' });
+    try {
+      const get = (headers: Record<string, string> = {}) =>
+        app.inject({ url: '/v1/models', headers }).then((r) => r.statusCode);
+      expect(await get()).toBe(401);
+      expect(await get({ authorization: 'Bearer nope' })).toBe(401);
+      expect(await get({ authorization: 'Bearer tok' })).toBe(200);
+      // The cookie value is not the token, so the token is not a valid cookie.
+      expect(await get({ cookie: 'pepper_session=tok' })).toBe(401);
+
+      expect((await app.inject({ method: 'POST', url: '/v1/session', payload: { token: 'nope' } })).statusCode).toBe(401);
+      const login = await app.inject({ method: 'POST', url: '/v1/session', payload: { token: 'tok' } });
+      expect(login.statusCode).toBe(204);
+      const cookie = String(login.headers['set-cookie']);
+      expect(cookie).toContain('HttpOnly');
+      // Plain http (local development): Secure would make the browser drop it.
+      expect(cookie).not.toContain('Secure');
+      expect(await get({ cookie: cookie.split(';')[0] })).toBe(200);
+
+      const mcp = (url: string) =>
+        app
+          .inject({
+            method: 'POST',
+            url,
+            headers: { accept: 'application/json, text/event-stream' },
+            payload: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
+          })
+          .then((r) => r.statusCode);
+      expect(await mcp('/mcp')).toBe(401);
+      expect(await mcp('/mcp/nope')).toBe(401);
+      expect(await mcp('/mcp/tok')).toBe(200);
+
+      expect((await app.inject({ url: '/health' })).statusCode).toBe(200);
+    } finally {
+      await app.close();
+      closeDb();
+    }
+  });
+
+  it('stays open when no token is configured', async () => {
+    const { app, closeDb } = await server();
+    try {
+      expect((await app.inject({ url: '/v1/models' })).statusCode).toBe(200);
+      expect((await app.inject({ url: '/v1/session' })).json()).toEqual({ required: false, authenticated: true });
+    } finally {
+      await app.close();
+      closeDb();
+    }
+  });
+});
+
+describe('mcp', () => {
+  const file = (filename: string, size: number) => ({ filename, size, url: `https://hf.co/${filename}` });
+
+  it('picks the requested quantization, else the smallest file, for required components', () => {
+    const components: CatalogueComponent[] = [
+      { slot: 'checkpoint', required: true, files: [file('m-Q8_0.gguf', 8), file('m-Q4_K_M.gguf', 4)] },
+      { slot: 'vae', required: true, files: [file('vae.safetensors', 1)] },
+      { slot: 'lora', required: false, files: [file('style.safetensors', 1)] },
+    ];
+    expect(selectFiles(components, {}).map((s) => s.name)).toEqual(['m-Q4_K_M.gguf', 'vae.safetensors']);
+    expect(selectFiles(components, { quant: 'q8_0' })[0].name).toBe('m-Q8_0.gguf');
+    expect(selectFiles(components, { includeOptional: true })).toHaveLength(3);
+  });
+
+  it('installs every file of an allFiles set', () => {
+    const components: CatalogueComponent[] = [
+      {
+        slot: 'weights',
+        required: true,
+        source: { allFiles: true },
+        files: [file('config.json', 1), file('model.safetensors', 9)],
+      },
+    ];
+    expect(selectFiles(components, {})).toHaveLength(2);
+  });
+
+  it('refuses a required component with nothing to install', () => {
+    expect(() => selectFiles([{ slot: 'checkpoint', required: true, files: [], error: 'gated' }], {})).toThrow(
+      /gated/,
+    );
+  });
+
+  it('lists its tools and reports status over Streamable HTTP', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-mcp-'));
+    const { app, closeDb } = await buildServer(
+      loadConfig({ DATA_DIR: dir, OUTPUT_DIR: join(dir, 'out'), LOG_LEVEL: 'fatal' }),
+    );
+    await app.ready();
+    try {
+      const rpc = (method: string, params: unknown) =>
+        app
+          .inject({
+            method: 'POST',
+            url: '/mcp',
+            headers: { accept: 'application/json, text/event-stream', host: 'pepper.test', 'x-forwarded-proto': 'https' },
+            payload: { jsonrpc: '2.0', id: 1, method, params },
+          })
+          .then((r) => r.json());
+
+      const tools = (await rpc('tools/list', {})).result.tools.map((t: { name: string }) => t.name);
+      expect(tools).toEqual(expect.arrayContaining(['pepper_status', 'generate_image', 'get_job', 'catalogue_install']));
+
+      const status = await rpc('tools/call', { name: 'pepper_status', arguments: {} });
+      const body = JSON.parse(status.result.content[0].text);
+      expect(body.base_url).toBe('https://pepper.test');
+      expect(body.backends).toBeInstanceOf(Array);
+
+      const missing = await rpc('tools/call', { name: 'get_job', arguments: { id: 'nope', wait_seconds: 0 } });
+      expect(missing.result.isError).toBe(true);
+    } finally {
+      await app.close();
+      closeDb();
+    }
   });
 });

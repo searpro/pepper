@@ -3,12 +3,20 @@
 # requires-python = ">=3.11"
 # dependencies = ["requests"]
 # ///
-"""Run Pepper on a Kaggle GPU behind a Cloudflare quick tunnel.
+"""Run Pepper on a Kaggle GPU behind a Cloudflare tunnel.
 
     uv run deploy/kaggle/launch.py                 # 2x T4, up for 6 hours
     uv run deploy/kaggle/launch.py --hours 11 --accel p100
     uv run deploy/kaggle/launch.py --build-pack starter    # once: save models on Kaggle
     uv run deploy/kaggle/launch.py --packs starter,qwen-image
+    uv run deploy/kaggle/launch.py --catalogue-branch add-foo  # test a catalogue PR
+
+Secrets come from `deploy/kaggle/.env` (git-ignored) or the environment:
+PEPPER_API_TOKEN (required to serve), and PEPPER_TUNNEL_TOKEN plus
+PEPPER_HOSTNAME for a named tunnel at a fixed address; without those two the
+server gets a random quick-tunnel URL. The kernel fetches the secrets from
+this launcher at startup, so they are never written into the kernel source
+that Kaggle stores.
 
 Pushes `kernel.py` as a private Kaggle script kernel that builds and serves
 the commit checked out here (plus any uncommitted changes), then streams its
@@ -27,7 +35,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hmac
 import json
+import os
 import re
 import secrets
 import subprocess
@@ -42,6 +52,8 @@ import requests
 API = "https://www.kaggle.com/api/v1"
 CREDS = Path.home() / ".kaggle" / "kaggle.json"
 HERE = Path(__file__).resolve().parent
+ENV_FILE = HERE / ".env"
+CATALOGUE_RAW = "https://raw.githubusercontent.com/searpro/pepper-catalogue/{branch}/pepper-catalogue.json"
 ROOT = HERE.parent.parent
 REPO = "https://github.com/searpro/pepper.git"
 SLUG = "pepper-server"
@@ -56,6 +68,23 @@ def auth() -> tuple[str, dict[str, str]]:
     c = json.loads(CREDS.read_text())
     token = base64.b64encode(f"{c['username']}:{c['key']}".encode()).decode()
     return c["username"], {"Authorization": f"Basic {token}"}
+
+
+def load_env() -> dict[str, str]:
+    """`deploy/kaggle/.env` as a dict, with the process environment winning.
+    Only the PEPPER_* keys are read; values are never printed."""
+    values: dict[str, str] = {}
+    if ENV_FILE.exists():
+        for raw in ENV_FILE.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip().strip("'\"")
+    for key in ("PEPPER_API_TOKEN", "PEPPER_TUNNEL_TOKEN", "PEPPER_HOSTNAME"):
+        if os.environ.get(key):
+            values[key] = os.environ[key]
+    return {k: v for k, v in values.items() if k.startswith("PEPPER_") and v}
 
 
 def git(*args: str) -> str:
@@ -76,14 +105,29 @@ def source() -> tuple[str, str]:
 
 class Receiver(BaseHTTPRequestHandler):
     secret = ""
+    # Handed to the kernel on request (GET /secrets), never embedded in it.
+    secrets: dict[str, str] = {}
     url: str | None = None
     error: str | None = None
     done = threading.Event()
     got_url = threading.Event()
     got_line = threading.Event()
 
+    def do_GET(self) -> None:
+        if self.path != "/secrets" or not hmac.compare_digest(self.headers.get("X-Pepper-Secret", ""), self.secret):
+            self.send_response(403)
+            self.end_headers()
+            return
+        body = json.dumps(Receiver.secrets).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        print("[launcher] kernel fetched its secrets", flush=True)
+
     def do_POST(self) -> None:
-        if self.headers.get("X-Pepper-Secret") != self.secret:
+        if not hmac.compare_digest(self.headers.get("X-Pepper-Secret", ""), self.secret):
             self.send_response(403)
             self.end_headers()
             return
@@ -96,7 +140,7 @@ class Receiver(BaseHTTPRequestHandler):
         if body.get("url"):
             Receiver.url = body["url"]
             Receiver.got_url.set()
-            banner = f"  Pepper is up: {body['url']}"
+            banner = f"  Pepper is up: {body['url']}  (MCP: {body['url']}/mcp)"
             print("\n" + "=" * (len(banner) + 2) + f"\n{banner}\n" + "=" * (len(banner) + 2) + "\n", flush=True)
             (HERE / ".last-url").write_text(body["url"] + "\n")
         if body.get("done"):
@@ -193,7 +237,26 @@ def main() -> None:
     ap.add_argument("--packs", default="", help="comma-separated model packs to mount, e.g. starter,qwen-image")
     ap.add_argument("--build-pack", metavar="NAME",
                     help="build deploy/kaggle/packs/NAME.json into a saved pack instead of serving")
+    ap.add_argument("--catalogue-branch", metavar="BRANCH",
+                    help="serve the catalogue from this searpro/pepper-catalogue branch (to test a PR)")
+    ap.add_argument("--quick-tunnel", action="store_true",
+                    help="use a random trycloudflare.com URL even when a named tunnel is configured")
+    ap.add_argument("--no-auth", action="store_true",
+                    help="serve without PEPPER_API_TOKEN (anyone with the URL can use the GPU)")
     a = ap.parse_args()
+
+    env = load_env()
+    api_token = env.get("PEPPER_API_TOKEN")
+    named = bool(env.get("PEPPER_TUNNEL_TOKEN")) and not a.quick_tunnel
+    if named and not env.get("PEPPER_HOSTNAME"):
+        sys.exit(f"PEPPER_TUNNEL_TOKEN is set but PEPPER_HOSTNAME is not; add it to {ENV_FILE}")
+    if not a.build_pack and not api_token and not a.no_auth:
+        sys.exit(f"no PEPPER_API_TOKEN in {ENV_FILE} or the environment. A public Pepper without one "
+                 "lets anyone use the GPU; generate one with `openssl rand -base64 32`, or pass --no-auth.")
+    Receiver.secrets = {k: v for k, v in {
+        "api_token": api_token,
+        "tunnel_token": env.get("PEPPER_TUNNEL_TOKEN") if named else None,
+    }.items() if v}
 
     user, headers = auth()
     sha, diff = source()
@@ -226,6 +289,11 @@ def main() -> None:
         "hours": min(a.hours, 11.9),
         "receiver": receiver_url,
         "secret": Receiver.secret,
+        # What the kernel should expect from GET /secrets; it refuses to serve
+        # without a token it was promised rather than coming up open.
+        "auth": bool(api_token),
+        "hostname": env.get("PEPPER_HOSTNAME") if named else None,
+        **({"catalogue_url": CATALOGUE_RAW.format(branch=a.catalogue_branch)} if a.catalogue_branch else {}),
         **extra,
     }
     text = (HERE / "kernel.py").read_text().replace("CONFIG: dict = {}", f"CONFIG: dict = {json.dumps(config)}", 1)

@@ -293,9 +293,45 @@ queued jobs tagged `character_id` / `character_role`; the service attaches
 their outputs (copied into uploads, so retention cannot sweep them) when they
 complete, including jobs that settle while no browser is open.
 
+### One token, three ways to present it
+
+Pepper has one user, so auth is a single shared secret (`PEPPER_API_TOKEN`,
+`server/src/auth.ts`) rather than accounts. It is checked in a root
+`onRequest` hook for `/v1/*`, `/mcp*` and `/docs*`; `/health` and the SPA's
+static files stay public so the sign-in screen can load. Each client presents
+it the only way it can: scripts and Claude Code send a Bearer header; the
+browser exchanges it once at `POST /v1/session` for an `HttpOnly` cookie
+(derived from the token, not the token), because `<img>`, EventSource and
+WebSocket requests cannot carry headers; and a claude.ai custom connector,
+which may not offer a header field, can use `/mcp/<token>`, censored from
+every log line by pino `redact`. Unset, the server stays open, so local
+development and the sd-api contract are unchanged.
+
+### Claude drives Pepper over MCP
+
+`/mcp` (`routes/mcp.ts`, tools in `mcp/tools.ts`) is a stateless Streamable
+HTTP endpoint with JSON responses: a fresh server per POST, no sessions, no
+SSE. That survives kernel restarts and anything a tunnel does to long-lived
+connections. Tools wrap the HTTP API through `app.inject` rather than calling
+services, so validation, defaults and error codes have one definition. They
+are deliberately few and coarse — every description sits in the context of
+each conversation that enables the connector. Long work is submit-then-poll:
+no tool waits past 50 s, because Cloudflare drops requests at 100 s and MCP
+clients time out sooner, so videos return a job id for `get_job`. Finished
+images come back inline (a 1024 px JPEG via ffmpeg when available) plus an
+absolute link built from the caller's `Host`/`X-Forwarded-*` headers.
+
 ## Gotchas worth keeping
 
 These cost real debugging time; the code comments carry the short version.
+
+- **Never exempt loopback requests from auth.** cloudflared connects to
+  Pepper from `127.0.0.1`, so "trust localhost" means "trust every request
+  through the tunnel". The Kaggle kernel's own calls to Pepper send the token
+  like any other client.
+- **A Fastify hook only covers routes registered after it.** The auth hook is
+  added before any plugin (`/docs` comes from `@fastify/swagger-ui`); moved
+  below a plugin, that plugin's routes silently stop requiring the token.
 
 - **Abort-on-disconnect must watch `reply.raw`, not `req.raw`.** Node's
   `IncomingMessage` fires `close` once the request body is fully read — not when

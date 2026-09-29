@@ -125,6 +125,13 @@ export interface Config {
   // --- Credentials ---
   /** HuggingFace token for gated/private repos. Never logged or echoed. */
   hfToken?: string;
+  /**
+   * Shared secret every API, MCP and docs request must present (see
+   * `src/auth.ts`). Unset leaves the server open, which is what local
+   * development and sd-api clients on a private network expect; any
+   * deployment reachable from the internet must set it.
+   */
+  apiToken?: string;
 }
 
 const DEFAULT_RELEASE_REPOS: Record<BackendId, string> = {
@@ -287,15 +294,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     catalogueTtlMs: positiveNum('CATALOGUE_TTL_MS', env.CATALOGUE_TTL_MS, DEFAULTS.catalogueTtlMs),
 
     hfToken: env.HF_TOKEN?.trim() || env.HUGGING_FACE_HUB_TOKEN?.trim() || undefined,
+    apiToken: env.PEPPER_API_TOKEN?.trim() || undefined,
   };
 }
 
 /**
  * Config as it is safe to hand to the UI: same shape, minus anything secret.
- * `hfToken` is replaced by a boolean — the UI only ever needs to know whether
- * a token is configured, never what it is.
+ * `hfToken` and `apiToken` are replaced by booleans — the UI only ever needs to
+ * know whether a token is configured, never what it is.
  */
 export function publicConfig(config: Config): Record<string, unknown> {
-  const { hfToken, ...rest } = config;
-  return { ...rest, hfTokenConfigured: Boolean(hfToken) };
+  const { hfToken, apiToken, ...rest } = config;
+  return { ...rest, hfTokenConfigured: Boolean(hfToken), apiTokenConfigured: Boolean(apiToken) };
 }

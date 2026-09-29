@@ -10,7 +10,8 @@ script kernel. On Kaggle it
   4. starts Pepper with DATA_DIR on /tmp — binaries, models, uploads and the
      database all download there (~60 GB writable, though df reports far more; /kaggle/working is the
      saved notebook output and capped at 20 GB),
-  5. opens a Cloudflare quick tunnel to it, and
+  5. opens a Cloudflare tunnel to it — the named tunnel at CONFIG["hostname"]
+     when the launcher has one configured, otherwise a quick tunnel — and
   6. stays up for CONFIG["hours"], then exits.
 
 Two optional modes around that, both for keeping models between runs (Kaggle
@@ -33,6 +34,12 @@ prints is also posted back to the launcher (through the launcher's own quick
 tunnel, authenticated by a per-launch secret). That is how the tunnel URL
 reaches the laptop while the server is still running. When the launcher is
 gone those posts fail quietly and the kernel carries on.
+
+Secrets (the API token and the named tunnel's token) take the opposite path:
+the kernel fetches them from the launcher at startup rather than having them
+embedded in CONFIG, because this file, CONFIG included, is saved by Kaggle as
+the kernel's source. A kernel promised a token that cannot fetch it stops,
+rather than serving an open Pepper on a public URL.
 """
 
 from __future__ import annotations
@@ -57,6 +64,7 @@ TOOLS = f"{TMP}/tools"
 PACK_DATA = "/kaggle/working/pepper-data"
 PORT = 3000
 START = time.time()
+SECRETS: dict = {}
 
 # --- Reporting back to the launcher ------------------------------------------
 
@@ -175,10 +183,13 @@ def wait_healthy(server: subprocess.Popen) -> None:
 
 
 def api(method: str, path: str, body: dict | None = None):
+    # Pepper checks the token on loopback requests too: cloudflared connects
+    # from 127.0.0.1, so a loopback exemption would exempt the whole internet.
+    token = SECRETS.get("api_token")
     req = urllib.request.Request(
         f"http://127.0.0.1:{PORT}{path}", method=method,
         data=json.dumps(body).encode() if body is not None else None,
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json", **({"Authorization": f"Bearer {token}"} if token else {})})
     with urllib.request.urlopen(req, timeout=60) as res:
         raw = res.read()
     return json.loads(raw) if raw else None
@@ -301,22 +312,58 @@ def warm(files: list[str], budget: float = 16e9) -> None:
     log(f"warmed {done / 1e9:.1f} GB of pack files in {time.time() - started:.0f}s")
 
 
+def fetch_secrets() -> None:
+    """GET the secrets from the launcher's receiver (see the module docstring)."""
+    receiver = CONFIG.get("receiver")
+    if receiver:
+        for attempt in range(10):
+            req = urllib.request.Request(f"{receiver}/secrets", headers={"X-Pepper-Secret": CONFIG["secret"]})
+            try:
+                with urllib.request.urlopen(req, timeout=15) as res:
+                    SECRETS.update(json.loads(res.read()))
+                break
+            except Exception as exc:
+                log(f"fetching secrets from the launcher failed ({type(exc).__name__}); retrying")
+                time.sleep(3 * (attempt + 1))
+    log("secrets: " + (", ".join(sorted(SECRETS)) or "none"))
+    if CONFIG.get("auth") and not SECRETS.get("api_token"):
+        raise SystemExit("no API token from the launcher (was it stopped?); refusing to serve without one")
+    if CONFIG.get("hostname") and not SECRETS.get("tunnel_token"):
+        raise SystemExit("no tunnel token from the launcher; refusing to start the named tunnel")
+
+
 def open_tunnel(env: dict) -> tuple[subprocess.Popen, str]:
+    """Start cloudflared; returns it and the public URL once it is serving."""
     found: dict = {}
     ready = threading.Event()
+    hostname = CONFIG.get("hostname")
 
-    def on_line(line: str) -> None:
-        match = re.search(r"https://[\w-]+\.trycloudflare\.com", line)
-        if match and not found:
-            found["url"] = match.group(0)
-            ready.set()
+    if hostname:
+        # A named tunnel: the hostname is fixed in Cloudflare, and "ready" is
+        # the first edge connection registering. The token goes through the
+        # environment, not argv, so it never appears in a process listing or
+        # in the `$ command` lines this script logs.
+        argv = [f"{TOOLS}/cloudflared", "tunnel", "--no-autoupdate", "run", "--url", f"http://127.0.0.1:{PORT}"]
+        tunnel_env = {**env, "TUNNEL_TOKEN": SECRETS["tunnel_token"]}
 
-    tunnel = subprocess.Popen(
-        [f"{TOOLS}/cloudflared", "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{PORT}"],
-        env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        def on_line(line: str) -> None:
+            if "Registered tunnel connection" in line and not found:
+                found["url"] = f"https://{hostname}"
+                ready.set()
+    else:
+        argv = [f"{TOOLS}/cloudflared", "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{PORT}"]
+        tunnel_env = env
+
+        def on_line(line: str) -> None:
+            match = re.search(r"https://[\w-]+\.trycloudflare\.com", line)
+            if match and not found:
+                found["url"] = match.group(0)
+                ready.set()
+
+    tunnel = subprocess.Popen(argv, env=tunnel_env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     threading.Thread(target=forward, args=(tunnel, "[tunnel]", on_line), daemon=True).start()
     if not ready.wait(120):
-        raise SystemExit("cloudflared printed no URL")
+        raise SystemExit("cloudflared did not come up" + (f" for {hostname}" if hostname else " with a URL"))
     return tunnel, found["url"]
 
 
@@ -347,6 +394,7 @@ def main() -> None:
         # to download models.
         env.update({"DATA_DIR": PACK_DATA, "AUTO_INSTALL_BACKENDS": "false"})
 
+    fetch_secrets()
     install_tools()
     checkout()
 
@@ -355,7 +403,15 @@ def main() -> None:
 
     linked = [] if building_pack else link_packs()
 
-    server = subprocess.Popen(["node", "dist/index.js"], cwd=f"{SRC}/server", env=env, text=True,
+    # Added only now, so no build step ever sees them.
+    server_env = {
+        **env,
+        **({"PEPPER_API_TOKEN": SECRETS["api_token"]} if SECRETS.get("api_token") else {}),
+        **({"CATALOGUE_URL": CONFIG["catalogue_url"]} if CONFIG.get("catalogue_url") else {}),
+    }
+    if CONFIG.get("catalogue_url"):
+        log(f"catalogue: {CONFIG['catalogue_url']}")
+    server = subprocess.Popen(["node", "dist/index.js"], cwd=f"{SRC}/server", env=server_env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     threading.Thread(target=forward, args=(server, "[pepper]"), daemon=True).start()
     wait_healthy(server)
@@ -369,8 +425,10 @@ def main() -> None:
         threading.Thread(target=warm, args=(linked,), daemon=True).start()
 
     tunnel, url = open_tunnel(env)
-    # Give the quick tunnel's DNS a moment so the URL works when it is shown.
-    time.sleep(10)
+    # Give a quick tunnel's DNS a moment so the URL works when it is shown.
+    # A named tunnel's DNS record already exists.
+    if not CONFIG.get("hostname"):
+        time.sleep(10)
     log(f"PEPPER URL: {url}")
     _post({"url": url})
 

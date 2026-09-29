@@ -16,6 +16,7 @@ import {
 import { ZodError } from 'zod';
 import type { Config } from './config.js';
 import { AppError } from './errors.js';
+import { authRoutes, redactTokenPath, registerAuthHook } from './auth.js';
 import { buildPaths, ensureDirs } from './paths.js';
 import { openDb, type Db } from './db/client.js';
 import { SettingsStore } from './db/settings.js';
@@ -52,6 +53,7 @@ import { pythonRoutes } from './routes/python.js';
 import { audioRoutes } from './routes/audio.js';
 import { compatRoutes } from './routes/compat.js';
 import { characterRoutes } from './routes/characters.js';
+import { mcpRoutes } from './routes/mcp.js';
 import './types.js';
 
 const VERSION = '0.1.0';
@@ -78,8 +80,14 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   // defaults every destination to 'info' and does *not* inherit the logger's
   // own level, so without this a debug-level deployment silently drops every
   // backend line before it reaches stdout or the buffer.
+  //
+  // `redact` keeps the `/mcp/<token>` form of the API token (src/auth.ts) out
+  // of every log line, including the stdout a Kaggle kernel posts back.
   const logger: FastifyBaseLogger = pino(
-    { level: config.logLevel },
+    {
+      level: config.logLevel,
+      redact: { paths: ['req.url', 'originalUrl', 'url'], censor: redactTokenPath },
+    },
     pino.multistream([
       { stream: process.stdout, level: config.logLevel },
       { stream: logs, level: config.logLevel },
@@ -218,6 +226,9 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 
   // --- Plugins --------------------------------------------------------------
 
+  // First, so the token check covers every route below — /docs included.
+  registerAuthHook(app, config.apiToken);
+
   await app.register(fastifyMultipart, {
     limits: { fileSize: 512 * 1024 * 1024 },
   });
@@ -247,6 +258,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
         { name: 'characters', description: 'Character Studio' },
         { name: 'logs', description: 'Log query and live tail' },
         { name: 'compat', description: 'sd-api compatible endpoints' },
+        { name: 'mcp', description: 'Model Context Protocol endpoint for Claude' },
       ],
     },
     transform: jsonSchemaTransform,
@@ -294,7 +306,12 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     // Anything that is not an API call is the SPA's own routing: serve the
     // shell and let the client router resolve it, so a deep link works on a
     // hard refresh.
-    if (!request.url.startsWith('/v1') && !request.url.startsWith('/docs') && request.method === 'GET') {
+    if (
+      !request.url.startsWith('/v1') &&
+      !request.url.startsWith('/docs') &&
+      !request.url.startsWith('/mcp') &&
+      request.method === 'GET'
+    ) {
       return reply.sendFile('index.html');
     }
     return reply.code(404).send({
@@ -304,6 +321,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 
   // --- Routes ---------------------------------------------------------------
 
+  await app.register(authRoutes);
   await app.register(systemRoutes);
   await app.register(modelRoutes);
   await app.register(downloadRoutes);
@@ -322,6 +340,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   await app.register(audioRoutes);
   await app.register(compatRoutes);
   await app.register(characterRoutes);
+  await app.register(mcpRoutes);
 
   // The built SPA. Registered last so it never shadows an API route — its
   // wildcard route is the least specific thing in the tree, and a path it has

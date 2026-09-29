@@ -4,6 +4,7 @@ import { TooltipProvider } from '@/components/ui';
 import { AppShell, type Theme } from '@/components/layout';
 import { CatalogueDialog } from '@/components/Catalogue';
 import { PreferencesDialog } from '@/components/Preferences';
+import { AuthGate } from '@/components/SignIn';
 import { GeneratePage } from '@/pages/Generate';
 import { ImagePage } from '@/pages/Image';
 import { AudioPage } from '@/pages/Audio';
@@ -17,6 +18,14 @@ import { useResource, type SystemStatus } from '@/lib/api';
 const THEME_KEY = 'pepper-theme';
 
 export function App() {
+  return (
+    <AuthGate>
+      <Pepper />
+    </AuthGate>
+  );
+}
+
+function Pepper() {
   const [theme, setTheme] = React.useState<Theme>(
     () => (localStorage.getItem(THEME_KEY) as Theme | null) ?? 'light',
   );
