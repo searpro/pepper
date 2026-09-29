@@ -603,7 +603,7 @@ describe('speech-to-video', () => {
     // fixed-offset parser gets wrong, so one variant carries it.
     const list = extraChunk
       ? (() => {
-          const body = Buffer.from('INFOISFT   test', 'ascii');
+          const body = Buffer.from('INFOISFT\x00\x00\x00\x04test', 'ascii');
           const head = Buffer.alloc(8);
           head.write('LIST', 0, 'ascii');
           head.writeUInt32LE(body.length, 4);
