@@ -48,11 +48,13 @@ WORKDIR /app
 
 # ffmpeg: cut rendering and media probes. git: node packs. tini: reaps
 # ComfyUI and llama.cpp. libgl1/libglib2.0-0: opencv, which several packs import.
-# sox: Qwen3-TTS's audio front end shells out to it.
+# sox: Qwen3-TTS's audio front end shells out to it. build-essential: some
+# pack requirements have no wheel and compile at install (LongCat's
+# audio-separator pulls in diffq).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs ffmpeg git tini libgl1 libglib2.0-0 python3 sox \
+    && apt-get install -y --no-install-recommends nodejs ffmpeg git tini libgl1 libglib2.0-0 python3 sox build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL -o /usr/local/bin/cloudflared \
@@ -70,9 +72,12 @@ ENV COMFY_DIR=/opt/comfy/ComfyUI \
     COMFY_PYTHON=/opt/comfy/venv/bin/python \
     UV_PYTHON_INSTALL_DIR=/opt/uv-python \
     UV_NO_CACHE=1
+# TORCH_INDEX=https://download.pytorch.org/whl/cpu builds a CPU-only image,
+# a few GB smaller, for checking the build itself where there is no GPU.
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cu128
 COPY apps/pepper-pro/server/scripts/install-comfy.sh ./apps/pepper-pro/server/scripts/install-comfy.sh
 RUN mkdir -p /tmp/no-recipes \
-    && RECIPES_DIR=/tmp/no-recipes apps/pepper-pro/server/scripts/install-comfy.sh \
+    && TORCH_INDEX=$TORCH_INDEX RECIPES_DIR=/tmp/no-recipes apps/pepper-pro/server/scripts/install-comfy.sh \
     && rm -rf /root/.cache /tmp/*
 
 # Node packs: only what the recipes pin, rebuilt when a recipe changes.
