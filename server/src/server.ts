@@ -24,7 +24,7 @@ import { PythonVideoService } from './services/python-video.js';
 import { writeAudioServerConfig } from './services/audio-config.js';
 import { writeLlmScanDir } from './services/llm-scan-dir.js';
 import { AudioService } from './services/audio-gen.js';
-import { TextService } from './services/text-gen.js';
+import { TextService } from './core/services/text-gen.js';
 import { CharacterService } from './services/characters.js';
 import { ResourceMonitor } from './core/services/resources.js';
 import { StorageMonitor } from './core/services/storage.js';

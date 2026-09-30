@@ -13,7 +13,7 @@ import type { ModelManager } from '../models/manager.js';
 import { listTextEncoderLlms } from '../models/text-encoders.js';
 import { safeResolve, type Paths } from '../paths.js';
 import { uniqueOutputName } from '../core/util/files.js';
-import type { TextService } from './text-gen.js';
+import type { TextService } from '../core/services/text-gen.js';
 
 /**
  * Character Studio: a cast of reusable characters, each with a reference

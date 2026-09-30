@@ -8,6 +8,7 @@ import { ARG_SPECS } from './args.js';
 import { BinaryInstaller, type InstalledBinary } from '../core/backends/installer.js';
 import { BackendManager, type BackendDefinition, type BackendInstaller } from '../core/backends/manager.js';
 import { PythonInstaller } from './python.js';
+import { llamacppDefinition } from '../core/llama.js';
 
 /**
  * Pepper's backends as data for the shared `BackendManager`: sd-cli (a CLI),
@@ -17,7 +18,6 @@ import { PythonInstaller } from './python.js';
 /** Command names looked for on PATH before falling back to a download. */
 const DEFAULT_COMMANDS: Partial<Record<BackendId, string>> = {
   sdcpp: 'sd-cli',
-  llamacpp: 'llama-server',
   audiocpp: 'audiocpp_server',
   vllm: 'vllm',
 };
@@ -70,19 +70,14 @@ export function pepperBackendDefinitions(
       releaseRepo: config.releaseRepos.sdcpp,
       installer: release('sdcpp'),
     },
-    {
-      id: 'llamacpp',
-      argSpec: ARG_SPECS.llamacpp,
-      command: DEFAULT_COMMANDS.llamacpp,
+    llamacppDefinition({
+      port: config.llamacppPort,
       releaseRepo: config.releaseRepos.llamacpp,
-      installer: release('llamacpp'),
-      server: { port: config.llamacppPort, healthPath: '/health' },
-      managed: () => ({
-        models_dir: join(paths.modelsDir, 'llm'),
-        host: '127.0.0.1',
-        port: config.llamacppPort,
-      }),
-    },
+      installDir: backendBinDir(paths, 'llamacpp'),
+      accel: config.accel,
+      modelsDir: () => join(paths.modelsDir, 'llm'),
+      log,
+    }),
     {
       id: 'audiocpp',
       argSpec: ARG_SPECS.audiocpp,

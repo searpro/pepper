@@ -9,7 +9,7 @@ import type { GenerateParams } from '../schemas/generate.js';
 import type { AudioService } from '../services/audio-gen.js';
 import type { ImageService } from '../services/image.js';
 import type { PythonVideoService } from '../services/python-video.js';
-import type { TextService } from '../services/text-gen.js';
+import type { TextService } from '../core/services/text-gen.js';
 import type { UpscaleService } from '../services/upscale.js';
 import { uniqueOutputName } from '../core/util/files.js';
 import type { Engine, ReleaseReason } from '../core/engines/engine.js';
