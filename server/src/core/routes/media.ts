@@ -4,9 +4,10 @@ import { extname } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { errors } from '../core/errors.js';
-import { safeResolve } from '../paths.js';
-import { listFiles, uniqueOutputName } from '../core/util/files.js';
+import { errors } from '../errors.js';
+import type { JobManager } from '../jobs/manager.js';
+import { safeResolve, type Paths } from '../paths.js';
+import { listFiles, uniqueOutputName } from '../util/files.js';
 
 /**
  * Outputs and uploads — what the UI's Media page is built from (requirement
@@ -51,8 +52,14 @@ export function contentType(name: string): string {
   return MIME_TYPES[extname(name).toLowerCase()] ?? 'application/octet-stream';
 }
 
-export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
+export interface MediaRoutesOptions {
+  paths: Paths;
+  jobs: JobManager;
+}
+
+export async function mediaRoutes(fastify: FastifyInstance, options: MediaRoutesOptions): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  const { paths, jobs } = options;
 
   app.get(
     '/v1/outputs',
@@ -68,7 +75,7 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req) => {
-      const files = await listFiles(app.paths.outputDir);
+      const files = await listFiles(paths.outputDir);
       const outputs = files
         .map((file) => ({
           name: file.name,
@@ -94,7 +101,7 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const path = safeResolve(app.paths.outputDir, req.params.name);
+      const path = safeResolve(paths.outputDir, req.params.name);
       let size: number;
       try {
         size = (await stat(path)).size;
@@ -138,14 +145,14 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req) => {
-      const path = safeResolve(app.paths.outputDir, req.params.name);
+      const path = safeResolve(paths.outputDir, req.params.name);
       let file;
       try {
         file = await stat(path);
       } catch {
         throw errors.outputNotFound(req.params.name);
       }
-      const job = app.jobs.findByOutput(req.params.name);
+      const job = jobs.findByOutput(req.params.name);
       return {
         name: req.params.name,
         kind: mediaKind(req.params.name),
@@ -165,80 +172,6 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
-  app.get(
-    '/v1/upscalers',
-    {
-      schema: {
-        tags: ['media'],
-        summary: 'Installed upscaler checkpoints, the scales they make available, and the catalogue',
-      },
-    },
-    async () => {
-      const models = await app.upscaler.listModels();
-      const [x2, x4] = await Promise.all([
-        app.upscaler.defaultModel(2),
-        app.upscaler.defaultModel(4),
-      ]);
-      return {
-        dir: app.upscaler.dir,
-        models: models.map(({ path: _path, ...model }) => model),
-        scales: await app.upscaler.availableScales(),
-        preferences: app.upscaler.preferences(),
-        defaults: { 2: x2?.name ?? null, 4: x4?.name ?? null },
-        pythonReady: await app.pythonVideo.runtimeInstalled(),
-        catalogue: await app.upscaler.catalogue(),
-      };
-    },
-  );
-
-  app.put(
-    '/v1/upscalers/preferences',
-    {
-      schema: {
-        tags: ['media'],
-        summary: 'Set the upscaler engine and the default checkpoint per scale',
-        body: z.object({
-          engine: z.enum(['auto', 'python', 'sdcpp']).optional(),
-          default_x2: z.string().nullable().optional(),
-          default_x4: z.string().nullable().optional(),
-        }),
-      },
-    },
-    async (req) => app.upscaler.setPreferences(req.body),
-  );
-
-  app.post(
-    '/v1/upscalers/install',
-    {
-      schema: {
-        tags: ['media'],
-        summary: 'Download an upscaler from the curated catalogue',
-        description: 'Resolves once the checkpoint is on disk; the files are 5–140 MB.',
-        body: z.object({ id: z.string().min(1) }),
-      },
-    },
-    async (req) => {
-      await app.upscaler.install(req.body.id);
-      return { ok: true };
-    },
-  );
-
-  app.delete(
-    '/v1/upscalers/:name',
-    {
-      schema: {
-        tags: ['media'],
-        summary: 'Delete an installed upscaler checkpoint',
-        params: z.object({ name: z.string() }),
-        response: { 204: z.null() },
-      },
-    },
-    async (req, reply) => {
-      await app.upscaler.remove(req.params.name);
-      return reply.code(204).send(null);
-    },
-  );
-
   app.delete(
     '/v1/outputs/:name',
     {
@@ -250,7 +183,7 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      await unlink(safeResolve(app.paths.outputDir, req.params.name)).catch(() => {});
+      await unlink(safeResolve(paths.outputDir, req.params.name)).catch(() => {});
       return reply.code(204).send(null);
     },
   );
@@ -281,7 +214,7 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
         // attacker-controlled, may collide with an existing upload, and would
         // let one request overwrite another's reference image.
         const name = uniqueOutputName(ext.replace(/^\./, ''), 'upload');
-        const path = safeResolve(app.paths.uploadsDir, name);
+        const path = safeResolve(paths.uploadsDir, name);
 
         await writeFile(path, await file.toBuffer());
         const size = (await stat(path)).size;
@@ -317,7 +250,7 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const from = safeResolve(app.paths.outputDir, req.body.name);
+      const from = safeResolve(paths.outputDir, req.body.name);
       try {
         await stat(from);
       } catch {
@@ -325,7 +258,7 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       }
       const ext = extname(req.body.name).toLowerCase() || '.png';
       const name = uniqueOutputName(ext.replace(/^\./, ''), 'upload');
-      const path = safeResolve(app.paths.uploadsDir, name);
+      const path = safeResolve(paths.uploadsDir, name);
       await copyFile(from, path);
       return reply.code(201).send({
         name,
@@ -347,7 +280,7 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async () => {
-      const files = await listFiles(app.paths.uploadsDir);
+      const files = await listFiles(paths.uploadsDir);
       return {
         uploads: files
           .map((file) => ({
@@ -372,7 +305,7 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const path = safeResolve(app.paths.uploadsDir, req.params.name);
+      const path = safeResolve(paths.uploadsDir, req.params.name);
       let size: number;
       try {
         size = (await stat(path)).size;
@@ -397,7 +330,7 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      await unlink(safeResolve(app.paths.uploadsDir, req.params.name)).catch(() => {});
+      await unlink(safeResolve(paths.uploadsDir, req.params.name)).catch(() => {});
       return reply.code(204).send(null);
     },
   );

@@ -40,7 +40,7 @@ import {
   sessionValue,
   signMediaUrl,
 } from '../src/core/auth.js';
-import { parseRange } from '../src/routes/media.js';
+import { parseRange } from '../src/core/routes/media.js';
 import { MEDIA_VIEW_MIME, MEDIA_VIEW_URI } from '../src/core/mcp/media-view.js';
 import { buildServer } from '../src/server.js';
 import { jobsResult, selectFiles, type CatalogueComponent } from '../src/mcp/tools.js';

@@ -1,16 +1,26 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { errors } from '../core/errors.js';
-import { parseSlot } from '../models/bundle.js';
-import { MODEL_KINDS } from '../paths.js';
-import { startSse, startWs, type SseStream } from '../core/util/sse.js';
+import type { DownloadManager } from '../downloads/manager.js';
+import { errors } from '../errors.js';
+import { startSse, startWs, type SseStream } from '../util/sse.js';
 
 const statusEnum = z.enum(['queued', 'downloading', 'completed', 'failed', 'cancelled']);
 
 /** Download management (requirement 8): abort, retry, delete, and live progress. */
-export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
+export interface DownloadRoutesOptions {
+  // `any`: the manager's kind and slot types are the product's; this plugin
+  // only moves strings between the wire and the manager, which validates them.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  downloads: DownloadManager<any, any>;
+  /** The product's model kinds, the first coordinate of a download. */
+  kinds: readonly [string, ...string[]];
+}
+
+export async function downloadRoutes(fastify: FastifyInstance, options: DownloadRoutesOptions): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  const { downloads } = options;
+  const kindEnum = z.enum(options.kinds as [string, ...string[]]);
 
   app.get(
     '/v1/downloads',
@@ -19,7 +29,7 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
         tags: ['downloads'],
         summary: 'List downloads',
         querystring: z.object({
-          kind: z.enum(MODEL_KINDS).optional(),
+          kind: kindEnum.optional(),
           bundle: z.string().optional(),
           status: z.union([statusEnum, z.array(statusEnum)]).optional(),
         }),
@@ -32,7 +42,7 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
           ? req.query.status
           : [req.query.status]
         : undefined;
-      return { downloads: app.downloads.list({ kind: req.query.kind, bundle: req.query.bundle, status }) };
+      return { downloads: downloads.list({ kind: req.query.kind, bundle: req.query.bundle, status }) };
     },
   );
 
@@ -43,7 +53,7 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
         tags: ['downloads'],
         summary: 'Queue a download into a model bundle',
         body: z.object({
-          kind: z.enum(MODEL_KINDS),
+          kind: kindEnum,
           bundle: z.string().min(1),
           slot: z.string(),
           url: z.string().url(),
@@ -53,10 +63,10 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      const task = await app.downloads.enqueue({
+      const task = await downloads.enqueue({
         kind: req.body.kind,
         bundle: req.body.bundle,
-        slot: parseSlot(req.body.slot),
+        slot: req.body.slot,
         url: req.body.url,
         name: req.body.name,
       });
@@ -72,10 +82,10 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
    * download manager actually needs.
    */
   function allDownloads(stream: SseStream): void {
-    for (const task of app.downloads.list({ status: ['queued', 'downloading'] })) {
+    for (const task of downloads.list({ status: ['queued', 'downloading'] })) {
       stream.send('task', task);
     }
-    stream.onClose(app.downloads.subscribe(null, (event, task) => stream.send(event, task)));
+    stream.onClose(downloads.subscribe(null, (event, task) => stream.send(event, task)));
   }
 
   app.route({
@@ -102,14 +112,14 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req) => {
-      const task = app.downloads.get(req.params.id);
+      const task = downloads.get(req.params.id);
       if (!task) throw errors.downloadNotFound(req.params.id);
       return task;
     },
   );
 
   function oneDownload(id: string, stream: SseStream): void {
-    const task = app.downloads.get(id);
+    const task = downloads.get(id);
     if (!task) {
       stream.close();
       return;
@@ -122,7 +132,7 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
       stream.close();
       return;
     }
-    stream.onClose(app.downloads.subscribe(id, (event, data) => stream.send(event, data)));
+    stream.onClose(downloads.subscribe(id, (event, data) => stream.send(event, data)));
   }
 
   app.route({
@@ -135,7 +145,7 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
     },
     handler: async (req, reply) => {
       // Checked before the stream opens so an unknown id is a plain 404.
-      if (!app.downloads.get(req.params.id)) throw errors.downloadNotFound(req.params.id);
+      if (!downloads.get(req.params.id)) throw errors.downloadNotFound(req.params.id);
       oneDownload(req.params.id, startSse(req, reply));
     },
     wsHandler: (socket, req) => oneDownload(req.params.id, startWs(socket)),
@@ -151,7 +161,7 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: z.unknown() },
       },
     },
-    async (req) => app.downloads.cancel(req.params.id),
+    async (req) => downloads.cancel(req.params.id),
   );
 
   app.post(
@@ -164,7 +174,7 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: z.unknown() },
       },
     },
-    async (req) => app.downloads.retry(req.params.id),
+    async (req) => downloads.retry(req.params.id),
   );
 
   app.delete(
@@ -179,7 +189,7 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      await app.downloads.remove(req.params.id, req.query.discard);
+      await downloads.remove(req.params.id, req.query.discard);
       return reply.code(204).send(null);
     },
   );
@@ -193,7 +203,7 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: z.object({ downloads: z.array(z.unknown()) }) },
       },
     },
-    async () => ({ downloads: app.downloads.resumeAll() }),
+    async () => ({ downloads: downloads.resumeAll() }),
   );
 
   // --- HuggingFace snapshot downloads (vLLM models) --------------------------
@@ -201,72 +211,4 @@ export async function downloadRoutes(fastify: FastifyInstance): Promise<void> {
   // A whole-repo pull, not a single component file — see
   // `downloads/snapshot.ts` for why this is a separate, simpler tracker
   // rather than a `DownloadManager` task.
-
-  app.get(
-    '/v1/downloads/snapshot',
-    {
-      schema: {
-        tags: ['downloads'],
-        summary: 'List HuggingFace snapshot downloads',
-        response: { 200: z.object({ downloads: z.array(z.unknown()) }) },
-      },
-    },
-    async () => ({ downloads: app.snapshotDownloads.list() }),
-  );
-
-  app.post(
-    '/v1/downloads/snapshot',
-    {
-      schema: {
-        tags: ['downloads'],
-        summary: 'Queue a whole-repo (or whole sub-folder) HuggingFace snapshot download into a model bundle',
-        description:
-          'For vLLM models: pulls the full repo (config, tokenizer, sharded weights) via ' +
-          'huggingface-cli, rather than picking one component file. For a Python-backend model ' +
-          'declaring `"source": { "snapshot": true } }` components (e.g. EchoMimicV3), pass `slot` ' +
-          'so the pull lands in that component\'s own directory rather than the bundle root, and ' +
-          '`path` when the component is a sub-folder of the repo rather than the whole thing.',
-        body: z.object({
-          kind: z.enum(MODEL_KINDS),
-          bundle: z.string().min(1),
-          repo: z.string().min(1),
-          slot: z.string().optional(),
-          path: z.string().optional(),
-        }),
-        response: { 202: z.unknown() },
-      },
-    },
-    async (req, reply) => {
-      const task = await app.snapshotDownloads.enqueue(req.body.kind, req.body.bundle, req.body.repo, {
-        slot: req.body.slot ? parseSlot(req.body.slot) : undefined,
-        path: req.body.path,
-      });
-      return reply.code(202).send(task);
-    },
-  );
-
-  app.get(
-    '/v1/downloads/snapshot/:id',
-    {
-      schema: {
-        tags: ['downloads'],
-        summary: 'One snapshot download',
-        params: idParam,
-        response: { 200: z.unknown() },
-      },
-    },
-    async (req) => app.snapshotDownloads.require(req.params.id),
-  );
-
-  app.get(
-    '/v1/downloads/snapshot/stream',
-    { schema: { tags: ['downloads'], summary: 'Live progress for all snapshot downloads (SSE)' } },
-    async (req, reply) => {
-      const stream = startSse(req, reply);
-      for (const task of app.snapshotDownloads.list()) {
-        if (task.status === 'downloading') stream.send('task', task);
-      }
-      stream.onClose(app.snapshotDownloads.subscribe(null, (event, task) => stream.send(event, task)));
-    },
-  );
 }

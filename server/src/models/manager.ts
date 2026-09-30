@@ -21,6 +21,7 @@ import {
   slotDirName,
   writeManifest,
   type BundleInfo,
+  parseSlot,
   type ComponentSlot,
   type ModelManifest,
   type ResolvedImageBundle,
@@ -211,6 +212,11 @@ export class ModelManager {
    * sitting next to it, turning a bundle into an unreadable one on a
    * mistyped catalogue entry.
    */
+  /** Validate a component slot (the download layout's third coordinate). */
+  parseSlot(value: string): ComponentSlot {
+    return parseSlot(value);
+  }
+
   fileNameFor(url: string, explicit?: string): string {
     if (explicit) return this.validateFileName(explicit);
 

@@ -5,7 +5,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { errors } from '../core/errors.js';
 import { manifestSchema, parseSlot, type BundleInfo, type ComponentSlot } from '../models/bundle.js';
-import type { DownloadTask } from '../downloads/manager.js';
+import type { PepperDownloadTask as DownloadTask } from '../downloads/manager.js';
 import { safeResolve, type ModelKind } from '../paths.js';
 import { proxyToBackend } from '../core/services/proxy.js';
 import { startSse } from '../core/util/sse.js';

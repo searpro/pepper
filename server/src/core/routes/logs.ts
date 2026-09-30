@@ -1,20 +1,17 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { startSse, startWs, type SseStream } from '../core/util/sse.js';
-import type { LogSource } from '../core/logs/buffer.js';
+import type { LogBuffer, LogSource } from '../logs/buffer.js';
+import { startSse, startWs, type SseStream } from '../util/sse.js';
 
-const sourceEnum = z.enum([
-  'app',
-  'http',
-  'healthcheck',
-  'job',
-  'download',
-  'sdcpp',
-  'llamacpp',
-  'audiocpp',
-  'python',
-]);
+/** Sources every product logs under; each adds its backends' ids. */
+const CORE_SOURCES = ['app', 'http', 'healthcheck', 'job', 'download'];
+
+export interface LogRoutesOptions {
+  logs: LogBuffer;
+  /** The product's backend ids, which are log sources too. */
+  backendSources: string[];
+}
 
 const levelEnum = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']);
 
@@ -28,8 +25,13 @@ const levelEnum = z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']);
  * broken — the filter has to apply to the live stream too, not just the
  * snapshot.
  */
-export async function logRoutes(fastify: FastifyInstance): Promise<void> {
+export async function logRoutes(fastify: FastifyInstance, options: LogRoutesOptions): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  const { logs } = options;
+  const sources = [...CORE_SOURCES, ...options.backendSources];
+  const sourceEnum = z.string().refine((value) => sources.includes(value), {
+    message: `expected one of ${sources.join(', ')}`,
+  });
 
   const filterSchema = z.object({
     search: z.string().optional(),
@@ -41,7 +43,7 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
 
   function toSources(value: z.infer<typeof filterSchema>['source']): LogSource[] | undefined {
     if (!value) return undefined;
-    return Array.isArray(value) ? value : [value];
+    return (Array.isArray(value) ? value : [value]) as LogSource[];
   }
 
   app.get(
@@ -60,14 +62,14 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req) => ({
-      records: app.logs.query({
+      records: logs.query({
         search: req.query.search,
         sources: toSources(req.query.source),
         minLevel: req.query.minLevel,
         sinceSeq: req.query.sinceSeq,
         limit: req.query.limit,
       }),
-      sources: sourceEnum.options,
+      sources,
     }),
   );
 
@@ -79,10 +81,10 @@ export async function logRoutes(fastify: FastifyInstance): Promise<void> {
     };
     // Replay a recent window before tailing, so the viewer opens with
     // context instead of an empty pane on an idle system.
-    for (const record of app.logs.query({ ...filter, limit: query.limit ?? 200 })) {
+    for (const record of logs.query({ ...filter, limit: query.limit ?? 200 })) {
       stream.send('record', record);
     }
-    stream.onClose(app.logs.subscribe(filter, (record) => stream.send('record', record)));
+    stream.onClose(logs.subscribe(filter, (record) => stream.send('record', record)));
   }
 
   app.route({

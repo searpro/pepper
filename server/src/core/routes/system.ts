@@ -1,26 +1,54 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { publicConfig } from '../config.js';
-import { errors } from '../core/errors.js';
 import { backendOverridesSchema } from '../backends/args.js';
-import { ensurePythonPackageInstalled, pythonActiveModelKey } from '../backends/python.js';
-import { hfWhoami, maskToken, setHfToken } from '../core/util/hf.js';
+import type { BackendManager } from '../backends/manager.js';
+import { publicConfig, type CoreConfig } from '../config.js';
+import type { DownloadManager } from '../downloads/manager.js';
+import type { EngineRegistry } from '../engines/engine.js';
+import { errors } from '../errors.js';
+import type { JobManager } from '../jobs/manager.js';
+import type { Paths } from '../paths.js';
+import type { ActivityTracker } from '../services/activity.js';
+import type { ResourceMonitor } from '../services/resources.js';
+import type { StorageMonitor } from '../services/storage.js';
+import { hfWhoami, maskToken, setHfToken } from '../util/hf.js';
+
+export interface SystemRoutesOptions {
+  version: string;
+  config: CoreConfig;
+  paths: Paths;
+  backends: BackendManager;
+  engines: EngineRegistry;
+  jobs: JobManager;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  downloads: DownloadManager<any, any>;
+  resources: ResourceMonitor;
+  storage: StorageMonitor;
+  activity: ActivityTracker;
+  /** Product work that also keeps the server from counting as idle. */
+  isBusy?: () => boolean;
+  /** Product fields merged into `/v1/system/status` (catalogue state, generator stats…). */
+  status?: () => Record<string, unknown> | Promise<Record<string, unknown>>;
+  /** Runs after an explicitly requested install of `backend` succeeds. */
+  afterInstall?: (backend: string) => Promise<void>;
+}
 
 /**
  * System surface: health, configuration, backend lifecycle and HuggingFace
  * auth. These are the endpoints the Preferences screen is built from.
  */
-export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
+export async function systemRoutes(fastify: FastifyInstance, options: SystemRoutesOptions): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
+  const { config, paths, backends, engines, jobs, downloads, resources, storage, activity } = options;
 
   /** Work in progress, which keeps the server from counting as idle. */
   function isBusy(): boolean {
-    const jobs = app.jobs.stats();
+    const queue = jobs.stats();
     return (
-      jobs.running + jobs.queued > 0 ||
-      app.downloads.list({ status: ['queued', 'downloading'] }).length > 0 ||
-      app.snapshotDownloads.list().some((task) => task.status === 'downloading')
+      queue.running + queue.queued > 0 ||
+      downloads.list({ status: ['queued', 'downloading'] }).length > 0 ||
+      (options.isBusy?.() ?? false)
     );
   }
 
@@ -42,7 +70,7 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
     async () => ({
       status: 'ok' as const,
       uptime: Math.round(process.uptime()),
-      version: app.appVersion,
+      version: options.version,
     }),
   );
 
@@ -60,26 +88,25 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async () => ({
-      version: app.appVersion,
+      version: options.version,
       uptime: Math.round(process.uptime()),
-      accel: app.config.accel,
+      accel: config.accel,
       platform: `${process.platform}/${process.arch}`,
-      backends: app.backends.statusAll(),
-      engines: app.engines.status(),
+      backends: backends.statusAll(),
+      engines: engines.status(),
       // Sampled here rather than on its own poll, so the header meters and the
       // backend pills refresh together from the one request the UI already makes.
-      resources: await app.resources.sample(),
+      resources: await resources.sample(),
       // Only where the volume's size is configured; see services/storage.ts.
-      storage: app.storage.snapshot(),
-      idleTimeoutMs: app.backends.idleTimeoutMs(),
-      jobs: app.jobs.stats(),
-      activity: app.activity.snapshot(isBusy()),
-      catalogue: app.catalogue.state(),
-      generators: app.images.stats,
+      storage: storage.snapshot(),
+      idleTimeoutMs: backends.idleTimeoutMs(),
+      jobs: jobs.stats(),
+      activity: activity.snapshot(isBusy()),
+      ...(await options.status?.()),
       paths: {
-        dataDir: app.paths.dataDir,
-        modelsDir: app.paths.modelsDir,
-        outputDir: app.paths.outputDir,
+        dataDir: paths.dataDir,
+        modelsDir: paths.modelsDir,
+        outputDir: paths.outputDir,
       },
     }),
   );
@@ -93,7 +120,7 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: z.unknown() },
       },
     },
-    async () => publicConfig(app.config),
+    async () => publicConfig(config),
   );
 
   app.get(
@@ -105,7 +132,7 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: z.unknown() },
       },
     },
-    async () => app.resources.sample(),
+    async () => resources.sample(),
   );
 
   // --- Backends -------------------------------------------------------------
@@ -123,7 +150,7 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: z.object({ idleTimeoutMs: z.number() }) },
       },
     },
-    async (req) => ({ idleTimeoutMs: app.backends.setIdleTimeout(req.body.idleTimeoutMs) }),
+    async (req) => ({ idleTimeoutMs: backends.setIdleTimeout(req.body.idleTimeoutMs) }),
   );
 
   app.get(
@@ -135,13 +162,13 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: z.object({ backends: z.array(z.unknown()) }) },
       },
     },
-    async () => ({ backends: app.backends.statusAll() }),
+    async () => ({ backends: backends.statusAll() }),
   );
 
   const backendParams = z.object({ backend: z.string() });
 
   function parseBackend(value: string): string {
-    if (!app.backends.has(value)) throw errors.backendNotFound(value);
+    if (!backends.has(value)) throw errors.backendNotFound(value);
     return value;
   }
 
@@ -155,7 +182,7 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: z.unknown() },
       },
     },
-    async (req) => app.backends.status(parseBackend(req.params.backend)),
+    async (req) => backends.status(parseBackend(req.params.backend)),
   );
 
   app.put(
@@ -172,7 +199,7 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: z.unknown() },
       },
     },
-    async (req) => app.backends.updateArgs(parseBackend(req.params.backend), req.body),
+    async (req) => backends.updateArgs(parseBackend(req.params.backend), req.body),
   );
 
   app.post(
@@ -187,17 +214,17 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (req) => {
       const backend = parseBackend(req.params.backend);
-      const proc = await app.backends.ensureRunning(backend);
+      const proc = await backends.ensureRunning(backend);
       // A skipped start (no audio models, no vLLM model selected) used to
       // answer 200 with "stopped" and no reason, which read as the button
       // doing nothing at all.
       if (!proc) {
         throw errors.backendUnavailable(
           backend,
-          app.backends.status(backend).note ?? `${backend} has nothing to serve yet`,
+          backends.status(backend).note ?? `${backend} has nothing to serve yet`,
         );
       }
-      return app.backends.status(backend);
+      return backends.status(backend);
     },
   );
 
@@ -213,8 +240,8 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (req) => {
       const backend = parseBackend(req.params.backend);
-      await app.backends.get(backend)?.stop();
-      return app.backends.status(backend);
+      await backends.get(backend)?.stop();
+      return backends.status(backend);
     },
   );
 
@@ -233,15 +260,15 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       // Stop then start through the manager rather than `proc.restart()`, so
       // the argv and registry are regenerated (a model installed since the
       // last start is picked up) and a skip is reported like `start` does.
-      await app.backends.get(backend)?.stop();
-      const proc = await app.backends.ensureRunning(backend);
+      await backends.get(backend)?.stop();
+      const proc = await backends.ensureRunning(backend);
       if (!proc) {
         throw errors.backendUnavailable(
           backend,
-          app.backends.status(backend).note ?? `${backend} has nothing to serve yet`,
+          backends.status(backend).note ?? `${backend} has nothing to serve yet`,
         );
       }
-      return app.backends.status(backend);
+      return backends.status(backend);
     },
   );
 
@@ -260,26 +287,9 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       // Installs run for minutes and pull gigabytes; holding the request open
       // would hit every proxy timeout between here and the browser. The UI
       // follows progress through the log stream instead.
-      void app.backends
+      void backends
         .reinstall(backend)
-        .then(async () => {
-          // The runtime alone spawns nothing: whichever bundle is selected in
-          // Preferences still needs its `python_package` cloned into the venv
-          // before `pythonManagedValues` (the prepare hook) will let the
-          // process start. Piggybacking this on the same "install" action
-          // keeps the Python backend a one-click install like every other
-          // backend, rather than a second, undiscoverable step.
-          if (backend !== 'python') return;
-          // torch, diffusers & co. for Pepper's runners, so the first video
-          // job does not spend its first minutes installing them.
-          await app.pythonVideo.prepare((line) => app.log.info(line));
-          const modelId = app.settings.get(pythonActiveModelKey());
-          if (!modelId) return;
-          const bundle = await app.models.find(modelId).catch(() => null);
-          if (!bundle) return;
-          await ensurePythonPackageInstalled(app.backends.python, bundle.manifest);
-          app.backends.scheduleRestart('python', 'model package installed');
-        })
+        .then(() => options.afterInstall?.(backend))
         .catch((err) => {
           app.log.error({ backend, err: (err as Error).message }, 'backend install failed');
         });
@@ -299,8 +309,8 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async () => {
-      const whoami = await hfWhoami(app.config.hfToken);
-      return { ...whoami, token: maskToken(app.config.hfToken) };
+      const whoami = await hfWhoami(config.hfToken);
+      return { ...whoami, token: maskToken(config.hfToken) };
     },
   );
 

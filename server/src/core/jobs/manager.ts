@@ -29,7 +29,13 @@ import type { StepProgress } from '../logs/parse.js';
  */
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type JobKind = 'image' | 'video' | 'audio' | 'text';
+/**
+ * Every job kind any product runs. `render` (assembling a cut) and `analyze`
+ * (stems, beats) are Pepper Pro's; the list is shared so the job table, the
+ * Jobs screen and the MCP view read one vocabulary.
+ */
+export const JOB_KINDS = ['image', 'video', 'audio', 'text', 'render', 'analyze'] as const;
+export type JobKind = (typeof JOB_KINDS)[number];
 
 export interface Job {
   id: string;

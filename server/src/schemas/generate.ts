@@ -228,29 +228,7 @@ export const textJobSchema = z
     message: 'Provide exactly one of "messages" or "prompt"',
   });
 
-export const errorResponseSchema = z.object({
-  error: z.object({
-    code: z.string(),
-    message: z.string(),
-    details: z.unknown().optional(),
-  }),
-});
-
-export const jobSchema = z.object({
-  id: z.string(),
-  kind: z.enum(['image', 'video', 'audio', 'text']),
-  status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']),
-  progress: z.number(),
-  step: z.number().optional(),
-  totalSteps: z.number().optional(),
-  params: z.record(z.unknown()),
-  result: z.record(z.unknown()).optional(),
-  error: z.object({ code: z.string(), message: z.string() }).optional(),
-  attempts: z.number(),
-  createdAt: z.string(),
-  startedAt: z.string().optional(),
-  finishedAt: z.string().optional(),
-});
+export { errorResponseSchema, jobSchema } from '../core/schemas.js';
 
 /**
  * Reject a request whose dimensions are absurd before a model is loaded.

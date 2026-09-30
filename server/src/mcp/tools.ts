@@ -7,7 +7,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { signMediaUrl } from '../core/auth.js';
 import { safeResolve } from '../paths.js';
-import { contentType } from '../routes/media.js';
+import { contentType } from '../core/routes/media.js';
 import { uniqueOutputName } from '../core/util/files.js';
 import { ffmpegAvailable, runFfmpeg } from '../core/util/ffmpeg.js';
 import type { Job } from '../core/jobs/manager.js';

@@ -6,7 +6,7 @@ import type { LogBuffer } from './core/logs/buffer.js';
 import type { PepperBackendManager } from './backends/pepper-backends.js';
 import type { ModelManager } from './models/manager.js';
 import type { CatalogueManager } from './catalogue/manager.js';
-import type { DownloadManager } from './downloads/manager.js';
+import type { PepperDownloadManager } from './downloads/manager.js';
 import type { SnapshotDownloader } from './downloads/snapshot.js';
 import type { JobManager } from './core/jobs/manager.js';
 import type { EngineRegistry } from './core/engines/engine.js';
@@ -34,7 +34,7 @@ declare module 'fastify' {
     backends: PepperBackendManager;
     models: ModelManager;
     catalogue: CatalogueManager;
-    downloads: DownloadManager;
+    downloads: PepperDownloadManager;
     snapshotDownloads: SnapshotDownloader;
     jobs: JobManager;
     engines: EngineRegistry;
