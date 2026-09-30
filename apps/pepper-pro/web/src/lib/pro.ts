@@ -112,6 +112,16 @@ export interface Take {
   kind?: RecipeKind;
   /** A vision model's check against the shot (analyze task `check`). */
   review: { ok: boolean; score: number; issues: string[]; model: string; at: number } | null;
+  /** A long take rendered in segments, or a retake of part of another take. */
+  chain: {
+    kind: 'long' | 'retake';
+    segments: { duration: number }[];
+    index: number;
+    state: 'rendering' | 'joining' | 'done' | 'failed';
+    from?: number;
+    sourceTakeId?: string;
+    error?: string;
+  } | null;
 }
 
 export interface Shot {

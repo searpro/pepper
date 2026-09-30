@@ -68,6 +68,8 @@ export interface ProConfig extends CoreConfig {
    * router lists it under; empty until one is installed.
    */
   checkModel: string;
+  /** The llama.cpp model that turns a script into shots (analyze task `plan`); the check model by default. */
+  planModel: string;
 
   /** Where the recipe templates shipped with the app live. */
   recipesDir: string;
@@ -110,6 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProConfig {
     llamacppTimeoutMs: num('LLAMACPP_TIMEOUT', env.LLAMACPP_TIMEOUT, 300_000),
     llamacppReleaseRepo: repo('LLAMACPP_RELEASE_REPO', env.LLAMACPP_RELEASE_REPO, 'searpro/llama.cpp'),
     checkModel: env.CHECK_MODEL?.trim() ?? '',
+    planModel: env.PLAN_MODEL?.trim() || env.CHECK_MODEL?.trim() || '',
 
     recipesDir: path(env.RECIPES_DIR?.trim() || new URL('../recipes', import.meta.url).pathname),
     goldenFile: path(env.GOLDEN_FILE?.trim() || new URL('../golden/shots.json', import.meta.url).pathname),

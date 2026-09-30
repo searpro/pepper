@@ -131,6 +131,12 @@ export const takes = sqliteTable(
     notes: text('notes').notNull().default(''),
     /** A vision model's check of the take: `{ ok, score, issues[], model, at }`. */
     review: text('review', { mode: 'json' }),
+    /**
+     * A take longer than its recipe renders at once, or a retake of part of
+     * one: the segments rendered one after another, each continuing the last
+     * (see chain.ts). `jobId` is then the segment rendering now.
+     */
+    chain: text('chain', { mode: 'json' }),
     createdAt: integer('created_at').notNull(),
   },
   (t) => ({
@@ -268,4 +274,5 @@ export const PRO_MIGRATIONS: string[] = [
   'ALTER TABLE takes ADD COLUMN review TEXT',
   'ALTER TABLE cuts ADD COLUMN beat_sync INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE golden_results ADD COLUMN review TEXT',
+  'ALTER TABLE takes ADD COLUMN chain TEXT',
 ];

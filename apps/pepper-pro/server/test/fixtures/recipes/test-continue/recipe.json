@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "id": "test-continue",
+  "version": 1,
+  "kind": "video",
+  "name": "Test continuation",
+  "description": "Solid colour that can 'continue' a clip: it loads the previous clip and ignores it. Model-free, for long-take tests.",
+  "family": "test",
+  "capabilities": ["test"],
+  "licence": { "id": "test", "name": "Test", "commercial": "yes" },
+  "files": [],
+  "params": [
+    { "name": "prompt", "type": "text", "label": "Prompt" },
+    { "name": "previous", "type": "video", "label": "Continue from" },
+    { "name": "duration", "type": "float", "label": "Seconds", "default": 1, "min": 0.5, "max": 1.5 },
+    { "name": "seed", "type": "seed", "label": "Seed" }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        { "param": "duration", "node": "2", "input": "duration" },
+        { "param": "previous", "node": "5", "input": "file" }
+      ],
+      "outputs": [{ "node": "4", "kind": "video" }]
+    }
+  },
+  "modes": { "draft": { "label": "Draft", "workflow": "main" } },
+  "default_mode": "draft",
+  "tiers": ["32gb"],
+  "continuation": { "param": "previous", "overlap_s": 0.25 }
+}

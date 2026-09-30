@@ -11,8 +11,10 @@ import type { LicenceMode, ProConfig } from '../config.js';
 import type { ComfyEngine, RecipeJobParams } from '../engines/comfy.js';
 import { proErrors } from '../errors.js';
 import type { ProPaths } from '../paths.js';
-import type { Recipe } from '../recipes/schema.js';
+import { probeMedia, runFfmpeg } from '@pepper/core/util/ffmpeg.js';
+import type { Recipe, RecipeParam } from '../recipes/schema.js';
 import type { RecipeStore } from '../recipes/store.js';
+import { joinArgs, planSegments, type JoinPart, type TakeChain } from './chain.js';
 import { deriveParams } from './derive.js';
 import {
   assets,
@@ -113,7 +115,8 @@ export interface TakeReview {
   at: number;
 }
 
-export interface TakeView extends TakeRow {
+export interface TakeView extends Omit<TakeRow, 'chain'> {
+  chain: TakeChain | null;
   status: Job['status'] | 'missing';
   progress: number;
   error?: Job['error'];
@@ -123,7 +126,36 @@ export interface TakeView extends TakeRow {
 
 export class ProjectService {
   constructor(private readonly deps: ProjectServiceDeps) {
+    // A failed or cancelled segment ends its chain; `failed` covers both.
     deps.jobs.on('completed', (job: Job) => void this.onJobSettled(job));
+    deps.jobs.on('failed', (job: Job) => void this.onJobSettled(job));
+    void this.resumeChains();
+  }
+
+  /**
+   * Chains whose segment settled while the server was down (or was stopped
+   * with it) are advanced or failed now; a join cut short is failed, since
+   * its segments are still in uploads and a retake is one click.
+   */
+  private async resumeChains(): Promise<void> {
+    try {
+      for (const take of this.db.select().from(takes).all()) {
+        const chain = take.chain as TakeChain | null;
+        if (!chain || chain.state === 'done' || chain.state === 'failed') continue;
+        if (chain.state === 'joining') {
+          this.setChain(take.id, { ...chain, state: 'failed', error: 'The server stopped while joining the segments' });
+          continue;
+        }
+        const job = this.deps.jobs.get(take.jobId);
+        if (!job) {
+          this.setChain(take.id, { ...chain, state: 'failed', error: `Segment ${chain.index + 1}'s job is gone` });
+        } else if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+          await this.onJobSettled(job);
+        }
+      }
+    } catch (err) {
+      this.deps.log.warn({ err: (err as Error).message }, 'could not resume long takes');
+    }
   }
 
   private get db(): Db {
@@ -494,10 +526,13 @@ export class ProjectService {
         request.params = { ...request.params, seed: options.seed };
       }
       const count = options.fromTake ? 1 : (options.count ?? 1);
+      const shot = this.requireShot(shotId);
+      const recipe = this.deps.recipes.require(request.recipe);
+      const chain = this.longTakePlan(shot, recipe, request.mode ?? recipe.default_mode, request.params ?? {});
       for (let i = 0; i < count; i++) {
         const takeId = newId('tak');
-        const prepared = await this.deps.comfy.prepareRequest(request, {
-          licenceMode: this.requireProject(this.requireShot(shotId).projectId).licenceMode as LicenceMode,
+        const prepared = await this.deps.comfy.prepareRequest(chain ? { ...request, params: chain.first } : request, {
+          licenceMode: this.requireProject(shot.projectId).licenceMode as LicenceMode,
         });
         const job = this.deps.jobs.create(prepared.recipe.kind, {
           recipe: prepared.recipe.id,
@@ -506,26 +541,261 @@ export class ProjectService {
           shot_id: shotId,
           take_id: takeId,
         });
-        const shot = this.requireShot(shotId);
+        const seed = typeof prepared.values.seed === 'number' ? prepared.values.seed : null;
         const row: TakeRow = {
           id: takeId,
           projectId: shot.projectId,
           shotId,
           jobId: job.id,
           mode: prepared.mode,
-          seed: typeof prepared.values.seed === 'number' ? prepared.values.seed : null,
+          seed,
           file: null,
           score: null,
           notes: '',
           review: null,
+          // Every segment of a long take renders with the first one's seed.
+          chain: chain ? { ...chain.chain, next: { ...chain.chain.next, ...(seed !== null ? { seed } : {}) }, segments: chain.chain.segments.map((s, k) => (k === 0 ? { ...s, jobId: job.id } : { ...s })) } : null,
           createdAt: Date.now(),
         };
         this.db.insert(takes).values(row).run();
         created.push(row);
       }
-      this.touch(this.requireShot(shotId).projectId);
+      this.touch(shot.projectId);
     }
     return created;
+  }
+
+  /** A recipe's length input, and the continuation it chains with, if it has both. */
+  private chainable(recipe: Recipe): { duration: RecipeParam & { max: number }; param: string; overlapS: number } | null {
+    const duration = recipe.params.find((p) => (p.name === 'duration' || p.name === 'seconds') && (p.type === 'float' || p.type === 'int'));
+    if (!recipe.continuation || !duration || duration.max === undefined) return null;
+    return { duration: duration as RecipeParam & { max: number }, param: recipe.continuation.param, overlapS: recipe.continuation.overlap_s };
+  }
+
+  /**
+   * When a shot is longer than its recipe renders at once, the first
+   * segment's parameters and the chain that renders the rest.
+   */
+  private longTakePlan(
+    shot: ShotRow,
+    recipe: Recipe,
+    mode: string,
+    params: Record<string, unknown>,
+  ): { first: Record<string, unknown>; chain: TakeChain } | null {
+    const spec = this.chainable(recipe);
+    // A length pinned in the shot's own parameters is taken as asked.
+    if (!spec || (shot.params as Record<string, unknown>)[spec.duration.name] !== undefined) return null;
+    if (shot.durationS <= spec.duration.max + 0.05) return null;
+    let durations: number[];
+    try {
+      durations = planSegments(shot.durationS, { max: spec.duration.max, min: spec.duration.min, overlap: spec.overlapS });
+    } catch (err) {
+      throw errors.validation(`Shot ${shot.id}: ${(err as Error).message}; shorten it or split it into shots`);
+    }
+    const first = { ...params, [spec.duration.name]: durations[0] };
+    delete first.last_frame;
+    return {
+      first,
+      chain: {
+        kind: 'long',
+        param: spec.param,
+        durationParam: spec.duration.name,
+        overlapS: spec.overlapS,
+        total: shot.durationS,
+        ...this.continuationParams(shot, recipe, mode, params),
+        segments: durations.map((duration) => ({ duration })),
+        index: 0,
+        state: 'rendering',
+      },
+    };
+  }
+
+  /**
+   * What a continuing segment renders with. The shot's opening (first
+   * frame, dialogue, driving audio) belongs to the first segment only; the
+   * ones after it continue the picture with the shot's prompt alone, and the
+   * last ends on the shot's last frame.
+   */
+  private continuationParams(
+    shot: ShotRow,
+    recipe: Recipe,
+    mode: string,
+    params: Record<string, unknown>,
+  ): { next: Record<string, unknown>; last: Record<string, unknown> } {
+    const project = this.requireProject(shot.projectId);
+    const next = deriveParams({
+      project,
+      shot: { ...shot, dialogue: [], keyframes: {}, audioAssetId: null },
+      assets: this.listAssets(project.id),
+      recipe,
+      mode,
+    });
+    for (const name of ['first_frame', 'image', 'audio', 'last_frame']) delete next[name];
+    return { next, last: params.last_frame !== undefined ? { last_frame: params.last_frame } : {} };
+  }
+
+  /**
+   * Re-render a take from `from` seconds on, keeping what comes before: the
+   * kept opening is cut out of the original, and a chain continues it for
+   * the rest of the take's length. The original take is left as it was, so
+   * the two can be compared and either chosen.
+   */
+  async retake(takeId: string, options: { from: number; mode?: string; seed?: number }): Promise<TakeRow> {
+    const source = this.requireTake(takeId);
+    if (!source.file) throw errors.validation(`Take ${takeId} has no finished file to retake`);
+    const shot = this.requireShot(source.shotId);
+    const job = this.deps.jobs.get(source.jobId);
+    const recipeId = (job?.params as unknown as RecipeJobParams | undefined)?.recipe ?? (await this.recipeFor(shot)).id;
+    const recipe = this.deps.recipes.require(recipeId);
+    const spec = this.chainable(recipe);
+    if (!spec) throw errors.validation(`${recipe.name} cannot continue a clip, so it cannot retake part of one`);
+    const path = this.takeFile(source.projectId, source.file);
+    const info = await probeMedia(path);
+    const from = options.from;
+    if (!(from >= spec.overlapS && from < info.duration - 0.5)) {
+      throw errors.validation(`Retake from between ${spec.overlapS.toFixed(1)} s and ${(info.duration - 0.5).toFixed(1)} s of this ${info.duration.toFixed(1)} s take`);
+    }
+    let durations: number[];
+    try {
+      durations = planSegments(info.duration - from, { max: spec.duration.max, min: spec.duration.min, overlap: spec.overlapS, continuing: true });
+    } catch (err) {
+      throw errors.validation((err as Error).message);
+    }
+
+    // The kept opening, as an upload the first segment continues. It is
+    // re-encoded so its last frames are exactly at `from`.
+    const newTakeId = newId('tak');
+    const head = `chain-${newTakeId}-head.mp4`;
+    await runFfmpeg(
+      ['-i', path, '-t', from.toFixed(3), '-c:v', 'libx264', '-crf', '14', '-pix_fmt', 'yuv420p', ...(info.hasAudio ? ['-c:a', 'aac'] : ['-an']), safeResolve(this.deps.paths.uploadsDir, head)],
+      300_000,
+    );
+
+    const mode = options.mode ?? source.mode;
+    const request = await this.requestFor(shot.id, mode);
+    const { next, last } = this.continuationParams(shot, recipe, mode, request.params ?? {});
+    delete next[spec.duration.name];
+    const seed = options.seed ?? source.seed;
+    if (seed !== null && seed !== undefined) next.seed = seed;
+    const chain: TakeChain = {
+      kind: 'retake',
+      param: spec.param,
+      durationParam: spec.duration.name,
+      overlapS: spec.overlapS,
+      total: info.duration,
+      next,
+      last,
+      head,
+      from,
+      sourceTakeId: source.id,
+      segments: durations.map((duration) => ({ duration })),
+      index: 0,
+      state: 'rendering',
+    };
+    const row: TakeRow = {
+      id: newTakeId,
+      projectId: source.projectId,
+      shotId: source.shotId,
+      jobId: '',
+      mode,
+      seed: typeof next.seed === 'number' ? next.seed : null,
+      file: null,
+      score: null,
+      notes: `Retake of ${source.id} from ${from.toFixed(1)} s`,
+      review: null,
+      chain,
+      createdAt: Date.now(),
+    };
+    this.db.insert(takes).values(row).run();
+    try {
+      await this.startSegment(row, recipe.id);
+    } catch (err) {
+      this.db.delete(takes).where(eq(takes.id, row.id)).run();
+      await rm(safeResolve(this.deps.paths.uploadsDir, head), { force: true });
+      throw err;
+    }
+    this.touch(source.projectId);
+    return this.requireTake(row.id);
+  }
+
+  /** Queue the chain's current segment, continuing the one before it (or a retake's head). */
+  private async startSegment(take: TakeRow, recipeId: string): Promise<void> {
+    const chain = take.chain as TakeChain;
+    const k = chain.index;
+    const previous = k === 0 ? chain.head : chain.segments[k - 1].upload;
+    if (!previous) throw errors.validation(`Segment ${k + 1} of take ${take.id} has nothing to continue`);
+    const params = {
+      ...chain.next,
+      ...(k === chain.segments.length - 1 ? chain.last : {}),
+      [chain.param]: previous,
+      [chain.durationParam]: chain.segments[k].duration,
+    };
+    const prepared = await this.deps.comfy.prepareRequest(
+      { recipe: recipeId, mode: take.mode, params, shot_id: take.shotId },
+      { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
+    );
+    const job = this.deps.jobs.create(prepared.recipe.kind, {
+      recipe: prepared.recipe.id,
+      mode: prepared.mode,
+      params: prepared.values,
+      shot_id: take.shotId,
+      take_id: take.id,
+      segment: k,
+    });
+    const segments = chain.segments.map((s, i) => (i === k ? { ...s, jobId: job.id } : s));
+    this.db.update(takes).set({ jobId: job.id, chain: { ...chain, segments } }).where(eq(takes.id, take.id)).run();
+  }
+
+  private setChain(takeId: string, chain: TakeChain): void {
+    this.db.update(takes).set({ chain }).where(eq(takes.id, takeId)).run();
+  }
+
+  /**
+   * A chain segment settled: keep its output for the next segment to
+   * continue, then queue that one, or join them all into the take.
+   */
+  private async advanceChain(take: TakeRow, job: Job, path: string | undefined): Promise<void> {
+    const chain = take.chain as TakeChain;
+    const k = (job.params as { segment?: number }).segment ?? 0;
+    if (chain.state !== 'rendering' || k !== chain.index) return;
+    if (job.status !== 'completed' || !path) {
+      this.setChain(take.id, { ...chain, state: 'failed', error: `Segment ${k + 1} of ${chain.segments.length} ${job.status}` });
+      return;
+    }
+    try {
+      const upload = `chain-${take.id}-${k}${extname(path)}`;
+      await copyFile(path, safeResolve(this.deps.paths.uploadsDir, upload));
+      const segments = chain.segments.map((s, i) => (i === k ? { ...s, upload } : s));
+      if (k + 1 < segments.length) {
+        const next = { ...chain, segments, index: k + 1 };
+        this.setChain(take.id, next);
+        await this.startSegment({ ...take, chain: next }, (job.params as unknown as RecipeJobParams).recipe);
+        return;
+      }
+      this.setChain(take.id, { ...chain, segments, state: 'joining' });
+      const parts: JoinPart[] = [];
+      if (chain.head) parts.push({ path: safeResolve(this.deps.paths.uploadsDir, chain.head) });
+      segments.forEach((s, i) => {
+        parts.push({ path: safeResolve(this.deps.paths.uploadsDir, s.upload as string), start: i > 0 || chain.head ? chain.overlapS : undefined });
+      });
+      const infos = await Promise.all(parts.map((p) => probeMedia(p.path)));
+      const name = `${take.id}.mp4`;
+      await mkdir(join(safeResolve(this.deps.paths.projectsDir, take.projectId), 'files'), { recursive: true });
+      await runFfmpeg(
+        joinArgs(parts, {
+          audio: infos.every((i) => i.hasAudio),
+          total: chain.total,
+          fps: this.requireProject(take.projectId).fps,
+          output: this.takeFile(take.projectId, name),
+        }),
+        600_000,
+      );
+      this.db.update(takes).set({ file: name, chain: { ...chain, segments, state: 'done' } }).where(eq(takes.id, take.id)).run();
+    } catch (err) {
+      const message = (err as Error).message;
+      this.deps.log.warn({ take: take.id, err: message }, 'long take could not continue');
+      this.setChain(take.id, { ...chain, state: 'failed', error: message });
+    }
   }
 
   requireTake(id: string): TakeRow {
@@ -545,14 +815,30 @@ export class ProjectService {
   }
 
   viewTake(take: TakeRow): TakeView {
-    const job = this.deps.jobs.get(take.jobId);
-    const result = (job?.result ?? {}) as Record<string, unknown>;
+    const job = take.jobId ? this.deps.jobs.get(take.jobId) : null;
+    const chain = take.chain as TakeChain | null;
+    if (chain && chain.state !== 'done') {
+      // A chain is one take to the user: running until the last segment is
+      // joined, with progress across all of its segments.
+      const n = chain.segments.length;
+      const settled = job && (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled');
+      return {
+        ...take,
+        chain,
+        status: chain.state === 'failed' ? (job?.status === 'cancelled' ? 'cancelled' : 'failed') : job && !settled ? job.status : 'running',
+        progress: chain.state === 'joining' ? 0.99 : (chain.index + (settled ? 1 : (job?.progress ?? 0))) / n,
+        error: chain.state === 'failed' ? (job?.error ?? { code: 'GENERATION_FAILED', message: chain.error ?? 'The long take failed' }) : undefined,
+        kind: 'video',
+      };
+    }
+    const result = chain ? {} : ((job?.result ?? {}) as Record<string, unknown>);
     const kind = result.video_url ? 'video' : result.image_url ? 'image' : result.audio_url ? 'audio' : undefined;
     return {
       ...take,
-      status: job?.status ?? (take.file ? 'completed' : 'missing'),
-      progress: job?.progress ?? (take.file ? 1 : 0),
-      error: job?.error,
+      chain,
+      status: chain ? 'completed' : (job?.status ?? (take.file ? 'completed' : 'missing')),
+      progress: chain ? 1 : (job?.progress ?? (take.file ? 1 : 0)),
+      error: chain ? undefined : job?.error,
       kind: kind ?? (take.file ? kindOf(take.file) : undefined),
       url: take.file
         ? `/v1/projects/${encodeURIComponent(take.projectId)}/files/${encodeURIComponent(take.file)}`
@@ -591,6 +877,10 @@ export class ProjectService {
     const job = this.deps.jobs.get(take.jobId);
     if (job && (job.status === 'queued' || job.status === 'running')) this.deps.jobs.cancel(job.id);
     if (take.file) await rm(this.takeFile(take.projectId, take.file), { force: true });
+    const chain = take.chain as TakeChain | null;
+    for (const upload of [chain?.head, ...(chain?.segments ?? []).map((s) => s.upload)]) {
+      if (upload) await rm(safeResolve(this.deps.paths.uploadsDir, upload), { force: true });
+    }
     this.db.delete(takes).where(eq(takes.id, id)).run();
     this.db.update(shots).set({ chosenTakeId: null }).where(eq(shots.chosenTakeId, id)).run();
   }
@@ -608,7 +898,8 @@ export class ProjectService {
     if (!take) return;
     const result = (job.result ?? {}) as Record<string, unknown>;
     const path = (result.video_path ?? result.image_path ?? result.audio_path) as string | undefined;
-    if (!path) return;
+    if (take.chain) return this.advanceChain(take, job, path);
+    if (!path || job.status !== 'completed') return;
     try {
       const name = `${take.id}${extname(path)}`;
       const target = this.takeFile(take.projectId, name);

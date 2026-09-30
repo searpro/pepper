@@ -219,10 +219,19 @@ export const recipeSchema = z
     /** When and where the recipe last passed its golden shots. */
     verified: z.object({ date: z.string(), gpu: z.string(), seconds: z.number().optional(), notes: z.string().optional() }).optional(),
     notes: z.string().optional(),
+    /**
+     * How a clip continues another (long takes and retakes, §6.3): `param`
+     * is the video input whose tail opens the new clip, which then repeats
+     * `overlap_s` seconds of it that the cut trims away.
+     */
+    continuation: z.object({ param: z.string(), overlap_s: z.number().positive() }).optional(),
   })
   .superRefine((recipe, ctx) => {
     const params = new Set(recipe.params.map((p) => p.name));
     const files = new Set(recipe.files.map((f) => f.id));
+    if (recipe.continuation && recipe.params.find((p) => p.name === recipe.continuation!.param)?.type !== 'video') {
+      ctx.addIssue({ code: 'custom', message: `continuation param "${recipe.continuation.param}" is not a video param` });
+    }
     if (!recipe.modes[recipe.default_mode]) {
       ctx.addIssue({ code: 'custom', message: `default_mode "${recipe.default_mode}" is not a mode` });
     }

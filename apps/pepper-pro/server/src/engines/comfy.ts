@@ -39,6 +39,8 @@ export interface RecipeJobParams {
   /** Set by the project service when the job is a take. */
   shot_id?: string;
   take_id?: string;
+  /** Which segment of a long take or retake (projects/chain.ts). */
+  segment?: number;
 }
 
 export interface ComfyEngineDeps {
@@ -308,7 +310,14 @@ export class ComfyEngine implements Engine {
       watcher.close();
     }
 
-    const history = await this.client.history(promptId);
+    // ComfyUI announces success from inside the executor and writes the
+    // history entry only after it returns, so a prompt that ran in
+    // milliseconds (mostly cached) can have none yet. Wait for it briefly.
+    let history = await this.client.history(promptId);
+    for (let i = 0; !history && i < 50; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      history = await this.client.history(promptId);
+    }
     if (!history) throw proErrors.engineFailed(`ComfyUI has no history for prompt ${promptId}`);
     return history.outputs;
   }

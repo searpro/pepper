@@ -112,6 +112,8 @@ export const renderSchema = z.object({
   seed: z.number().int().min(0).optional(),
   /** Re-render this take's seed, e.g. finishing a chosen draft. */
   from_take: z.string().optional(),
+  /** With from_take: keep that take up to this second and re-render the rest. */
+  retake_from: z.number().positive().optional(),
 });
 
 const cutItem = z.object({
@@ -286,21 +288,30 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
         summary: 'Render takes of shots',
         description:
           'Queues `count` takes per shot in `mode`, each with its own seed. `from_take` re-renders that ' +
-          "take's seed, which is how a chosen draft is finished.",
+          "take's seed, which is how a chosen draft is finished. With `retake_from` as well, that take is " +
+          'kept up to that second and only the rest is rendered again, as a new take. A shot longer than ' +
+          'its recipe renders at once is rendered in segments that continue each other.',
         body: renderSchema,
       },
     },
-    async (req, reply) =>
-      reply.code(202).send({
+    async (req, reply) => {
+      const { retake_from, from_take } = req.body;
+      if (retake_from !== undefined) {
+        if (!from_take) throw errors.validation('retake_from needs from_take: the take to keep the start of');
+        const take = await projects.retake(from_take, { from: retake_from, mode: req.body.mode, seed: req.body.seed });
+        return reply.code(202).send({ takes: [projects.viewTake(take)] });
+      }
+      return reply.code(202).send({
         takes: (
           await projects.renderShots(req.body.shot_ids, {
             mode: req.body.mode,
             count: req.body.count,
             seed: req.body.seed,
-            fromTake: req.body.from_take,
+            fromTake: from_take,
           })
         ).map((take) => projects.viewTake(take)),
-      }),
+      });
+    },
   );
 
   // --- Takes -----------------------------------------------------------------
@@ -322,6 +333,22 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
       },
     },
     async (req) => projects.updateTake(req.params.id, req.body),
+  );
+
+  app.post(
+    '/v1/takes/:id/retake',
+    {
+      schema: {
+        tags,
+        summary: 'Re-render a take from a time on',
+        description:
+          'Keeps the take up to `from` seconds and renders the rest again, continuing from that frame, as a ' +
+          'new take of the same shot. Needs a recipe that can continue a clip (H3).',
+        params: id,
+        body: z.object({ from: z.number().positive(), mode: z.string().optional(), seed: z.number().int().min(0).optional() }),
+      },
+    },
+    async (req, reply) => reply.code(202).send(projects.viewTake(await projects.retake(req.params.id, req.body))),
   );
 
   app.post(

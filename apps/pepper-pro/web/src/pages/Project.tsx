@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Clapperboard, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Clapperboard, Plus, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { Page } from '@pepper/ui/components/layout';
 import {
   Badge,
@@ -23,7 +23,7 @@ import { cn } from '@pepper/ui/lib/utils';
 import { AssetsPanel } from '@/components/Assets';
 import { CutEditor } from '@/components/CutEditor';
 import { ShotDialog, TakeMedia } from '@/components/ShotDialog';
-import { ASPECTS, isActive, type ProjectDetail, type RecipeList, type Scene, type Shot } from '@/lib/pro';
+import { ASPECTS, isActive, upload, type ProjectDetail, type RecipeList, type Scene, type Shot } from '@/lib/pro';
 
 /**
  * One project: the storyboard (scenes of shots, each with its takes), the
@@ -260,8 +260,10 @@ function Settings({ project, onChanged }: { project: ProjectDetail; onChanged: (
     style: project.style,
     licenceMode: project.licenceMode,
     script: project.script,
+    lut: project.lut,
   });
   const [error, setError] = React.useState<string>();
+  const [lutBusy, setLutBusy] = React.useState(false);
   const set = <K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) => setDraft((d) => ({ ...d, [key]: value }));
 
   const save = async () => {
@@ -289,6 +291,39 @@ function Settings({ project, onChanged }: { project: ProjectDetail; onChanged: (
       </div>
       <Field label="Look" hint="Prepended to every shot's prompt.">
         <Textarea rows={2} value={draft.style} onChange={(e) => set('style', e.target.value)} />
+      </Field>
+      <Field label="Colour look (LUT)" hint="A .cube 3D LUT applied to the whole cut when it is exported.">
+        <div className="flex items-center gap-2">
+          <label className="inline-flex">
+            <input
+              type="file"
+              accept=".cube"
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (!file) return;
+                setLutBusy(true);
+                void upload(file)
+                  .then((name) => set('lut', name), (err) => setError(err instanceof ApiRequestError ? err.error.message : String(err)))
+                  .finally(() => setLutBusy(false));
+              }}
+            />
+            <span className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border px-3 text-xs hover:bg-accent">
+              {lutBusy ? <Spinner /> : <Upload className="size-3.5" />} {draft.lut ? 'Replace' : 'Upload .cube'}
+            </span>
+          </label>
+          {draft.lut ? (
+            <>
+              <code className="truncate text-xs text-muted-foreground">{draft.lut}</code>
+              <Button size="icon-sm" variant="ghost" aria-label="Remove the LUT" onClick={() => set('lut', null)}>
+                <X />
+              </Button>
+            </>
+          ) : (
+            <span className="text-xs text-muted-foreground">None</span>
+          )}
+        </div>
       </Field>
       <Field label="Use" hint="Commercial projects cannot render with research-only recipes.">
         <Select

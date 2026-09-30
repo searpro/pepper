@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Eye, Plus, ScanEye, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
+import { Check, Eye, Plus, Scissors, ScanEye, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -302,6 +302,7 @@ export function TakeMedia({ take, className }: { take: Take; className?: string 
 
 function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: boolean; onChanged: () => void; onError: (e: string) => void }) {
   const [checking, setChecking] = React.useState(false);
+  const media = React.useRef<HTMLDivElement>(null);
   const run = (action: () => Promise<unknown>) =>
     void action().then(onChanged, (err) => {
       setChecking(false);
@@ -313,13 +314,26 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
         <div className="flex items-center gap-1.5">
           <Badge variant={take.mode === 'final' ? 'primary' : 'default'}>{take.mode}</Badge>
           <Badge variant={take.status === 'failed' ? 'destructive' : take.status === 'completed' ? 'success' : 'outline'}>{take.status}</Badge>
+          {take.chain?.kind === 'long' ? (
+            <Badge variant="outline" className="whitespace-nowrap" title="Longer than one render: segments that continue each other">
+              {take.chain.state === 'rendering' ? `segment ${take.chain.index + 1}/` : ''}
+              {take.chain.segments.length} segments
+            </Badge>
+          ) : null}
+          {take.chain?.kind === 'retake' ? (
+            <Badge variant="outline" className="whitespace-nowrap" title={`Retake of ${take.chain.sourceTakeId}`}>
+              from {take.chain.from?.toFixed(1)} s
+            </Badge>
+          ) : null}
         </div>
-        <span className="font-mono text-muted-foreground" title="Seed">
+        <span className="truncate font-mono text-muted-foreground" title="Seed">
           {take.seed ?? ''}
         </span>
       </div>
       {isActive(take.status) ? <Progress value={take.progress} indeterminate={take.status === 'queued'} /> : null}
-      <TakeMedia take={take} />
+      <div ref={media}>
+        <TakeMedia take={take} />
+      </div>
       {take.error ? <ErrorNote>{take.error.message}</ErrorNote> : null}
       {take.review ? (
         <div className="flex flex-col gap-1 text-[11px]" title={`Checked by ${take.review.model}`}>
@@ -370,6 +384,21 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
           >
             {checking ? <Spinner /> : <ScanEye />}
           </Button>
+          {take.kind === 'video' ? (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Retake from the playhead"
+              title="Keep this take up to the playhead and render the rest again (H3)"
+              disabled={take.status !== 'completed'}
+              onClick={() => {
+                const at = media.current?.querySelector('video')?.currentTime ?? 0;
+                run(() => api.post(`/v1/takes/${take.id}/retake`, { from: Math.round(at * 100) / 100 }));
+              }}
+            >
+              <Scissors />
+            </Button>
+          ) : null}
                     <Button size="icon-sm" variant="ghost" aria-label="Delete take" onClick={() => run(() => api.delete(`/v1/takes/${take.id}`))}>
             <Trash2 />
           </Button>

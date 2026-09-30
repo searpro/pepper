@@ -10,9 +10,11 @@ import type { ObjectInfo, Prompt } from '../src/comfy/client.js';
 import { prune, validatePrompt } from '../src/comfy/graph.js';
 import { loadConfig } from '../src/config.js';
 import { buildPrompt } from '../src/engines/build.js';
+import { AnalyzeEngine } from '../src/engines/analyze.js';
 import { ProgressTracker, outputFiles } from '../src/engines/comfy.js';
 import { resolveParams } from '../src/engines/params.js';
 import { buildCutArgs, buildSrt, frameFor, isSilent, parseLoudness, snapToBeats, type Segment } from '../src/engines/render.js';
+import { joinArgs, planSegments } from '../src/projects/chain.js';
 import { composePrompt, deriveParams, sizeFor } from '../src/projects/derive.js';
 import type { AssetRow, ProjectRow, ShotRow } from '../src/projects/schema.js';
 import { checkRecipe } from '../src/recipes/check.js';
@@ -23,6 +25,7 @@ import { comfyLayout } from '../src/recipes/layout.js';
 import { buildPaths } from '../src/paths.js';
 import { modelPathsYaml } from '../src/backends.js';
 import { buildServer, type ProServer } from '../src/server.js';
+import { probeMedia } from '@pepper/core/util/ffmpeg.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/recipes', import.meta.url));
 const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => log } as unknown as FastifyBaseLogger;
@@ -65,7 +68,7 @@ const OBJECT_INFO: ObjectInfo = {
 describe('recipes', () => {
   it('loads the fixture recipes and their workflows', async () => {
     const store = await loadStore();
-    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-image', 'test-video']);
+    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-video']);
     expect(store.broken).toEqual([]);
     expect(Object.keys(store.workflow(store.require('test-image'), 'main'))).toContain('4');
   });
@@ -482,6 +485,45 @@ describe('shots to recipe parameters', () => {
   });
 });
 
+describe('long takes', () => {
+  it('splits a long shot into segments that each repeat the overlap', () => {
+    // 20 s of H3 (15 s max, 22 frames of overlap): 15 s, then 5 s more plus the repeat.
+    const overlap = 22 / 24;
+    const segments = planSegments(20, { max: 15, min: 1, overlap });
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toBe(15);
+    expect(segments[1]).toBeCloseTo(5 + overlap, 2);
+    // Added footage (all of the first, the rest minus the repeat) is the shot's length.
+    expect(segments[0] + segments[1] - overlap).toBeCloseTo(20, 1);
+  });
+
+  it('repeats the overlap from the first segment when continuing a retake', () => {
+    expect(planSegments(3, { max: 15, overlap: 1, continuing: true })).toEqual([4]);
+    // Too short a remainder is lengthened to the recipe's minimum; the join trims it back.
+    expect(planSegments(0.2, { max: 1.5, min: 0.5, overlap: 0.25, continuing: true })).toEqual([0.5]);
+  });
+
+  it('refuses segments that cannot make progress, or too many of them', () => {
+    expect(() => planSegments(10, { max: 1, overlap: 0.5 })).toThrow(/cannot continue/);
+    expect(() => planSegments(600, { max: 15, overlap: 1 })).toThrow(/more than 12 segments/);
+  });
+
+  it('trims each continuation and cuts sound at the same seams', () => {
+    const args = joinArgs(
+      [{ path: '/a.mp4', end: 6 }, { path: '/b.mp4', start: 0.917 }],
+      { audio: true, total: 10, fps: 24, output: '/out.mp4' },
+    );
+    const graph = args[args.indexOf('-filter_complex') + 1];
+    expect(graph).toContain('[0:v]trim=end=6.000,');
+    expect(graph).toContain('[1:v]trim=start=0.917,');
+    expect(graph).toContain('[1:a]atrim=start=0.917,');
+    expect(graph).toContain('concat=n=2:v=1:a=1[v][a]');
+    expect(args.slice(args.indexOf('-t'), args.indexOf('-t') + 2)).toEqual(['-t', '10.000']);
+    const silent = joinArgs([{ path: '/a.mp4' }, { path: '/b.mp4', start: 1 }], { audio: false, total: 5, fps: 24, output: '/o.mp4' });
+    expect(silent.join(' ')).not.toContain('[a');
+  });
+});
+
 describe('cut rendering', () => {
   const segment = (duration: number, transition: 'cut' | 'fade', extra: Partial<Segment> = {}): Segment => ({
     path: `/t/${duration}.mp4`,
@@ -572,6 +614,39 @@ describe('api', () => {
     const audio = body.recipes.find((r: { id: string }) => r.id === 'test-audio');
     expect(audio).toMatchObject({ state: 'installed', licence: { commercial: 'no' } });
     expect(audio.files[0]).toMatchObject({ folder: 'checkpoints', installed: false, optional: true });
+  });
+
+  it('plans a project from its script with a local model', async () => {
+    const project = server.projects.createProject({ name: 'Scripted', script: 'INT. KITCHEN. Mia makes tea and says hello.' });
+    const refused = await inject('POST', '/v1/analyze', { task: 'plan', project_id: server.projects.createProject({ name: 'Empty' }).id });
+    expect(refused.statusCode).toBe(400);
+    const plan = {
+      assets: [{ ref: 'mia', kind: 'character', name: 'Mia', description: 'thirties, short black hair, green cardigan' }],
+      scenes: [{ title: 'Kitchen', shots: [{ kind: 'dialogue', duration_s: 5, prompt: 'Mia pours tea', dialogue: [{ speaker: 'mia', line: 'Hello.' }], assets: ['mia'] }] }],
+    };
+    let asked: { response_format?: unknown } = {};
+    const engine = new AnalyzeEngine({
+      config: { ...(await tempConfig()), planModel: 'stub' },
+      paths: server.paths,
+      projects: server.projects,
+      recipes: server.recipes,
+      goldenPath: (f) => f,
+      log,
+      text: {
+        generate: async ({ params }: { params: { response_format?: unknown } }) => {
+          asked = params;
+          return { text: JSON.stringify(plan), durationMs: 1, params };
+        },
+      } as never,
+    });
+    const run = engine.executors().analyze!;
+    const result = await run({ job: { params: { task: 'plan', project_id: project.id } }, signal: new AbortController().signal, onLog: () => {} } as never);
+    expect(result).toMatchObject({ scenes: 1, shots: 1, assets: 1 });
+    expect(asked.response_format).toMatchObject({ type: 'json_schema' });
+    const full = server.projects.getProject(project.id);
+    const shot = full.scenes[0].shots[0];
+    // The speaker ref became the new asset's id.
+    expect(shot.dialogue).toEqual([{ asset_id: full.assets[0].id, line: 'Hello.' }]);
   });
 
   it('refuses a bad recipe request before queueing', async () => {
@@ -761,6 +836,42 @@ describe.skipIf(!haveComfy)('comfyui end to end', () => {
       expect(render.error).toBeUndefined();
       expect(render.result!.metadata).toMatchObject({ width: 1080, height: 1920, takes: 1 });
     }
+  }, 300_000);
+
+  it('renders a long take as chained segments and retakes its end', async () => {
+    if (!haveFfmpeg) return;
+    const project = server.projects.createProject({ name: 'Long' });
+    const scene = server.projects.createScene(project.id);
+    // test-continue renders 1.5 s at most with 0.25 s of overlap: 3 s is three segments.
+    const shot = server.projects.createShot(scene.id, { prompt: 'blue', recipeId: 'test-continue', durationS: 3 });
+    const [take] = await server.projects.renderShots([shot.id], { count: 1 });
+    expect(take.chain).toMatchObject({ kind: 'long', segments: [{ duration: 1.5 }, { duration: 1.5 }, { duration: 0.5 }] });
+    const settleTake = async (id: string) => {
+      for (let i = 0; i < 1200; i++) {
+        const view = server.projects.viewTake(server.projects.requireTake(id));
+        if (view.status === 'completed' || view.status === 'failed' || view.status === 'cancelled') return view;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      throw new Error(`take ${id} did not settle`);
+    };
+    const long = await settleTake(take.id);
+    expect(long.error).toBeUndefined();
+    expect(long.chain).toMatchObject({ state: 'done', index: 2 });
+    // Each continuing segment was given the one before it.
+    const second = server.jobs.get(long.chain!.segments[1].jobId!)!;
+    expect((second.params as { params: Record<string, unknown> }).params.previous).toBe(long.chain!.segments[0].upload);
+    const joined = await probeMedia(server.projects.takeFile(project.id, long.file!));
+    expect(joined.duration).toBeGreaterThan(2.4);
+    expect(joined.hasAudio).toBe(true);
+
+    const retake = await server.projects.retake(take.id, { from: 2 });
+    expect(retake.chain).toMatchObject({ kind: 'retake', from: 2, sourceTakeId: take.id });
+    const redone = await settleTake(retake.id);
+    expect(redone.error).toBeUndefined();
+    expect(redone.file).toBe(`${retake.id}.mp4`);
+    const first = server.jobs.get(redone.chain!.segments[0].jobId!)!;
+    expect((first.params as { params: Record<string, unknown> }).params.previous).toBe(redone.chain!.head);
+    await expect(server.projects.retake(take.id, { from: 0.1 })).rejects.toThrow(/Retake from between/);
   }, 300_000);
 
   it('finds the beats of a track and stores them on its asset', async () => {

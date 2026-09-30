@@ -368,5 +368,9 @@
     "48gb",
     "96gb"
   ],
-  "notes": "Sizes snap to multiples of 32; lengths to 24 fps frames on the 17k+5 grid (5 s = 124 frames). Trained range is about 5-15 s. With `previous`, the new clip repeats the old one's last second: trim 22 frames when cutting them together."
+  "notes": "Sizes snap to multiples of 32; lengths to 24 fps frames on the 17k+5 grid (5 s = 124 frames). Trained range is about 5-15 s. With `previous`, the new clip repeats the old one's last second: trim 22 frames when cutting them together.",
+  "continuation": {
+    "param": "previous",
+    "overlap_s": 0.9167
+  }
 }

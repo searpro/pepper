@@ -11,12 +11,13 @@ export interface AnalyzeRoutesOptions {
 }
 
 export const analyzeSchema = z.object({
-  task: z.enum(['beats', 'stems', 'check', 'transcribe']),
+  task: z.enum(['beats', 'stems', 'check', 'transcribe', 'plan']),
   audio: z.string().optional().describe('beats/stems/transcribe: an upload name'),
   expected: z.string().optional().describe('transcribe: the words it should say (a take\'s own text by default)'),
   asset_id: z.string().optional().describe('beats/stems: an asset with audio; results are stored on it'),
   take_id: z.string().optional().describe('check/transcribe: the take to review; the verdict is kept on it'),
-  model: z.string().optional().describe('check: a llama.cpp vision model, instead of CHECK_MODEL'),
+  model: z.string().optional().describe('check/plan: a llama.cpp model, instead of CHECK_MODEL/PLAN_MODEL'),
+  project_id: z.string().optional().describe("plan: the project whose script a local model breaks into shots (Claude uses plan_project)"),
 });
 
 /** Analysis jobs: beats and stems of a track, a vision model's check of a take (engines/analyze.ts). */
@@ -36,7 +37,10 @@ export async function analyzeRoutes(fastify: FastifyInstance, options: AnalyzeRo
     async (req, reply) => {
       const body = req.body;
       // Checked here so a bad reference is a 400 now, not a failed job later.
-      if (body.task === 'check') {
+      if (body.task === 'plan') {
+        if (!body.project_id) throw errors.validation('`project_id` is required to plan a project');
+        if (!projects.requireProject(body.project_id).script.trim()) throw errors.validation('The project has no script to plan from');
+      } else if (body.task === 'check') {
         if (!body.take_id) throw errors.validation('`take_id` is required to check a take');
         projects.requireTake(body.take_id);
       } else if (body.task === 'transcribe' && body.take_id) {

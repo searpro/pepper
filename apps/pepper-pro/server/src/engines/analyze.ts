@@ -13,7 +13,7 @@ import { uniqueOutputName } from '@pepper/core/util/files.js';
 import type { ProConfig } from '../config.js';
 import type { ProPaths } from '../paths.js';
 import { composePrompt } from '../projects/derive.js';
-import type { ProjectService, TakeReview } from '../projects/service.js';
+import type { PlanInput, ProjectService, TakeReview } from '../projects/service.js';
 import type { RecipeStore } from '../recipes/store.js';
 
 /**
@@ -29,7 +29,10 @@ import type { RecipeStore } from '../recipes/store.js';
  *   a person has to;
  * - `transcribe`: Whisper's reading of speech, scored against the words it
  *   should say, because a speech model now and then returns noise or the
- *   wrong line for the same seed that worked before.
+ *   wrong line for the same seed that worked before;
+ * - `plan`: a local model breaks a project's script into cast, scenes and
+ *   shots, for "new from script" in the web app (Claude writes plans itself,
+ *   through plan_project).
  *
  * Beats and stems run python/analyze.py with ComfyUI's interpreter, on the
  * CPU: they are small next to a video model, and keeping them off the GPU
@@ -37,7 +40,9 @@ import type { RecipeStore } from '../recipes/store.js';
  */
 
 export interface AnalyzeParams {
-  task: 'beats' | 'stems' | 'check' | 'transcribe';
+  task: 'beats' | 'stems' | 'check' | 'transcribe' | 'plan';
+  /** plan: the project whose script becomes scenes and shots. */
+  project_id?: string;
   /** An upload name (beats, stems, transcribe). */
   audio?: string;
   /** transcribe: the words the audio should say; the result says how well it does. */
@@ -77,6 +82,70 @@ const REVIEW_SCHEMA = {
   required: ['ok', 'score', 'issues'],
 };
 
+/** What the plan model must answer: projects.plan()'s input, minus uploads it cannot know. */
+const PLAN_SCHEMA = {
+  type: 'object',
+  properties: {
+    assets: {
+      type: 'array',
+      maxItems: 12,
+      items: {
+        type: 'object',
+        properties: {
+          ref: { type: 'string' },
+          kind: { enum: ['character', 'location', 'prop', 'product'] },
+          name: { type: 'string' },
+          description: { type: 'string' },
+        },
+        required: ['ref', 'kind', 'name', 'description'],
+      },
+    },
+    scenes: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 30,
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          shots: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 20,
+            items: {
+              type: 'object',
+              properties: {
+                kind: { enum: ['dialogue', 'action', 'talking', 'broll', 'product', 'establishing'] },
+                duration_s: { type: 'number', minimum: 2, maximum: 30 },
+                framing: { type: 'string' },
+                camera: { type: 'string' },
+                prompt: { type: 'string' },
+                dialogue: {
+                  type: 'array',
+                  items: { type: 'object', properties: { speaker: { type: 'string' }, line: { type: 'string' } }, required: ['speaker', 'line'] },
+                },
+                sound: { type: 'string' },
+                assets: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['kind', 'duration_s', 'prompt'],
+            },
+          },
+        },
+        required: ['title', 'shots'],
+      },
+    },
+  },
+  required: ['assets', 'scenes'],
+};
+
+const PLAN_SYSTEM =
+  'You are a director breaking a script into a shot list for an AI video generator. List the recurring ' +
+  'characters, locations and products as assets, each with a visual description (age, build, hair, ' +
+  'clothes; or materials, light, layout) that stays the same in every shot. Then write scenes of shots, ' +
+  '3-15 seconds each. A shot prompt describes what is seen and how it moves, in present tense, without ' +
+  "naming the camera; framing and camera go in their own fields. Put spoken lines in dialogue with the " +
+  "speaker's asset ref, and ambient sound or music in sound. List the refs of the assets in each shot.";
+
 export class AnalyzeEngine implements Engine {
   readonly id = 'analyze';
   readonly label = 'Analysis (beats, stems, take checks)';
@@ -94,6 +163,7 @@ export class AnalyzeEngine implements Engine {
   private async run(context: JobContext): Promise<Record<string, unknown>> {
     const params = context.job.params as unknown as AnalyzeParams;
     if (params.task === 'check') return this.check(params, context);
+    if (params.task === 'plan') return this.plan(params, context);
     if (params.task === 'transcribe') return this.transcribe(params, context);
     const { path, asset } = this.audioFor(params);
     if (params.task === 'beats') {
@@ -225,6 +295,48 @@ export class AnalyzeEngine implements Engine {
    * frames (or the image) go in with the shot's composed prompt; a verdict in
    * a fixed JSON shape comes out and is kept on the take.
    */
+  private async plan(params: AnalyzeParams, context: JobContext): Promise<Record<string, unknown>> {
+    const { projects } = this.deps;
+    const model = params.model ?? this.deps.config.planModel;
+    if (!model) throw errors.validation('No plan model: set PLAN_MODEL (or CHECK_MODEL) to a llama.cpp chat model, or pass `model`');
+    if (!params.project_id) throw errors.validation('`project_id` is required to plan a project');
+    const project = projects.requireProject(params.project_id);
+    if (!project.script.trim()) throw errors.validation('The project has no script to plan from');
+    const cast = projects.listAssets(project.id).map((a) => `- ${a.name} (${a.kind}): ${a.description}`);
+    context.onLog(`planning ${project.script.length} characters of script with ${model}`);
+    const result = await this.deps.text.generate({
+      signal: context.signal,
+      onLog: context.onLog,
+      params: {
+        model,
+        temperature: 0.3,
+        max_tokens: 8000,
+        response_format: { type: 'json_schema', json_schema: { name: 'plan', schema: PLAN_SCHEMA } },
+        messages: [
+          { role: 'system', content: PLAN_SYSTEM },
+          {
+            role: 'user',
+            content:
+              `Aspect ${project.aspect}. Style: ${project.style || 'not set'}.\n` +
+              (cast.length ? `Cast and assets already in the project (use these names):\n${cast.join('\n')}\n` : '') +
+              `\nThe script:\n${project.script}`,
+          },
+        ],
+      },
+    });
+    let plan: PlanInput;
+    try {
+      plan = JSON.parse(result.text) as PlanInput;
+    } catch {
+      throw errors.backendUpstreamError('llamacpp', `the plan model answered without JSON: ${result.text.slice(0, 200)}`);
+    }
+    if (!Array.isArray(plan.scenes) || plan.scenes.length === 0) {
+      throw errors.backendUpstreamError('llamacpp', 'the plan model returned no scenes');
+    }
+    const applied = projects.plan(project.id, { assets: plan.assets ?? [], scenes: plan.scenes });
+    return { task: 'plan', project_id: project.id, assets: applied.assets.length, scenes: applied.scenes.length, shots: applied.shots.length };
+  }
+
   private async check(params: AnalyzeParams, context: JobContext): Promise<Record<string, unknown>> {
     const { projects, paths } = this.deps;
     const model = params.model ?? this.deps.config.checkModel;

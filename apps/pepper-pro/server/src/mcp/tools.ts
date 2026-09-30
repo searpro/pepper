@@ -171,7 +171,9 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
       title: 'Render shots',
       description:
         'Queue takes of shots: drafts first (several per shot, cheap), then finish the chosen draft ' +
-        'with `from_take` and `mode: "final"`, which reuses its seed. Returns the takes; follow them ' +
+        'with `from_take` and `mode: "final"`, which reuses its seed. `from_take` plus `retake_from` ' +
+        '(seconds) keeps that take up to there and re-renders the rest. Shots longer than a recipe ' +
+        'renders at once are chained automatically. Returns the takes; follow them ' +
         `with get_project or get_job (up to ${MAX_WAIT_S} s).` +
         SHOWN,
       _meta: SHOWS_MEDIA,
