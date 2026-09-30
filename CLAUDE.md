@@ -47,6 +47,7 @@ There is no linter or formatter configured; match the surrounding style
 | `.claude/skills/*` | `pepper-dev` (change → local checks → GPU) and `catalogue-curator` (research → entry → test → PR) |
 | `docs/ARCHITECTURE.md` | Design reasons, **Gotchas** and **Conventions** (grep `^## ` for the line) |
 | `docs/CATALOGUE.md` | Remote catalogue manifest format (catalogue lives in searpro/pepper-catalogue) |
+| `docs/PRODUCTION-VIDEO.md` | Research and roadmap for production-quality video (models, recipes, ComfyUI engine, projects) |
 
 ## Conventions (short form — full list in docs/ARCHITECTURE.md)
 
