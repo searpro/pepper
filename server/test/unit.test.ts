@@ -35,6 +35,7 @@ import { redactTokenPath, requiresAuth, secretsMatch, sessionValue } from '../sr
 import { buildServer } from '../src/server.js';
 import { selectFiles, type CatalogueComponent } from '../src/mcp/tools.js';
 import { ActivityTracker, isActivity } from '../src/services/activity.js';
+import { cgroupMemory } from '../src/services/resources.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -1783,5 +1784,18 @@ describe('music', () => {
     const instrumental = musicRequest({ model: 'm', prompt: 'ambient', seed: -1 });
     expect(instrumental).not.toHaveProperty('lyrics');
     expect(instrumental).not.toHaveProperty('seed');
+  });
+});
+
+describe('resources', () => {
+  it("reports a container's memory limit rather than the host's", async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pepper-cgroup-'));
+    await writeFile(join(root, 'memory.max'), '1073741824\n');
+    await writeFile(join(root, 'memory.current'), '268435456\n');
+    expect(await cgroupMemory(root)).toEqual({ usedBytes: 268435456, totalBytes: 1073741824 });
+    // An unlimited cgroup falls back to the host's numbers.
+    await writeFile(join(root, 'memory.max'), 'max\n');
+    expect(await cgroupMemory(root)).toBeNull();
+    expect(await cgroupMemory(join(root, 'missing'))).toBeNull();
   });
 });

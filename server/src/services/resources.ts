@@ -121,10 +121,32 @@ function cpuTicks(): { idle: number; total: number } {
   return { idle, total };
 }
 
+/** cgroup v2 (or v1) memory limit and usage, when the process is limited below the host. */
+export async function cgroupMemory(root = '/sys/fs/cgroup'): Promise<ResourceSnapshot['memory'] | null> {
+  const read = (path: string) =>
+    readFile(path, 'utf8')
+      .then((text) => text.trim())
+      .catch(() => null);
+  const [max, current] =
+    (await read(`${root}/memory.max`)) !== null
+      ? [await read(`${root}/memory.max`), await read(`${root}/memory.current`)]
+      : [await read(`${root}/memory/memory.limit_in_bytes`), await read(`${root}/memory/memory.usage_in_bytes`)];
+  const limit = Number(max);
+  // "max" (v2) or a near-2^63 value (v1) means unlimited.
+  if (!max || !Number.isFinite(limit) || limit <= 0 || limit >= totalmem()) return null;
+  return { usedBytes: Number(current) || 0, totalBytes: limit };
+}
+
 async function sampleMemory(): Promise<ResourceSnapshot['memory']> {
   const totalBytes = totalmem();
 
   if (process.platform === 'linux') {
+    // In a container, /proc/meminfo describes the host. The limit that
+    // actually applies is the cgroup's: a RunPod 4090 pod reports 132 GB there
+    // and is killed at 46. With --offload-to-cpu a video model's whole weight
+    // set lives in this memory, so the real ceiling is what has to be shown.
+    const cgroup = await cgroupMemory();
+    if (cgroup) return cgroup;
     try {
       const meminfo = await readFile('/proc/meminfo', 'utf8');
       const available = kb(meminfo, 'MemAvailable');
