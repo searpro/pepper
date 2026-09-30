@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AudioLines, Mic, Music, Play, Upload, Volume2 } from 'lucide-react';
-import { api, useResource, waitForJob, type BundleInfo } from '@/lib/api';
+import { api, useResource, waitForJob, type BundleInfo } from '@pepper/ui/lib/api';
 import {
   Button,
   Card,
@@ -15,8 +15,8 @@ import {
   TabsList,
   TabsTrigger,
   Textarea,
-} from '@/components/ui';
-import { Page } from '@/components/layout';
+} from '@pepper/ui/components/ui';
+import { Page } from '@pepper/ui/components/layout';
 import { CharacterField, useChosenCharacter } from '@/components/CharacterPicker';
 import type { Character } from '@/lib/characters';
 

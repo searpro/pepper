@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Download, Image as ImageIcon, Library, Maximize2, Trash2, Upload } from 'lucide-react';
-import { api, useResource, type MediaItem } from '@/lib/api';
+import { api, useResource, type MediaItem } from '@pepper/ui/lib/api';
 import { outputToInput, setHandoff } from '@/lib/images';
 import { ImageDetailsDialog } from '@/components/ImageDetails';
 import {
@@ -19,9 +19,9 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from '@/components/ui';
-import { Page } from '@/components/layout';
-import { formatBytes, timeAgo } from '@/lib/utils';
+} from '@pepper/ui/components/ui';
+import { Page } from '@pepper/ui/components/layout';
+import { formatBytes, timeAgo } from '@pepper/ui/lib/utils';
 
 /**
  * The Media library (requirement 10): every generation in one place, with a

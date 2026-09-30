@@ -37,11 +37,13 @@ RUN apt-get update \
 
 COPY package*.json ./
 COPY packages/core/package.json ./packages/core/
+COPY packages/ui/package.json ./packages/ui/
 COPY apps/pepper/server/package.json ./apps/pepper/server/
 COPY apps/pepper/web/package.json ./apps/pepper/web/
 RUN npm ci --no-audit --no-fund
 
 COPY packages/core ./packages/core
+COPY packages/ui ./packages/ui
 COPY apps/pepper/server ./apps/pepper/server
 COPY apps/pepper/web ./apps/pepper/web
 

@@ -14,7 +14,7 @@ import {
   Film,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { api, useEventStream, useResource, type Job, type MediaItem } from '@/lib/api';
+import { api, useEventStream, useResource, type Job, type MediaItem } from '@pepper/ui/lib/api';
 import {
   copyText,
   formatSettings,
@@ -35,8 +35,8 @@ import {
   Progress,
   Select,
   Spinner,
-} from '@/components/ui';
-import { formatBytes, formatDuration, timeAgo } from '@/lib/utils';
+} from '@pepper/ui/components/ui';
+import { formatBytes, formatDuration, timeAgo } from '@pepper/ui/lib/utils';
 
 export interface ImageActions {
   /** Load the image's prompt and settings into the generator. */

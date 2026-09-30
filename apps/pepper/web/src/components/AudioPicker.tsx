@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { AudioLines, Library, Upload } from 'lucide-react';
-import { api, useResource, type MediaItem } from '@/lib/api';
+import { api, useResource, type MediaItem } from '@pepper/ui/lib/api';
 import { outputToInput } from '@/lib/images';
 import {
   Button,
@@ -13,8 +13,8 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from '@/components/ui';
-import { timeAgo } from '@/lib/utils';
+} from '@pepper/ui/components/ui';
+import { timeAgo } from '@pepper/ui/lib/utils';
 
 /**
  * Choose a speech clip from generated audio or earlier uploads — the audio

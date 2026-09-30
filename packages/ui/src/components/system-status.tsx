@@ -1,9 +1,9 @@
 import * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import { Activity, CircuitBoard, Cpu, MemoryStick, Play, RefreshCw, Square } from 'lucide-react';
-import { Badge, Button, Spinner, Tooltip } from '@/components/ui';
-import { api, type BackendStatus, type ResourceSnapshot, type SystemStatus } from '@/lib/api';
-import { backendState, cn, formatBytes } from '@/lib/utils';
+import { Badge, Button, Spinner, Tooltip } from './ui';
+import { api, type BackendStatus, type ResourceSnapshot, type SystemStatus } from '../lib/api';
+import { backendState, cn, formatBytes } from '../lib/utils';
 
 /**
  * The header's live system readout: host utilisation meters, and one pill per

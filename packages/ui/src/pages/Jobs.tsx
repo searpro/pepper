@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Ban, ChevronDown, ListChecks, RefreshCw, Trash2 } from 'lucide-react';
-import { api, useEventStream, useResource, type Job } from '@/lib/api';
+import { api, useEventStream, useResource, type Job } from '../lib/api';
 import {
   Badge,
   Button,
@@ -8,9 +8,9 @@ import {
   EmptyState,
   Progress,
   Tooltip,
-} from '@/components/ui';
-import { Page } from '@/components/layout';
-import { cn, formatDuration, timeAgo } from '@/lib/utils';
+} from '../components/ui';
+import { Page } from '../components/layout';
+import { cn, formatDuration, timeAgo } from '../lib/utils';
 
 const STATUS_VARIANT = {
   queued: 'outline',

@@ -1,4 +1,4 @@
-import { api, type Job, type MediaItem } from '@/lib/api';
+import { api, type Job, type MediaItem } from '@pepper/ui/lib/api';
 
 /**
  * Shared plumbing for the image screens: what an output's info looks like, the

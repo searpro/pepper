@@ -10,7 +10,10 @@ const api = process.env.PEPPER_API ?? 'http://localhost:3000';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: {
+      '@pepper/ui': fileURLToPath(new URL('../../../packages/ui/src', import.meta.url)),
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
   },
   build: {
     // The server serves the SPA from server/public, so the build lands there

@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, Image as ImageIcon, Library, Upload } from 'lucide-react';
-import { api, useResource, type MediaItem } from '@/lib/api';
+import { api, useResource, type MediaItem } from '@pepper/ui/lib/api';
 import { outputToInput } from '@/lib/images';
 import {
   Button,
@@ -13,8 +13,8 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from '@/components/ui';
-import { cn, timeAgo } from '@/lib/utils';
+} from '@pepper/ui/components/ui';
+import { cn, timeAgo } from '@pepper/ui/lib/utils';
 
 /**
  * Choose init or reference images from what is already on the server —

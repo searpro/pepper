@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, Download, Play, RefreshCw, Square, TriangleAlert } from 'lucide-react';
-import { formatMinutes } from '@/components/system-status';
+import { formatMinutes } from '@pepper/ui/components/system-status';
 import {
   api,
   useResource,
@@ -8,7 +8,7 @@ import {
   type BackendStatus,
   type BundleInfo,
   type SystemStatus,
-} from '@/lib/api';
+} from '@pepper/ui/lib/api';
 import {
   Badge,
   Button,
@@ -26,10 +26,10 @@ import {
   TabsList,
   TabsTrigger,
   Tooltip,
-} from '@/components/ui';
-import { backendState, formatBytes } from '@/lib/utils';
+} from '@pepper/ui/components/ui';
+import { backendState, formatBytes } from '@pepper/ui/lib/utils';
 import type { UpscalerInfo } from '@/lib/images';
-import type { Theme } from '@/components/layout';
+import type { Theme } from '@pepper/ui/components/layout';
 
 /**
  * Preferences (requirement 10): the environment as configured, per-backend

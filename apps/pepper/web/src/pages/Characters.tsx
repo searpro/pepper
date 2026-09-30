@@ -25,7 +25,7 @@ import {
   type BundleInfo,
   type Job,
   type TextModel,
-} from '@/lib/api';
+} from '@pepper/ui/lib/api';
 import { copyText, inputUrl, setVideoHandoff } from '@/lib/images';
 import {
   ROLE_LABELS,
@@ -51,11 +51,11 @@ import {
   Spinner,
   Switch,
   Textarea,
-} from '@/components/ui';
-import { Page } from '@/components/layout';
+} from '@pepper/ui/components/ui';
+import { Page } from '@pepper/ui/components/layout';
 import { CharacterAvatar, useCharacters } from '@/components/CharacterPicker';
 import { ImagePickerDialog } from '@/components/ImagePicker';
-import { cn, timeAgo } from '@/lib/utils';
+import { cn, timeAgo } from '@pepper/ui/lib/utils';
 
 /**
  * The Character Studio: create a character from a one-line idea, generate its

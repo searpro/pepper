@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Mic, Plus, UserRound, Users, X } from 'lucide-react';
-import { useResource } from '@/lib/api';
+import { useResource } from '@pepper/ui/lib/api';
 import { inputUrl } from '@/lib/images';
 import {
   ROLE_LABELS,
@@ -9,8 +9,8 @@ import {
   voiceSummary,
   type Character,
 } from '@/lib/characters';
-import { Badge, Button, Dialog, DialogContent, EmptyState, Spinner } from '@/components/ui';
-import { cn } from '@/lib/utils';
+import { Badge, Button, Dialog, DialogContent, EmptyState, Spinner } from '@pepper/ui/components/ui';
+import { cn } from '@pepper/ui/lib/utils';
 
 /**
  * Picking a Character Studio character from a generation screen.

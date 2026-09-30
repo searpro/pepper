@@ -1,21 +1,44 @@
 import * as React from 'react';
+import {
+  AudioLines,
+  Image as ImageIcon,
+  Library,
+  ListChecks,
+  MessageSquareText,
+  ScrollText,
+  Users,
+  Video,
+} from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { TooltipProvider } from '@/components/ui';
-import { AppShell, type Theme } from '@/components/layout';
+import { TooltipProvider } from '@pepper/ui/components/ui';
+import { AppShell, type NavItem, type Theme } from '@pepper/ui/components/layout';
 import { CatalogueDialog } from '@/components/Catalogue';
 import { PreferencesDialog } from '@/components/Preferences';
-import { AuthGate } from '@/components/SignIn';
+import { AuthGate } from '@pepper/ui/components/SignIn';
 import { GeneratePage } from '@/pages/Generate';
 import { ImagePage } from '@/pages/Image';
 import { AudioPage } from '@/pages/Audio';
 import { TextPage } from '@/pages/Text';
 import { MediaPage } from '@/pages/Media';
-import { JobsPage } from '@/pages/Jobs';
-import { LogsPage } from '@/pages/Logs';
+import { JobsPage } from '@pepper/ui/pages/Jobs';
+import { LogsPage } from '@pepper/ui/pages/Logs';
 import { CharactersPage } from '@/pages/Characters';
-import { useResource, type SystemStatus } from '@/lib/api';
+import { useResource, type SystemStatus } from '@pepper/ui/lib/api';
 
 const THEME_KEY = 'pepper-theme';
+
+const NAV: NavItem[] = [
+  { to: '/image', label: 'Image', icon: ImageIcon, group: 'Generate' },
+  { to: '/video', label: 'Video', icon: Video, group: 'Generate' },
+  { to: '/audio', label: 'Audio', icon: AudioLines, group: 'Generate' },
+  { to: '/text', label: 'Text', icon: MessageSquareText, group: 'Generate' },
+  { to: '/characters', label: 'Characters', icon: Users, group: 'Create' },
+  { to: '/media', label: 'Media', icon: Library, group: 'Library' },
+  { to: '/jobs', label: 'Jobs', icon: ListChecks, group: 'Library' },
+  { to: '/logs', label: 'Logs', icon: ScrollText, group: 'Library' },
+];
+
+const BRAND = { name: 'Pepper', initial: 'P', home: 'image' };
 
 export function App() {
   return (
@@ -57,6 +80,8 @@ function Pepper() {
     <TooltipProvider>
       <BrowserRouter>
         <AppShell
+          brand={BRAND}
+          nav={NAV}
           status={status.data}
           theme={theme}
           onThemeChange={setTheme}

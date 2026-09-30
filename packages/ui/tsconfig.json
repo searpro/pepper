@@ -11,10 +11,7 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "allowImportingTsExtensions": true,
-    "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"], "@pepper/ui/*": ["../../../packages/ui/src/*"] },
     "types": ["vite/client"]
   },
-  "include": ["src", "vite.config.ts", "../../../packages/ui/src"]
+  "include": ["src"]
 }

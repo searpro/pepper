@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { api, ApiRequestError, UNAUTHORIZED_EVENT } from '@/lib/api';
+import { api, ApiRequestError, UNAUTHORIZED_EVENT } from '../lib/api';
 import {
   Button,
   Card,
@@ -11,7 +11,7 @@ import {
   Field,
   Input,
   Spinner,
-} from '@/components/ui';
+} from './ui';
 
 interface Session {
   required: boolean;

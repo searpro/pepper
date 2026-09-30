@@ -25,7 +25,7 @@ import {
   type Job,
   type LoraPreset,
   type MediaItem,
-} from '@/lib/api';
+} from '@pepper/ui/lib/api';
 import {
   inputUrl,
   outputToInput,
@@ -49,14 +49,14 @@ import {
   Spinner,
   Switch,
   Textarea,
-} from '@/components/ui';
-import { Page } from '@/components/layout';
+} from '@pepper/ui/components/ui';
+import { Page } from '@pepper/ui/components/layout';
 import { ImageDetailsDialog } from '@/components/ImageDetails';
 import { ImagePickerDialog } from '@/components/ImagePicker';
 import { AspectChip, FileButton, InputThumb, useElapsed } from '@/components/studio';
 import { CharacterField, useChosenCharacter } from '@/components/CharacterPicker';
 import { primaryImage, withCharacter } from '@/lib/characters';
-import { cn, formatBytes, formatDuration, timeAgo } from '@/lib/utils';
+import { cn, formatBytes, formatDuration, timeAgo } from '@pepper/ui/lib/utils';
 
 /**
  * The image studio: text-to-image and edit, laid out after the Qwen Image

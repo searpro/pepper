@@ -18,7 +18,7 @@ import {
   type CatalogueModel,
   type DownloadTask,
   type ModelKind,
-} from '@/lib/api';
+} from '@pepper/ui/lib/api';
 import {
   Badge,
   Button,
@@ -37,8 +37,8 @@ import {
   TabsList,
   TabsTrigger,
   Tooltip,
-} from '@/components/ui';
-import { formatBytes } from '@/lib/utils';
+} from '@pepper/ui/components/ui';
+import { formatBytes } from '@pepper/ui/lib/utils';
 
 const KINDS: { value: ModelKind | ''; label: string }[] = [
   { value: '', label: 'All kinds' },

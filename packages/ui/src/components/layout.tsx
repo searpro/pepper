@@ -1,47 +1,43 @@
 import * as React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import {
-  AudioLines,
-  ChevronLeft,
-  Image as ImageIcon,
-  Library,
-  ListChecks,
-  MessageSquareText,
-  Moon,
-  Package,
-  ScrollText,
-  Settings,
-  Sun,
-  Users,
-  Video,
-} from 'lucide-react';
-import { Badge, Button, Tooltip } from '@/components/ui';
-import { BackendPills, ResourceMeters } from '@/components/system-status';
-import { cn } from '@/lib/utils';
-import type { SystemStatus } from '@/lib/api';
+import { ChevronLeft, Moon, Package, Settings, Sun, type LucideIcon } from 'lucide-react';
+import { Badge, Button, Tooltip } from './ui';
+import { BackendPills, ResourceMeters } from './system-status';
+import { cn } from '../lib/utils';
+import type { SystemStatus } from '../lib/api';
 
 /**
- * The app shell: a collapsible side nav for the generation screens
+ * The app shell: a collapsible side nav for the product's screens
  * (requirement 10) and a top bar carrying the Preferences and Catalogue
- * entries on the right, plus a live status pill.
+ * entries on the right, plus a live status pill. The nav items and the
+ * product's name are the product's; the frame is shared.
  */
 
 export type Theme = 'light' | 'dark' | 'system';
 
-const NAV_ITEMS = [
-  { to: '/image', label: 'Image', icon: ImageIcon, group: 'Generate' },
-  { to: '/video', label: 'Video', icon: Video, group: 'Generate' },
-  { to: '/audio', label: 'Audio', icon: AudioLines, group: 'Generate' },
-  { to: '/text', label: 'Text', icon: MessageSquareText, group: 'Generate' },
-  { to: '/characters', label: 'Characters', icon: Users, group: 'Create' },
-  { to: '/media', label: 'Media', icon: Library, group: 'Library' },
-  { to: '/jobs', label: 'Jobs', icon: ListChecks, group: 'Library' },
-  { to: '/logs', label: 'Logs', icon: ScrollText, group: 'Library' },
-] as const;
+export interface NavItem {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  /** Items are grouped under this heading, in first-seen order. */
+  group: string;
+}
+
+export interface ProductBrand {
+  /** Shown in the nav header, e.g. "Pepper". */
+  name: string;
+  /** The letter in the logo tile. */
+  initial: string;
+  /** The heading shown on `/`, before any route is picked. */
+  home: string;
+}
 
 const COLLAPSE_KEY = 'pepper-nav-collapsed';
 
 export function AppShell({
+  brand,
+  nav,
+  catalogueLabel = 'Models',
   status,
   children,
   theme,
@@ -50,6 +46,10 @@ export function AppShell({
   onOpenCatalogue,
   onStatusChanged,
 }: {
+  brand: ProductBrand;
+  nav: NavItem[];
+  /** The label on the catalogue button ("Models", "Recipes"). */
+  catalogueLabel?: string;
   status: SystemStatus | undefined;
   /** Re-poll status now, after a lifecycle action from a backend pill. */
   onStatusChanged: () => void;
@@ -69,14 +69,14 @@ export function AppShell({
   }, [collapsed]);
 
   const groups = React.useMemo(() => {
-    const byGroup = new Map<string, (typeof NAV_ITEMS)[number][]>();
-    for (const item of NAV_ITEMS) {
+    const byGroup = new Map<string, NavItem[]>();
+    for (const item of nav) {
       const existing = byGroup.get(item.group) ?? [];
       existing.push(item);
       byGroup.set(item.group, existing);
     }
     return [...byGroup.entries()];
-  }, []);
+  }, [nav]);
 
   const activeJobs = (status?.jobs.running ?? 0) + (status?.jobs.queued ?? 0);
 
@@ -90,11 +90,11 @@ export function AppShell({
       >
         <div className="flex h-14 items-center gap-2 px-3">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <span className="text-sm font-bold">P</span>
+            <span className="text-sm font-bold">{brand.initial}</span>
           </div>
           {!collapsed ? (
             <div className="flex min-w-0 flex-col">
-              <span className="truncate text-sm font-semibold leading-tight">Pepper</span>
+              <span className="truncate text-sm font-semibold leading-tight">{brand.name}</span>
               <span className="truncate text-[10px] leading-tight text-muted-foreground">
                 {status ? `v${status.version} · ${status.accel}` : 'connecting…'}
               </span>
@@ -169,7 +169,7 @@ export function AppShell({
         <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-sm font-semibold capitalize">
-              {location.pathname.replace('/', '') || 'image'}
+              {location.pathname.split('/')[1] || brand.home}
             </h1>
             <BackendPills status={status} onChanged={onStatusChanged} />
           </div>
@@ -178,7 +178,7 @@ export function AppShell({
             <Tooltip label="Model catalogue and downloads">
               <Button variant="ghost" size="sm" onClick={onOpenCatalogue}>
                 <Package />
-                <span className="hidden sm:inline">Models</span>
+                <span className="hidden sm:inline">{catalogueLabel}</span>
               </Button>
             </Tooltip>
             <Tooltip label="Preferences">

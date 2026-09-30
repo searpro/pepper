@@ -23,7 +23,7 @@ import {
   type BundleInfo,
   type Job,
   type MediaItem,
-} from '@/lib/api';
+} from '@pepper/ui/lib/api';
 import {
   inputUrl,
   outputToInput,
@@ -45,13 +45,13 @@ import {
   Spinner,
   Switch,
   Textarea,
-} from '@/components/ui';
-import { Page } from '@/components/layout';
+} from '@pepper/ui/components/ui';
+import { Page } from '@pepper/ui/components/layout';
 import { ImagePickerDialog } from '@/components/ImagePicker';
 import { AudioPickerDialog } from '@/components/AudioPicker';
 import { CharacterField, useChosenCharacter } from '@/components/CharacterPicker';
 import { AspectChip, FileButton, InputThumb, useElapsed } from '@/components/studio';
-import { cn, formatDuration, timeAgo } from '@/lib/utils';
+import { cn, formatDuration, timeAgo } from '@pepper/ui/lib/utils';
 
 /**
  * The video studio, laid out like the image studio: a Prompt/Speech switch in

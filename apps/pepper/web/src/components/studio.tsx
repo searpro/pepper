@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { X } from 'lucide-react';
 import { inputUrl } from '@/lib/images';
-import { Button } from '@/components/ui';
-import { cn } from '@/lib/utils';
+import { Button } from '@pepper/ui/components/ui';
+import { cn } from '@pepper/ui/lib/utils';
 
 /**
  * Pieces the generation studios (Image, Video) share: aspect-ratio chips, the

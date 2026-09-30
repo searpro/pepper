@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { ArrowDownToLine, Pause, Play, Search, Trash2 } from 'lucide-react';
-import { useEventStream, type LogRecord } from '@/lib/api';
-import { Badge, Button, Card, Input, Select, Tooltip } from '@/components/ui';
-import { Page } from '@/components/layout';
-import { cn, formatTime } from '@/lib/utils';
+import { useEventStream, type LogRecord } from '../lib/api';
+import { Badge, Button, Card, Input, Select, Tooltip } from '../components/ui';
+import { Page } from '../components/layout';
+import { cn, formatTime } from '../lib/utils';
 
 const SOURCES = [
   'app',

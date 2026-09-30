@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { MessageSquareText, SendHorizontal, Square } from 'lucide-react';
-import { api, useResource, waitForJob, type TextModel } from '@/lib/api';
-import { Button, Card, EmptyState, ErrorNote, Field, Select, Spinner, Textarea } from '@/components/ui';
-import { Page } from '@/components/layout';
-import { cn } from '@/lib/utils';
+import { api, useResource, waitForJob, type TextModel } from '@pepper/ui/lib/api';
+import { Button, Card, EmptyState, ErrorNote, Field, Select, Spinner, Textarea } from '@pepper/ui/components/ui';
+import { Page } from '@pepper/ui/components/layout';
+import { cn } from '@pepper/ui/lib/utils';
 
 interface Message {
   role: 'user' | 'assistant';
