@@ -12,10 +12,9 @@ on:
       - package.json
       - package-lock.json
       - tsconfig*.json
-      - server/**
-      - web/**
+      - packages/**
+      - apps/pepper/**
       - deploy/runpod/entrypoint.mjs
-      - server/python/requirements.txt
       - .github/workflows/image.yml
   workflow_dispatch:
 

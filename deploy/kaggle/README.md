@@ -186,7 +186,7 @@ ends on its own after `--hours`.
 Quick tunnels (not named ones) do not pass Server-Sent Events through at all
 ([Cloudflare docs](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/)),
 so the log, job and download streams also answer a WebSocket upgrade on the
-same URL and the web app connects that way first (see `server/src/util/sse.ts`
-and `useEventStream` in `web/src/lib/api.ts`). If live views stop updating on
+same URL and the web app connects that way first (see `packages/core/src/util/sse.ts`
+and `useEventStream` in `apps/pepper/web/src/lib/api.ts`). If live views stop updating on
 Kaggle but work locally, check that the browser's WebSocket to `/v1/.../stream`
 is connecting. Quick tunnels also cap in-flight requests at 200.

@@ -71,7 +71,7 @@ delete pepperEnv.PEPPER_TUNNEL_TOKEN;
 delete pepperEnv.RUNPOD_API_KEY;
 if (!apiToken) delete pepperEnv.PEPPER_API_TOKEN;
 
-const pepper = run('pepper', process.execPath, ['server/dist/index.js'], pepperEnv);
+const pepper = run('pepper', process.execPath, ['apps/pepper/server/dist/index.js'], pepperEnv);
 pepper.on('exit', (code, signal) => {
   if (stopping) return;
   log(`pepper exited (${signal ?? code}); stopping the container`);

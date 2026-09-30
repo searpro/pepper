@@ -6,7 +6,7 @@
 # Follows the pattern of the sd-api image that is already working in
 # production, with differences the new architecture forces:
 #
-#  * The SPA is built here rather than committed, so `server/public` is a build
+#  * The SPA is built here rather than committed, so `apps/pepper/server/public` is a build
 #    artifact and never drifts from the source it was built from.
 #  * `better-sqlite3` is a native module, so the builder stage carries a
 #    toolchain and the production `npm ci` reuses the compiled binding rather
@@ -51,21 +51,24 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
-COPY server/package.json ./server/
-COPY web/package.json ./web/
+COPY packages/core/package.json ./packages/core/
+COPY apps/pepper/server/package.json ./apps/pepper/server/
+COPY apps/pepper/web/package.json ./apps/pepper/web/
 RUN npm ci
 
-COPY tsconfig*.json ./
-COPY server ./server
-COPY web ./web
+COPY packages/core ./packages/core
+COPY apps/pepper/server ./apps/pepper/server
+COPY apps/pepper/web ./apps/pepper/web
 
-# The web build writes into server/public, which the server serves statically.
-RUN npm run build --workspace web \
-    && npm run build --workspace server
+# The web build writes into apps/pepper/server/public, which the server serves
+# statically. The core is built first; the server compiles against it.
+RUN npm run build --workspace @pepper/core \
+    && npm run build --workspace @pepper/web \
+    && npm run build --workspace @pepper/server
 
 # Prune to production dependencies in place, keeping the native binding that
 # was just compiled against this exact Node version.
-RUN npm prune --omit=dev --workspace server
+RUN npm prune --omit=dev --workspace @pepper/server --workspace @pepper/core
 
 
 FROM ${VLLM_OMNI_IMAGE}
@@ -93,12 +96,14 @@ RUN apt-get update \
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/server/package.json ./server/package.json
-COPY --from=builder /app/server/dist ./server/dist
-COPY --from=builder /app/server/public ./server/public
+COPY --from=builder /app/packages/core/package.json ./packages/core/package.json
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/apps/pepper/server/package.json ./apps/pepper/server/package.json
+COPY --from=builder /app/apps/pepper/server/dist ./apps/pepper/server/dist
+COPY --from=builder /app/apps/pepper/server/public ./apps/pepper/server/public
 # The Python video runners (pepper_runner) and their pinned requirements. The
 # runtime and packages install into DATA_DIR on first use; this is the code.
-COPY --from=builder /app/server/python ./server/python
+COPY --from=builder /app/apps/pepper/server/python ./apps/pepper/server/python
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
@@ -121,4 +126,4 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:${PORT}/health || exit 1
 
-CMD ["node", "server/dist/index.js"]
+CMD ["node", "apps/pepper/server/dist/index.js"]
