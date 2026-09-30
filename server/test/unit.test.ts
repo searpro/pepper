@@ -36,6 +36,7 @@ import { buildServer } from '../src/server.js';
 import { selectFiles, type CatalogueComponent } from '../src/mcp/tools.js';
 import { ActivityTracker, isActivity } from '../src/services/activity.js';
 import { cgroupMemory } from '../src/services/resources.js';
+import { openDb } from '../src/db/client.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -1762,28 +1763,34 @@ describe('hires and LoRA schedules', () => {
 });
 
 describe('music', () => {
+  const song = {
+    model: 'm',
+    prompt: 'city pop, female vocal',
+    lyrics: '[Chorus]\nTonight',
+    duration_seconds: 90,
+    steps: 8,
+    seed: 7,
+  };
+
   it("maps a request onto audio.cpp's generic task fields", () => {
-    const request = musicRequest({
-      model: 'ace-step-1.5',
-      prompt: 'city pop, female vocal',
-      lyrics: '[Chorus]\nTonight',
-      duration_seconds: 90,
-      steps: 8,
-      seed: 7,
-    });
-    expect(request).toMatchObject({
+    expect(musicRequest(song, 'ace_step')).toEqual({
       text: 'city pop, female vocal',
       lyrics: '[Chorus]\nTonight',
       duration_seconds: 90,
       num_inference_steps: 8,
       seed: 7,
-      // HeartMuLa reads its style from the tags option.
-      options: { tags: 'city pop, female vocal', duration_sec: '90' },
     });
     // An instrumental sends no lyrics at all; -1 means "pick one".
     const instrumental = musicRequest({ model: 'm', prompt: 'ambient', seed: -1 });
     expect(instrumental).not.toHaveProperty('lyrics');
     expect(instrumental).not.toHaveProperty('seed');
+  });
+
+  it("uses HeartMuLa's own option names, and only those", () => {
+    const request = musicRequest(song, 'heartmula');
+    expect(request.options).toEqual({ tags: 'city pop, female vocal', duration_sec: '90' });
+    // HeartMuLa fails a request carrying both duration spellings.
+    expect(request).not.toHaveProperty('duration_seconds');
   });
 });
 
@@ -1797,5 +1804,24 @@ describe('resources', () => {
     await writeFile(join(root, 'memory.max'), 'max\n');
     expect(await cgroupMemory(root)).toBeNull();
     expect(await cgroupMemory(join(root, 'missing'))).toBeNull();
+  });
+});
+
+describe('database', () => {
+  it('sets a corrupt database aside and starts a new one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-db-'));
+    const file = join(dir, 'pepper.db');
+    // A healthy database opens in place.
+    const first = openDb(file);
+    first.sqlite.close();
+
+    // Not an SQLite file at all, as a write cut off by a full disk can leave it.
+    await writeFile(file, 'this is not a database, '.repeat(400));
+    let moved: string | undefined;
+    const recovered = openDb(file, (movedTo) => (moved = movedTo));
+    expect(moved).toMatch(/pepper\.db\.corrupt-\d+$/);
+    // The new database is usable.
+    expect(recovered.sqlite.pragma('quick_check', { simple: true })).toBe('ok');
+    recovered.sqlite.close();
   });
 });

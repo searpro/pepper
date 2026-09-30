@@ -8,10 +8,11 @@ live on a network volume, so they download once rather than every run.
   streams their logs.
 - `entrypoint.mjs` — runs in the container: Pepper, the named tunnel, and the
   idle shutdown.
-- The image is the repo's default `Dockerfile` (small: Ubuntu 22.04 + Node +
-  ffmpeg + cloudflared; backends download onto the volume on first boot),
-  published to `ghcr.io/searpro/pepper` by `.github/workflows/image.yml` on
-  every push to `main` that touches the app.
+- The image is the repo's default `Dockerfile`: Ubuntu 22.04, Node, ffmpeg,
+  cloudflared and the Python runner environment (torch, for SeedVR2 upscaling
+  and the Python video runners) baked in. The .cpp backends download onto the
+  volume on first boot. Published to `ghcr.io/searpro/pepper` by
+  `.github/workflows/image.yml` on every push to `main` that touches the app.
 
 ## Kaggle vs RunPod
 
@@ -73,6 +74,7 @@ pods start in about a minute plus the image pull.
 | `--catalogue-branch B` | none | Serve the catalogue from a pepper-catalogue branch, to test a PR. |
 | `--image REF` | `ghcr.io/searpro/pepper:latest` | e.g. `…:sha-abc1234` to pin a build. |
 | `--cloud` | `SECURE` | `COMMUNITY` is cheaper and less reliable. |
+| `--min-ram GB` | any | Only hosts with at least this much system RAM. |
 | `--force` | off | Start even if the hostname already answers. |
 
 ```bash
@@ -82,6 +84,24 @@ uv run deploy/runpod/launch.py down     # terminate; the volume and its models s
 ```
 
 Ctrl-C during `up` only detaches; the pod keeps running (and billing).
+
+## Memory and storage, measured on a 4090 pod
+
+- **System RAM is the real limit, not VRAM.** A 24 GB 4090 pod usually has
+  **46 GB of RAM**, and the video models run with `--offload-to-cpu`: every
+  component's weights sit in RAM and move to the GPU only while that component
+  runs. A model set larger than about 40 GB aborts at load. The catalogue's
+  recommended files are sized for this; `--min-ram 64` asks RunPod for a bigger
+  host when you want the larger quantizations. Pepper's header shows the
+  container's limit, not the host's.
+- **Volume size.** The recommended sets are roughly: Z-Image 17 GB, Qwen-Image
+  2.1 25 GB, LTX-2.5 37 GB, Wan 2.2 I2V 31 GB, MiniMax-H3 35 GB, HunyuanVideo
+  1.5 28 GB each, SeedVR2 9 GB, music 7-11 GB each. Everything at once is
+  about 250 GB; 100 GB holds the two image models, one video model, SeedVR2
+  and a music model.
+- **Downloads can stall.** HuggingFace transfers sometimes drop to a crawl
+  after the first few GB; cancel and retry the download (Models → Downloads),
+  which resumes from the partial file on a fresh connection.
 
 ## Idle shutdown
 

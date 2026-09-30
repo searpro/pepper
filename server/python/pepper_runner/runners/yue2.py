@@ -13,7 +13,8 @@ cannot also satisfy.
 Licence: CC BY-NC 4.0 — the catalogue marks it non-commercial.
 
 Params: ``model_dir`` (the bundle's weights folder, or a HF repo id),
-``style``, ``lyrics``, ``seed``, ``cot`` (full | melody | off),
+``vae_dir`` (the bundle's aux folder holding YuE2-Vae; fetched from HuggingFace
+when absent), ``style``, ``lyrics``, ``seed``, ``cot`` (full | melody | off),
 ``cfg_scale`` (optional).
 """
 
@@ -33,8 +34,17 @@ def run(job) -> dict:
         raise ValueError("yue2 needs a style prompt")
     model = job.param("model_dir") or "m-a-p/YuE2-3B"
 
+    # With the VAE installed beside the model nothing is downloaded at run
+    # time, so the job neither needs the network nor writes to the volume.
+    vae_dir = job.param("vae_dir")
+    local_vae = bool(vae_dir) and os.path.isfile(os.path.join(vae_dir, "model.safetensors"))
+
     stage("loading YuE2")
-    pipe = YuE2Pipeline.from_pretrained(model, device="cuda")
+    pipe = YuE2Pipeline.from_pretrained(
+        model,
+        device="cuda",
+        **({"vae": vae_dir, "local_files_only": True} if local_vae else {}),
+    )
     try:
         kwargs = {
             "style": style,

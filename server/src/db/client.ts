@@ -1,3 +1,4 @@
+import { existsSync, renameSync, rmSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.js';
@@ -84,7 +85,27 @@ export interface OpenDbResult {
   sqlite: Database.Database;
 }
 
-export function openDb(file: string): OpenDbResult {
+/**
+ * Open the database, setting a corrupt one aside first.
+ *
+ * A full volume can leave SQLite's file malformed (seen on RunPod: a download
+ * hit the volume quota mid-write, and every later query failed with "database
+ * disk image is malformed"). There is no shell on a pod to repair it with, and
+ * nothing in it is irreplaceable — models and outputs are read from disk; the
+ * database holds job history, download records and preferences. So a file that
+ * fails SQLite's own check is renamed `<file>.corrupt-<time>` and a fresh one
+ * is created, which turns an unusable server into one that has forgotten its
+ * history.
+ */
+export function openDb(file: string, onRecovered?: (movedTo: string, reason: string) => void): OpenDbResult {
+  const reason = corruption(file);
+  if (reason) {
+    const movedTo = `${file}.corrupt-${Date.now()}`;
+    renameSync(file, movedTo);
+    // The write-ahead log and shared-memory files belong to the old database.
+    for (const suffix of ['-wal', '-shm']) rmSync(file + suffix, { force: true });
+    onRecovered?.(movedTo, reason);
+  }
   const sqlite = new Database(file);
 
   // WAL lets the SSE/streaming readers run while a job writer commits; without
@@ -100,6 +121,25 @@ export function openDb(file: string): OpenDbResult {
   applyMigrations(sqlite);
 
   return { db: drizzle(sqlite, { schema }), sqlite };
+}
+
+/** Why an existing database file cannot be used, or null when it is fine (or absent). */
+function corruption(file: string): string | null {
+  if (file === ':memory:' || !existsSync(file)) return null;
+  let probe: Database.Database | undefined;
+  try {
+    probe = new Database(file);
+    const result = probe.pragma('quick_check', { simple: true });
+    return result === 'ok' ? null : String(result);
+  } catch (err) {
+    return (err as Error).message;
+  } finally {
+    try {
+      probe?.close();
+    } catch {
+      // Closing a malformed database can throw as well; it is being replaced.
+    }
+  }
 }
 
 function applyMigrations(sqlite: Database.Database): void {

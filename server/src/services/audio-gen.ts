@@ -55,28 +55,38 @@ export interface MusicGenerateParams {
 
 export interface MusicGenerateOptions {
   params: MusicGenerateParams;
+  /** The bundle's audio.cpp family, which decides the request's field names. */
+  family?: string;
   onLog?: (line: string) => void;
   signal?: AbortSignal;
 }
 
 /**
- * audio.cpp's request for a music job. The families name the style input
- * differently — ACE-Step and Stable Audio read `text`, HeartMuLa reads the
- * `tags` request option — so the prompt is sent as both; each family ignores
- * the one it does not use.
+ * audio.cpp's request for a music job. The families disagree on names:
+ * ACE-Step and Stable Audio read the style from `text` and the length from
+ * `duration_seconds`; HeartMuLa reads style from the `tags` option and length
+ * from `duration_sec`, and rejects a request that carries both spellings.
  */
-export function musicRequest(params: MusicGenerateParams): Record<string, unknown> {
-  return {
+export function musicRequest(params: MusicGenerateParams, family?: string): Record<string, unknown> {
+  const common = {
     text: params.prompt,
     ...(params.lyrics ? { lyrics: params.lyrics } : {}),
-    ...(params.duration_seconds !== undefined ? { duration_seconds: params.duration_seconds } : {}),
     ...(params.steps !== undefined ? { num_inference_steps: params.steps } : {}),
     ...(params.seed !== undefined && params.seed >= 0 ? { seed: params.seed } : {}),
+  };
+  if (family === 'heartmula') {
+    return {
+      ...common,
+      options: {
+        tags: params.prompt,
+        ...(params.duration_seconds !== undefined ? { duration_sec: String(params.duration_seconds) } : {}),
+      },
+    };
+  }
+  return {
+    ...common,
+    ...(params.duration_seconds !== undefined ? { duration_seconds: params.duration_seconds } : {}),
     ...(params.task_route ? { task_route: params.task_route } : {}),
-    options: {
-      tags: params.prompt,
-      ...(params.duration_seconds !== undefined ? { duration_sec: String(params.duration_seconds) } : {}),
-    },
   };
 }
 
@@ -149,7 +159,7 @@ export class AudioService {
           ? options.params.seed
           : randomInt(0, 2 ** 31 - 1),
     };
-    const request = musicRequest(params);
+    const request = musicRequest(params, options.family);
 
     onLog?.(
       `music: ${params.model}` +

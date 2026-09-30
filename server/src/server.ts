@@ -97,7 +97,9 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     ]),
   );
 
-  const { db, sqlite } = openDb(paths.dbFile);
+  const { db, sqlite } = openDb(paths.dbFile, (movedTo, reason) =>
+    logger.error({ movedTo, reason }, 'the database was corrupt; set it aside and started a new one'),
+  );
 
   const app = Fastify({
     loggerInstance: logger,
@@ -557,6 +559,7 @@ function registerExecutors(
           ? await pythonMusic(pythonVideo, paths, bundle, context)
           : await speech.generateMusic({
               params: context.job.params as never,
+              family: bundle?.manifest?.family,
               signal: context.signal,
               onLog: context.onLog,
             });
@@ -655,6 +658,7 @@ async function pythonMusic(
     env: { HF_HUB_OFFLINE: '0', HF_HOME: join(paths.modelsDir, '.hf-cache') },
     params: {
       model_dir: join(bundleDir(paths, 'audio', bundle.id), 'weights'),
+      vae_dir: join(bundleDir(paths, 'audio', bundle.id), 'aux'),
       style: params.prompt,
       lyrics: params.lyrics ?? '',
       seed,
