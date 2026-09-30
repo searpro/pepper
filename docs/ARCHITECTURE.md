@@ -321,6 +321,39 @@ clients time out sooner, so videos return a job id for `get_job`. Finished
 images come back inline (a 1024 px JPEG via ffmpeg when available) plus an
 absolute link built from the caller's `Host`/`X-Forwarded-*` headers.
 
+### Image quality comes from precision and a second pass, not step counts
+
+Tested on a 4090 (September 2026), with fixed seeds against the Kaggle-era
+setups:
+
+- **Quantization was the main cause of soft output.** Z-Image Turbo at Q8 with a
+  Q4_0 text encoder, and Qwen-Image 2.1 at Q4_0, lose fine detail and (Qwen)
+  facial structure. bf16 weights with Q8_0 encoders fit 24 GB with
+  `--offload-to-cpu` and are visibly crisper. The catalogue marks these files
+  `recommended`, and installs default to them.
+- **The hires pass does the rest.** Generating at 1 MP, upscaling 1.5x with
+  4x-UltraSharp and re-denoising at 0.3 adds real skin, hair and fabric detail
+  (≈2.5x the time). It also removes the 8 px vertical striping
+  stable-diffusion.cpp leaves on 1 MP Qwen-Image 2.1 output, which is what
+  looked like "lines": measured as a strong 8 px peak in the column spectrum,
+  in bf16 as well as Q4. On Qwen, 6 refine steps look the same as 12.
+- **Distillation LoRAs do not combine with the hires pass.** Viggle turbo alone
+  is clean; turbo plus hires overcooks into HDR-like texture even with a gentle
+  refine schedule, so a LoRA preset suppresses the default hires pass.
+- The bf16 weights need `--offload-to-cpu`: with every component resident,
+  the VAE encode of the upscaled image runs out of memory.
+
+### Music and isolated Python environments
+
+Music is audio.cpp's task `gen` (ACE-Step 1.5, HeartMuLa, Stable Audio 3),
+driven through its generic `/v1/tasks/run`, which returns the WAV base64 in
+JSON. YuE2 3B scores higher (SongBench, above Suno v5) but is non-commercial
+and pins torch 2.10 / transformers 4.57, so it runs as a Python runner in an
+isolated venv (`PythonInstaller.ensureIsolatedEnvironment`), built on first use
+and rebuilt only when its package list changes. Runners are spawned offline
+(`HF_HUB_OFFLINE=1`) unless a task opts in, as SeedVR2 and YuE2 do to fetch
+weights on first use.
+
 ### Idle is defined by actions, not requests
 
 On RunPod a pod bills per second, so the container entrypoint

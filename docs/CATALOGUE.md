@@ -55,7 +55,9 @@ start publishing an attribute before the server understands it.
   "mode": "image",                 // image | video  ("video" emits -M vid_gen)
   "edit": false,                   // expects reference images at generation
   "defaults": { "steps": 8, "cfg_scale": 1, "width": 1024, "height": 1024 },
+                                   // also: scheduler, sigmas, loras, high_noise, hires — see below
   "extraArgs": ["--qwen-image-zero-cond-t"],
+  "loraPresets": { "low_noise_model": { "steps": 4, "cfg_scale": 1 } },  // schedules for the model's LoRAs
   "capabilities": ["s2v"],         // extra abilities; see "Speech-to-video" below
   "s2v": { "audio_flag": "--ref-audio" },
 
@@ -113,6 +115,41 @@ Each component is one file the user ends up with, and one slot in the bundle.
 }
 ```
 
+A component may also carry:
+
+```jsonc
+  "alternatives": [                // more places the same component is published,
+    { "repo": "Comfy-Org/z_image_turbo", "path": "split_files/diffusion_models",
+      "include": ["z_image_turbo_bf16.safetensors"] }
+  ],                               // merged into one list with `source`'s files
+  "recommended": "bf16"            // filename substring installs default to
+```
+
+`alternatives` puts full-precision safetensors (usually Comfy-Org's) next to
+GGUF quantizations (usually leejet's or QuantStack's) in one picker; the same
+filename in two sources counts once. `recommended` is what the install dialog
+and the MCP `catalogue_install` pre-select — the quality choice for the 24 GB
+GPUs this catalogue targets — instead of the smallest file. The live
+validator fails an entry whose `recommended` matches none of the offered
+files, and warns about gated repos, whose downloads need `HF_TOKEN`.
+
+### Model defaults beyond the basics
+
+`defaults` is written into `model.json` and sits under every request:
+
+| Key | Meaning |
+| --- | --- |
+| `scheduler` | sd-cli `--scheduler` |
+| `sigmas` | a fixed schedule (a distilled model's) |
+| `loras` | LoRAs applied when a request names none; `loras: []` opts out. Wan 2.2's Lightning pair ships this way. |
+| `high_noise` | `{ steps, cfg_scale, sampler }` for Wan 2.2's high-noise expert. A LoRA whose name contains `high_noise` is routed to that expert. |
+| `hires` | `{ enabled, scale, steps, denoise, sigmas, upscaler }` — sd-cli's second, higher-resolution pass. `upscaler` is an sd-cli built-in (`Latent`, `Lanczos`…), a file in the bundle's `aux/` (LTX-2's latent upscaler), or an ESRGAN in the upscaler folder; a default that is not installed falls back to Lanczos. |
+
+`loraPresets` gives a LoRA's trained schedule by its filename without
+extension. When a request uses a LoRA with a preset, Pepper runs that
+schedule (and skips the model's default hires pass) unless the request sends
+`lora_schedule: "off"`.
+
 A component is normally one file picked from a list. With `"allFiles": true`
 it is a *set* — a tokenizer, a diffusers `config.json` + weights pair, an audio
 encoder with its preprocessor config — and every file matching `include` is
@@ -128,6 +165,11 @@ Slots by kind:
 | `image`, `video` | `checkpoint`, `vae`, `clip`, `lora` |
 | `llm` | `weights`, `aux` (mmproj) |
 | `audio` | `weights`, `aux` (vocoder, tokenizer, speaker embeddings) |
+
+Music models are audio entries with `"task": "gen"` (ACE-Step 1.5, HeartMuLa,
+Stable Audio 3 through audio.cpp), generated with `POST /v1/jobs/music`. YuE2 is
+the exception: `"backend": "python"`, `"pythonRunner": "yue2"`, no `family`,
+run in its own Python environment.
 
 Anything else may be supplied at install time as `other:<directory>`, which
 creates that directory inside the bundle — but a catalogue entry should use a
