@@ -1,5 +1,5 @@
 import type { ObjectInfo, Prompt } from '../comfy/client.js';
-import { clonePrompt, prune, setInput, validatePrompt, type ValidateOptions } from '../comfy/graph.js';
+import { clonePrompt, prune, retainReachable, setInput, validatePrompt, type ValidateOptions } from '../comfy/graph.js';
 import { errors } from '@pepper/core/errors.js';
 import type { ResolvedFile } from '../recipes/store.js';
 import type { ModeSpec, Recipe, WorkflowSpec } from '../recipes/schema.js';
@@ -54,7 +54,11 @@ export function buildPrompt(input: BuildInput): Prompt {
     throw errors.validation(`Recipe "${recipe.id}" does not match its workflow: ${(err as Error).message}`);
   }
 
-  prune(prompt, unused, input.objectInfo);
+  prune(prompt, unused, input.objectInfo, workflow.bypass);
+  retainReachable(
+    prompt,
+    workflow.outputs.map((o) => o.node),
+  );
 
   if (input.objectInfo) {
     const issues = validatePrompt(prompt, input.objectInfo, input.validate);

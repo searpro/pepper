@@ -115,6 +115,13 @@ const workflowSchema = z.object({
    * moves evenly across a two-stage render instead of filling twice.
    */
   progress: z.record(z.number().positive()).optional(),
+  /**
+   * Nodes to bypass when none of their `requires` inputs is connected (see
+   * `applyBypasses`): an audio guide with no audio, a mask with no image.
+   */
+  bypass: z
+    .array(z.object({ node: z.string(), requires: z.array(z.string()).min(1), through: z.record(z.string()) }))
+    .default([]),
 });
 export type WorkflowSpec = z.infer<typeof workflowSchema>;
 

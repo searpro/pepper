@@ -25,8 +25,14 @@ export function setInput(prompt: Prompt, node: string, input: string, value: unk
   target.inputs[input] = value;
 }
 
+/**
+ * Whether an input is optional. Growable inputs (`ref_images.ref_image_2`)
+ * are named after their group, which is what `/object_info` declares.
+ */
 function inputOptional(info: NodeInfo | undefined, input: string): boolean {
-  return Boolean(info?.input.optional && input in info.input.optional);
+  const optional = info?.input.optional;
+  if (!optional) return false;
+  return input in optional || (input.includes('.') && input.split('.')[0] in optional);
 }
 
 /**
@@ -39,7 +45,8 @@ function inputOptional(info: NodeInfo | undefined, input: string): boolean {
  * required, which removes more than necessary but never leaves a dangling
  * link.
  */
-export function prune(prompt: Prompt, remove: Iterable<string>, info?: ObjectInfo): void {
+export function prune(prompt: Prompt, remove: Iterable<string>, info?: ObjectInfo, bypasses: Bypass[] = []): void {
+  const bypassable = new Map(bypasses.map((b) => [b.node, b]));
   const queue = [...remove];
   const removed = new Set<string>();
   while (queue.length > 0) {
@@ -50,11 +57,18 @@ export function prune(prompt: Prompt, remove: Iterable<string>, info?: ObjectInf
     for (const [otherId, node] of Object.entries(prompt)) {
       for (const [input, value] of Object.entries(node.inputs)) {
         if (!isLink(value) || value[0] !== id) continue;
-        if (inputOptional(info?.[node.class_type], input)) delete node.inputs[input];
-        else queue.push(otherId);
+        const bypass = bypassable.get(otherId);
+        if (inputOptional(info?.[node.class_type], input) || bypass?.requires.includes(input)) {
+          delete node.inputs[input];
+        } else {
+          queue.push(otherId);
+        }
       }
     }
   }
+  // A bypassable node that lost what it needed passes its inputs through
+  // rather than taking the rest of the graph with it.
+  applyBypasses(prompt, bypasses);
 }
 
 export interface ValidationIssue {
@@ -141,4 +155,54 @@ function choiceList(decl: unknown[]): string[] | null {
 /** The node types a prompt uses, for reporting which node packs it needs. */
 export function classTypes(prompt: Prompt): string[] {
   return [...new Set(Object.values(prompt).map((node) => node.class_type))].sort();
+}
+
+/**
+ * ComfyUI's "bypass" as data. A node that only makes sense with at least one
+ * of `requires` connected (an audio guide without audio) is removed when none
+ * is, and whatever consumed its outputs is reconnected to the inputs named in
+ * `through` — output 0 of a guide node passes its `positive` input through.
+ */
+export interface Bypass {
+  node: string;
+  requires: string[];
+  through: Record<string, string>;
+}
+
+export function applyBypasses(prompt: Prompt, bypasses: Bypass[]): void {
+  for (const bypass of bypasses) {
+    const node = prompt[bypass.node];
+    if (!node) continue;
+    if (bypass.requires.some((input) => isLink(node.inputs[input]))) continue;
+    delete prompt[bypass.node];
+    for (const other of Object.values(prompt)) {
+      for (const [input, value] of Object.entries(other.inputs)) {
+        if (!isLink(value) || value[0] !== bypass.node) continue;
+        const replacement = node.inputs[bypass.through[String(value[1])]];
+        if (replacement === undefined) delete other.inputs[input];
+        else other.inputs[input] = replacement;
+      }
+    }
+  }
+}
+
+/**
+ * Keep only the output nodes and what they depend on. A template carries
+ * helpers a request does not use (a resolution picker whose values were
+ * bound directly, a loader for an input left empty); ComfyUI would skip
+ * them anyway, but a prompt that holds only what runs is one validation and
+ * the logs can be read against.
+ */
+export function retainReachable(prompt: Prompt, outputs: string[]): void {
+  const keep = new Set<string>();
+  const stack = outputs.filter((id) => prompt[id]);
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (keep.has(id)) continue;
+    keep.add(id);
+    for (const value of Object.values(prompt[id]?.inputs ?? {})) {
+      if (isLink(value) && prompt[value[0]]) stack.push(value[0]);
+    }
+  }
+  for (const id of Object.keys(prompt)) if (!keep.has(id)) delete prompt[id];
 }

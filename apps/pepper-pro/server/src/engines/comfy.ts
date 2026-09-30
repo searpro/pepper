@@ -151,6 +151,10 @@ export class ComfyEngine implements Engine {
             values,
             files: await this.deps.recipes.resolveFiles(recipe, this.deps.config.tier),
             objectInfo: await this.nodeTypes(),
+            // Uploads and model files are checked by the engine itself; the
+            // choice lists in a cached /object_info would not show a file
+            // uploaded or downloaded since it was read.
+            validate: { ignoreFileChoices: true },
           });
           const outputs = await this.execute(prompt, workflow, context);
           this.family = recipe.family;
