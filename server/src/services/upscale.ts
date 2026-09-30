@@ -310,6 +310,9 @@ export class UpscaleService {
         seed: options.seed ?? 42,
       },
       inputs: { video: options.inputPath },
+      // The CLI fetches its checkpoint on first use; Python runners are
+      // otherwise kept offline.
+      env: { HF_HUB_OFFLINE: '0' },
       onProgress: options.onProgress,
       onLog: options.onLog,
       signal: options.signal,

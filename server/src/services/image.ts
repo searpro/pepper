@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomInt } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, mkdir, readdir, stat } from 'node:fs/promises';
+import { access, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config.js';
@@ -15,6 +15,7 @@ import type { BackendManager } from '../backends/manager.js';
 import { loaderEnv } from '../backends/process.js';
 import { buildImageArgs, loraSchedule, mergeHires, resolveHiresUpscaler, type ResolvedHires } from './image-args.js';
 import { generateSpeechVideo } from './s2v.js';
+import { ffmpegAvailable, runFfmpeg } from '../util/ffmpeg.js';
 import type { GenerateParams } from '../schemas/generate.js';
 
 /**
@@ -134,6 +135,7 @@ export class ImageService {
       }
     }
 
+    let distilled = false;
     // A distillation LoRA only works on the schedule it was trained for: at
     // the base model's 20 steps and CFG 6 it overcooks into grain and hard
     // edges. So unless the caller opts out, its preset replaces steps, CFG
@@ -154,10 +156,16 @@ export class ImageService {
           effective.scheduler = undefined;
         }
         this.log.info({ lora: schedule.lora, steps: effective.steps }, 'applied LoRA schedule');
+        distilled = true;
       }
     }
 
-    const hires = await this.resolveHires(bundle, params);
+    // A model's default hires pass is tuned for its base schedule. Over a
+    // distillation LoRA it overcooks (tested on Qwen-Image 2.1 + Viggle turbo:
+    // HDR-like texture even with a gentle refine schedule), and the LoRA's
+    // own output is already clean — so it only runs when explicitly asked for.
+    const hires =
+      distilled && !params.hires ? undefined : await this.resolveHires(bundle, params);
 
     const images = {
       init: params.init_image ? await this.resolveUpload(params.init_image) : undefined,
@@ -227,6 +235,7 @@ export class ImageService {
       onLog,
       signal,
     });
+    if (bundle.mode === 'video') await playableAudio(outputPath, this.log);
     return { outputPath, outputName, kind: bundle.mode, durationMs, params: effective, hires };
   }
 
@@ -534,4 +543,23 @@ function extractFailureReason(stderr: string[]): string | null {
   const picked = (meaningful.length > 0 ? meaningful : stderr).slice(-3);
   const joined = picked.join(' | ').trim();
   return joined.length > 0 ? joined.slice(0, 500) : null;
+}
+
+/**
+ * sd-cli muxes the soundtrack of audio-video models (LTX-2, MiniMax-H3) into
+ * its .webm as raw PCM, which is not a WebM audio codec: browsers play such a
+ * file silently or not at all. Re-mux the audio to Opus, copying the video
+ * stream untouched — about a second. A file with no audio stream passes
+ * through unchanged, and without ffmpeg the original is kept.
+ */
+async function playableAudio(path: string, log: FastifyBaseLogger): Promise<void> {
+  if (!(await ffmpegAvailable())) return;
+  const temp = `${path}.opus.webm`;
+  try {
+    await runFfmpeg(['-i', path, '-map', '0', '-c:v', 'copy', '-c:a', 'libopus', '-b:a', '160k', temp], 120_000);
+    await rename(temp, path);
+  } catch (err) {
+    await rm(temp, { force: true }).catch(() => {});
+    log.warn({ err, path }, 'could not re-mux video audio to Opus; keeping the original');
+  }
 }

@@ -17,7 +17,9 @@ import { ZodError } from 'zod';
 import type { Config } from './config.js';
 import { AppError } from './errors.js';
 import { authRoutes, redactTokenPath, registerAuthHook } from './auth.js';
-import { buildPaths, ensureDirs } from './paths.js';
+import { buildPaths, bundleDir, ensureDirs, safeResolve } from './paths.js';
+import { uniqueOutputName } from './util/files.js';
+import { randomInt } from 'node:crypto';
 import { openDb, type Db } from './db/client.js';
 import { SettingsStore } from './db/settings.js';
 import { LogBuffer } from './logs/buffer.js';
@@ -548,11 +550,16 @@ function registerExecutors(
   jobs.registerExecutor('audio', async (context) => {
     // Music rides the audio queue: same backend, same memory budget.
     if (context.job.params.task === 'music') {
-      const result = await speech.generateMusic({
-        params: context.job.params as never,
-        signal: context.signal,
-        onLog: context.onLog,
-      });
+      const musicParams = context.job.params as { model: string };
+      const bundle = await models.find(musicParams.model, ['audio']).catch(() => null);
+      const result =
+        bundle?.manifest?.backend === 'python'
+          ? await pythonMusic(pythonVideo, paths, bundle, context)
+          : await speech.generateMusic({
+              params: context.job.params as never,
+              signal: context.signal,
+              onLog: context.onLog,
+            });
       const params = result.params as Record<string, unknown>;
       return {
         audio_path: result.outputPath,
@@ -613,4 +620,49 @@ function registerExecutors(
       },
     };
   });
+}
+
+/**
+ * YuE2 in its own venv (python/pepper_runner/runners/yue2.py). Its package pins
+ * torch 2.10 / transformers 4.57, so it cannot share the runner environment.
+ * The model's weights are the bundle's; its VAE is fetched from HuggingFace on
+ * first use into the models volume, hence the network being allowed.
+ */
+export const YUE2_ENVIRONMENT = {
+  name: 'yue2',
+  packages: ['https://huggingface.co/m-a-p/YuE2-3B/resolve/main/yue2_infer-0.1.5-py3-none-any.whl'],
+};
+
+async function pythonMusic(
+  pythonVideo: PythonVideoService,
+  paths: ReturnType<typeof buildPaths>,
+  bundle: NonNullable<Awaited<ReturnType<ModelManager['find']>>>,
+  context: Parameters<Parameters<JobManager['registerExecutor']>[1]>[0],
+): Promise<{ outputPath: string; outputName: string; durationMs: number; params: Record<string, unknown> }> {
+  const params = context.job.params as {
+    prompt: string;
+    lyrics?: string;
+    seed?: number;
+  };
+  const started = Date.now();
+  const seed = params.seed !== undefined && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 31 - 1);
+  const outputName = uniqueOutputName('wav', 'music');
+  const outputPath = safeResolve(paths.outputDir, outputName);
+  await pythonVideo.runTask({
+    runner: bundle.manifest?.python_runner ?? 'yue2',
+    output: outputPath,
+    environment: YUE2_ENVIRONMENT,
+    env: { HF_HUB_OFFLINE: '0', HF_HOME: join(paths.modelsDir, '.hf-cache') },
+    params: {
+      model_dir: join(bundleDir(paths, 'audio', bundle.id), 'weights'),
+      style: params.prompt,
+      lyrics: params.lyrics ?? '',
+      seed,
+    },
+    inputs: {},
+    onProgress: context.onProgress,
+    onLog: context.onLog,
+    signal: context.signal,
+  });
+  return { outputPath, outputName, durationMs: Date.now() - started, params: { ...params, seed } };
 }

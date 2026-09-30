@@ -62,6 +62,8 @@ export async function writeAudioServerConfig(
 
   for (const bundle of bundles) {
     const { manifest } = bundle;
+    // Audio models served by a Python runner (YuE2) are not audio.cpp's.
+    if (manifest?.backend === 'python') continue;
     if (!manifest?.family || !manifest?.task) {
       log.warn(
         { bundle: bundle.id },

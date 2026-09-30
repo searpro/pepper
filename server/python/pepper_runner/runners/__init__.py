@@ -6,4 +6,5 @@ RUNNERS = {
     "echomimic_v3": "pepper_runner.runners.echomimic_v3",
     "upscale": "pepper_runner.runners.upscale",
     "seedvr2": "pepper_runner.runners.seedvr2",
+    "yue2": "pepper_runner.runners.yue2",
 }
