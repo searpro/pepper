@@ -24,7 +24,11 @@ Everything else (jobs, downloads, logs, auth, media, MCP) is `@pepper/core`.
   CPU and vision checks through llama.cpp.
 - `src/projects/`: tables (`schema.ts`), shot → recipe parameters
   (`derive.ts`, by parameter name), and `service.ts` (takes are jobs; a
-  finished take's file is copied into the project).
+  finished take's file is copied into the project). `chain.ts` plans long
+  takes and retakes: segments continuing each other through a recipe's
+  `continuation` input, driven by the service one job at a time (a parent
+  job waiting on its children would hold the only job slot) and joined with
+  ffmpeg.
 - `src/golden/`: golden-shot runs and the blind A/B (`golden/shots.json`).
 - `src/mcp/tools.ts`: Claude's tools. Keep them few: pro_status,
   list_recipes, install_recipe, generate, plan_project, render_shots,

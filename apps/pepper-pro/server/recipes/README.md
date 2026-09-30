@@ -21,6 +21,9 @@ recipes/<id>/
 | `ltx23-audio-to-video` | video | One image performing to a finished track or recorded line | LTX-2 (under $10M) |
 | `seedvr2-upscale-video` | video | Finishing: restore and upscale a chosen take | Apache 2.0 |
 | `infinitetalk` | video | A portrait lip-synced to a voice recording, 3-12 s | Apache 2.0 |
+| `infinitetalk-duo` | video | Two people in one frame, each lip-synced to their own line (left speaks first) | Apache 2.0 |
+| `longcat-avatar` | video | A portrait speaking or singing a long recording (minutes) with body and hand motion | MIT |
+| `scail2-replace` | video | Re-cast a person in an existing video with the character in one image | MIT; SAM licence (tracker) |
 | `wan-animate2` | video | A character performing a driving video's motion (dance, walk) | Apache 2.0 |
 | `wan-dancer` | video | A character dancing to a music track, choreographed to its beat | Apache 2.0 |
 | `krea2-image` | image | Photoreal stills, keyframes, looks | Krea 2 (under $1M) |
@@ -30,9 +33,12 @@ recipes/<id>/
 | `seedvr2-upscale-image` | image | Restore and upscale a still | Apache 2.0 |
 | `ace-step-music` | audio | Songs from style tags and lyrics, fast | MIT |
 | `minimax-music-3` | audio | Produced songs, slower | Apache 2.0 (per the Comfy-Org repackage) |
+| `qwen3-tts` | audio | Speech: a cloned voice, a described voice, nine presets, or a dialogue of up to four voices | Apache 2.0 |
 
 None of these has been run on a GPU yet: the `verified` field is absent on
-all of them until a golden-shot run fills it in.
+all of them until a golden-shot run fills it in. `qwen3-tts` is the one that
+has produced real output, on a CPU ComfyUI (preset, cloned and dialogue
+speech, checked by Whisper).
 
 ## Parameter names are a contract
 
@@ -57,6 +63,21 @@ A video recipe a shot can render with (one with a `prompt`) has a `draft`
 and a `final` mode. Capabilities (`dialogue`, `subject-tags`, `lip-sync`,
 `first-frame`, `text-to-video`…) decide which recipe a shot kind gets when
 the shot names none (`ProjectService.recipeFor`).
+
+## Continuation: long takes and retakes
+
+A recipe with a `continuation` block (`{ "param": "previous", "overlap_s":
+0.9167 }` on `h3-video`) can continue a clip: `param` is a `video` input
+whose tail opens the new clip, which repeats `overlap_s` seconds of it. The
+project service uses it for two things (`src/projects/chain.ts`):
+
+- A shot longer than the recipe's `duration` max is rendered as segments,
+  each continuing the one before; the first keeps the shot's first frame,
+  dialogue and driving audio, the last ends on its last frame, and the
+  joined take has the overlaps cut out, picture and sound at the same seam.
+- A retake keeps a finished take up to a second and renders the rest again
+  from there (`POST /v1/takes/:id/retake`, or `render_shots` with
+  `from_take` and `retake_from`), as a new take beside the original.
 
 ## Bindings
 

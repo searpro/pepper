@@ -500,14 +500,16 @@ proven.
 | 1. Seam | `Engine` and `EngineRegistry` in `packages/core/src/engines`; Pepper's sd-cli, llama.cpp, audio.cpp, vLLM and Python runners behind it (`apps/pepper/server/src/engines/pepper.ts`), memory arbitration in core |
 | 2. Split | `packages/core`, `packages/ui`, `apps/pepper`; Pepper's image, Kaggle kernel and RunPod entrypoint build and run from the new layout; its 129 tests pass |
 | 3. Engine | `apps/pepper-pro`: the ComfyUI process (pinned v0.38.0, custom nodes off except what recipes whitelist, no API nodes), one prompt at a time over HTTP and the websocket, cancel by dequeue + interrupt, `/free` on a family switch, recycling after N jobs, OOM mapped to a clear error; recipes, bindings and validation; ComfyUI-layout downloads; `Dockerfile.pro` (validates every recipe against the ComfyUI it installs before the image can publish); `launch.py up --product pro --tier …` |
-| 4. Recipes | 15 recipes (below); `validate-recipes` against a live ComfyUI, and offline in the unit tests against a saved subset of its node types; a `test` workflow in CI |
+| 4. Recipes | 19 recipes (below); `validate-recipes` against a live ComfyUI, and offline in the unit tests against a saved subset of its node types; a `test` workflow in CI |
 | 5. Projects | Tables, routes and screens for projects, cast, scenes, shots, takes and cuts; the cut render (trims, crossfades, ducked music bed, LUT, burned-in or sidecar subtitles, two-pass −14 LUFS); the MCP tools |
-| 6. Specialists | InfiniteTalk, Wan-Animate 2, Wan-Dancer, two-image try-on; `analyze` jobs (beats, stems, a vision model's check of a take); cuts that land on the beat; golden shots with a blind A/B per recipe version |
+| 6. Specialists | InfiniteTalk (one and two speakers), LongCat-Avatar, Wan-Animate 2, Wan-Dancer, SCAIL-2 character replacement, Qwen3-TTS (cloned, designed, preset and multi-voice speech), two-image try-on; `analyze` jobs (beats, stems, Whisper transcription against the line, a vision model's check of a take); cuts that land on the beat; golden shots with a blind A/B per recipe version, speech results checked by ear automatically |
+| Long takes | A shot longer than its recipe renders at once becomes chained segments that continue each other through H3's `previous` input, joined with the overlap cut out; any finished take can be retaken from a second on (`src/projects/chain.ts`) |
 
 Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `ltx23-audio-to-video`,
-`infinitetalk`, `wan-animate2`, `wan-dancer`, `seedvr2-upscale-video`,
-`krea2-image`, `zimage-turbo`, `qwen-image-edit`, `flux2-klein-edit`,
-`seedvr2-upscale-image`, `ace-step-music`, `minimax-music-3`.
+`infinitetalk`, `infinitetalk-duo`, `longcat-avatar`, `wan-animate2`,
+`wan-dancer`, `scail2-replace`, `seedvr2-upscale-video`, `krea2-image`,
+`zimage-turbo`, `qwen-image-edit`, `flux2-klein-edit`,
+`seedvr2-upscale-image`, `ace-step-music`, `minimax-music-3`, `qwen3-tts`.
 
 ### 13.2 Different from the plan, and why
 
@@ -537,15 +539,27 @@ Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `ltx23-audio-to-video`,
 - **Nothing has run on a GPU.** Every recipe is validated against ComfyUI
   v0.38.0's node types, by our validator and by ComfyUI's own `/prompt`
   validation, with and without its optional inputs. The engine, projects,
-  cuts, analysis and golden runs are tested end to end on a CPU ComfyUI with
-  model-free recipes. No recipe has a `verified` entry: the first pod session
-  per tier should render the golden shots and fill them in.
+  long takes and retakes, cuts, analysis and golden runs are tested end to
+  end on a CPU ComfyUI with model-free recipes. The one recipe that has made
+  real output is `qwen3-tts`, on the CPU (preset, cloned and two-voice
+  dialogue speech, each transcribed back by Whisper). No recipe has a
+  `verified` entry: the first pod session per tier should render the golden
+  shots and fill them in, and H3's continuation (the 22-frame overlap long
+  takes and retakes rely on) needs checking there on real footage.
 - **The Pro image has not been built by CI yet** (the workflow runs on
-  `main`); its install and smoke scripts were run locally.
-- Not built: long takes by chaining (H3 Motion Context is a GPL pack, and
-  engine-side chaining is its own piece of work); TTS recipes and a second
-  ComfyUI instance for them; LongCat-Avatar (no native nodes in v0.38.0);
-  SCAIL-2 character replacement (its template is converted but not wired);
-  FastH3; H3 multi-keyframe guides; two-speaker InfiniteTalk (it needs a mask
-  per speaker); retaking a time range; LUT upload in the UI; a
-  "new from script" button (Claude does this through `plan_project`).
+  `main`). It was built locally with CPU torch (`--build-arg
+  TORCH_INDEX=https://download.pytorch.org/whl/cpu`), which runs the same
+  install and recipe smoke test (19 recipes valid inside the image), and
+  the container booted and served the app; the CUDA wheels themselves were
+  not pulled. That build is what found the missing compiler for LongCat's
+  requirements.
+- **"New from script" needs a local text model** (`PLAN_MODEL`, else
+  `CHECK_MODEL`); without one the project is created with its script and
+  planned by Claude through `plan_project` instead. Its prompt is tested
+  against a stub, not a real model.
+- Long takes carry the shot's first frame, dialogue and driving audio in
+  their first segment only; a long talking shot belongs to LongCat-Avatar or
+  InfiniteTalk, which run to the audio's length themselves.
+- Outside the plan and not built: FastH3, H3 multi-keyframe guides, and a
+  second ComfyUI instance (the TTS pack turned out to coexist with the rest,
+  so none is needed yet).
