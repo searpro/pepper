@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { BACKENDS, publicConfig, type BackendId } from '../config.js';
+import { publicConfig } from '../config.js';
 import { errors } from '../errors.js';
 import { backendOverridesSchema } from '../backends/args.js';
 import { ensurePythonPackageInstalled, pythonActiveModelKey } from '../backends/python.js';
@@ -140,9 +140,9 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
 
   const backendParams = z.object({ backend: z.string() });
 
-  function parseBackend(value: string): BackendId {
-    if (!(BACKENDS as readonly string[]).includes(value)) throw errors.backendNotFound(value);
-    return value as BackendId;
+  function parseBackend(value: string): string {
+    if (!app.backends.has(value)) throw errors.backendNotFound(value);
+    return value;
   }
 
   app.get(

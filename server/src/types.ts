@@ -3,7 +3,7 @@ import type { Paths } from './paths.js';
 import type { Db } from './db/client.js';
 import type { SettingsStore } from './db/settings.js';
 import type { LogBuffer } from './logs/buffer.js';
-import type { BackendManager } from './backends/manager.js';
+import type { PepperBackendManager } from './backends/pepper-backends.js';
 import type { ModelManager } from './models/manager.js';
 import type { CatalogueManager } from './catalogue/manager.js';
 import type { DownloadManager } from './downloads/manager.js';
@@ -31,7 +31,7 @@ declare module 'fastify' {
     db: Db;
     settings: SettingsStore;
     logs: LogBuffer;
-    backends: BackendManager;
+    backends: PepperBackendManager;
     models: ModelManager;
     catalogue: CatalogueManager;
     downloads: DownloadManager;

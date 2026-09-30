@@ -8,7 +8,7 @@ import type { Config } from '../config.js';
 import { AppError, errors } from '../errors.js';
 import type { LogBuffer } from '../logs/buffer.js';
 import type { StepProgress } from '../logs/parse.js';
-import type { BackendManager } from '../backends/manager.js';
+import type { PepperBackendManager } from '../backends/pepper-backends.js';
 import type { MemoryArbiter } from '../engines/engine.js';
 import { runnerSourceDir, type PythonRuntime } from '../backends/python.js';
 import {
@@ -75,7 +75,7 @@ export class PythonVideoService {
   constructor(
     private readonly config: Config,
     private readonly paths: Paths,
-    private readonly backends: BackendManager,
+    private readonly backends: PepperBackendManager,
     private readonly memory: MemoryArbiter,
     private readonly log: FastifyBaseLogger,
     private readonly logs: LogBuffer,

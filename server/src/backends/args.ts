@@ -48,7 +48,7 @@ export interface ArgDefinition {
 }
 
 export interface BackendArgSpec {
-  backend: BackendId;
+  backend: string;
   label: string;
   /** Whether the backend is a persistent server or spawned per request. */
   kind: 'server' | 'cli';
@@ -409,7 +409,7 @@ export type BackendOverrides = z.infer<typeof backendOverridesSchema>;
 
 const EMPTY_OVERRIDES: BackendOverrides = { values: {}, extraArgs: [] };
 
-export function overridesKey(backend: BackendId) {
+export function overridesKey(backend: string) {
   return defineSetting<BackendOverrides>(
     `backend.${backend}.args`,
     backendOverridesSchema,
@@ -417,13 +417,13 @@ export function overridesKey(backend: BackendId) {
   );
 }
 
-export function readOverrides(settings: SettingsStore, backend: BackendId): BackendOverrides {
+export function readOverrides(settings: SettingsStore, backend: string): BackendOverrides {
   return settings.get(overridesKey(backend));
 }
 
 export function writeOverrides(
   settings: SettingsStore,
-  backend: BackendId,
+  backend: string,
   overrides: BackendOverrides,
 ): BackendOverrides {
   return settings.set(overridesKey(backend), overrides);

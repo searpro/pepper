@@ -10,7 +10,10 @@ import { pipeline } from 'node:stream/promises';
 import AdmZip from 'adm-zip';
 import * as tar from 'tar';
 import type { FastifyBaseLogger } from 'fastify';
-import type { Accel, BackendId } from '../config.js';
+import type { Accel } from '../config.js';
+
+/** A backend's id, as its product's definitions name it. */
+type BackendId = string;
 import { errors } from '../errors.js';
 import {
   isArchive,
@@ -54,7 +57,7 @@ interface GithubRelease {
 }
 
 /** Executable names to look for inside a release archive, in priority order. */
-export const BINARY_NAMES: Record<BackendId, string[]> = {
+export const BINARY_NAMES: Record<string, string[]> = {
   sdcpp: ['sd-cli', 'sd-cli.exe', 'sd', 'sd.exe'],
   llamacpp: ['llama-server', 'llama-server.exe'],
   audiocpp: ['audiocpp_server', 'audiocpp_server.exe', 'audio-server', 'audio-server.exe'],
@@ -75,6 +78,8 @@ export interface InstallerOptions {
   /** Directory the backend is installed into (`DATA_DIR/bin/<backend>/`). */
   installDir: string;
   accel: Accel;
+  /** Executable names to look for in the archive; defaults to `BINARY_NAMES`. */
+  binaryNames?: string[];
 }
 
 export class BinaryInstaller {
@@ -249,12 +254,12 @@ export class BinaryInstaller {
         );
       }
 
-      const staged = await findBinary(stagingDir, BINARY_NAMES[backend]);
+      const staged = await findBinary(stagingDir, this.options.binaryNames ?? BINARY_NAMES[backend] ?? []);
       if (!staged) {
         await rm(stagingDir, { recursive: true, force: true });
         throw errors.backendInstallFailed(
           backend,
-          `Archive ${asset.name} did not contain any of: ${BINARY_NAMES[backend].join(', ')}`,
+          `Archive ${asset.name} did not contain any of: ${(this.options.binaryNames ?? BINARY_NAMES[backend] ?? []).join(', ')}`,
         );
       }
       await chmod(staged, 0o755);

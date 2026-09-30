@@ -27,7 +27,10 @@ export type LogSource =
   | 'sdcpp'
   | 'llamacpp'
   | 'audiocpp'
-  | 'python';
+  | 'python'
+  | 'comfy'
+  // Any other backend a product defines logs under its own id.
+  | (string & {});
 
 export interface LogRecord {
   /** Monotonically increasing, so a client can resume a stream from where it left off. */

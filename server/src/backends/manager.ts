@@ -1,25 +1,22 @@
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
-import { BACKENDS, type BackendId, type Config } from '../config.js';
 import { errors } from '../errors.js';
 import type { LogBuffer } from '../logs/buffer.js';
 import { defineSetting, type SettingsStore } from '../db/settings.js';
-import { backendBinDir, type Paths } from '../paths.js';
 import { isExecutableAvailable } from '../util/files.js';
 import {
-  ARG_SPECS,
   buildArgv,
   effectiveArgs,
   readOverrides,
   writeOverrides,
+  type BackendArgSpec,
   type BackendOverrides,
   type EffectiveArg,
 } from './args.js';
-import { BinaryInstaller, type InstalledBinary } from './installer.js';
+import type { InstalledBinary } from './installer.js';
 import { ManagedProcess, reapOrphan, type ProcessState } from './process.js';
 import type { HealthPolicy } from './monitor.js';
-import { PythonInstaller } from './python.js';
 
 /**
  * The single owner of every backend's lifecycle (requirement 5: "the process
@@ -31,17 +28,67 @@ import { PythonInstaller } from './python.js';
  * own architecture doc. Every fix to the startup race or the stop sequence had
  * to be made three times, and the audio one drifted anyway. Here the *shared*
  * behaviour (install, spawn, health, logs, recycle) lives in `ManagedProcess`
- * and this class, and the *differences* are data: an arg spec, a health path,
- * and an optional `prepare` hook for anything a backend must do before it can
- * start.
+ * and this class, and the *differences* are data: a `BackendDefinition` per
+ * backend (arg spec, install strategy, port, health path) and an optional
+ * `prepare` hook for anything a backend must do before it can start.
  *
- * `sdcpp` is the odd one out and stays outside the process table: it is a
- * one-shot CLI spawned per generation, not a server, so this class only
- * resolves its binary and arguments and lets the image service own the spawn.
+ * The definitions come from the product using the manager — Pepper supervises
+ * sd-cli, llama.cpp, audio.cpp, vLLM and a Python server; Pepper Pro
+ * supervises llama.cpp and ComfyUI — so nothing here names a backend.
+ *
+ * A `cli` backend (sd-cli) stays outside the process table: it is a one-shot
+ * CLI spawned per generation, not a server, so this class only resolves its
+ * binary and arguments and lets the service that runs it own the spawn.
  */
 
-/** Backends supervised as long-running processes. */
-const SERVER_BACKENDS: BackendId[] = ['llamacpp', 'audiocpp', 'python', 'vllm'];
+type ArgValue = string | number | boolean | null;
+
+/** How a backend's executable gets onto the machine. */
+export interface BackendInstaller {
+  /** What is installed now, without installing anything. */
+  installed(): Promise<InstalledBinary | null>;
+  /**
+   * Install it. Absent for a backend that only ever comes from the image or
+   * from PATH (vLLM), for which "reinstall" re-checks what is there.
+   */
+  install?(signal?: AbortSignal): Promise<InstalledBinary>;
+  /**
+   * Whether a first use may install it unasked. False for a multi-gigabyte
+   * runtime that is installed only when someone asks (the Python backend):
+   * then `ensureInstalled` installs only when handed an abort signal, which
+   * is how the explicit install route calls it.
+   */
+  implicit?: boolean;
+}
+
+export interface BackendDefinition {
+  /** Stable id: the settings key, the log source, the route segment. */
+  id: string;
+  argSpec: BackendArgSpec;
+  /** Executable looked for on PATH before anything is downloaded. */
+  command?: string;
+  /** Where releases come from, shown in the status for the Preferences screen. */
+  releaseRepo?: string;
+  installer?: BackendInstaller;
+  /** Loopback HTTP server details; absent for a `cli` backend. */
+  server?: {
+    port: number;
+    /** Readiness path, e.g. `/health`. */
+    healthPath: string;
+  };
+  /** Values for the spec's locked arguments (host, port, model directory…). */
+  managed?: () => Record<string, ArgValue>;
+}
+
+export interface BackendManagerOptions {
+  /** Install missing binaries on first use. */
+  autoInstall: boolean;
+  startupTimeoutMs: number;
+  /** Default idle timeout; Preferences can override it. */
+  idleTimeoutMs: number;
+  /** Where pid files go, so a restart can reap what the last process left running. */
+  runDir: string;
+}
 
 /**
  * The idle timeout chosen in Preferences, in milliseconds. `null` means "use
@@ -64,21 +111,20 @@ export interface PrepareResult {
   /** Reason to log when skipping. */
   reason?: string;
   /** Values for the spec's `locked` arguments, computed at spawn time. */
-  managed?: Record<string, string | number | boolean | null>;
+  managed?: Record<string, ArgValue>;
   /**
-   * Argv entries inserted before the spec-rendered flags — e.g. the Python
-   * backend's entrypoint script, which has to be the interpreter's first
-   * positional argument rather than a `--flag value` pair. Nothing else needs
-   * this today; `ArgDefinition` has no concept of a positional argument.
+   * Argv entries inserted before the spec-rendered flags — e.g. a Python
+   * server's entrypoint script, which has to be the interpreter's first
+   * positional argument rather than a `--flag value` pair.
    */
   argvPrefix?: string[];
   /**
-   * Overrides the backend's default health-check path for this spawn. The
-   * Python backend's default (`/system_stats`) is ComfyUI's endpoint; a
-   * different package installed into the same venv almost certainly exposes
-   * something else, and the catalogue entry is what knows which.
+   * Overrides the backend's default health-check path for this spawn, for a
+   * prepare hook that knows better than the backend-wide default.
    */
   healthPath?: string;
+  /** Extra environment for the child. */
+  env?: NodeJS.ProcessEnv;
 }
 
 export type PrepareHook = () => Promise<PrepareResult>;
@@ -89,7 +135,7 @@ export interface BackendStatus extends ProcessState {
   installed: boolean;
   binaryPath?: string;
   releaseTag?: string;
-  releaseRepo: string;
+  releaseRepo?: string;
   /** The exact argv the backend will spawn with. */
   args: EffectiveArg[];
   extraArgs: string[];
@@ -101,40 +147,40 @@ export interface BackendStatus extends ProcessState {
 }
 
 export class BackendManager {
-  private readonly processes = new Map<BackendId, ManagedProcess>();
-  private readonly installers = new Map<BackendId, BinaryInstaller>();
-  private readonly prepares = new Map<BackendId, PrepareHook>();
-  private readonly binaries = new Map<BackendId, InstalledBinary>();
-  private readonly installPromises = new Map<BackendId, Promise<InstalledBinary | null>>();
-  private readonly skipReasons = new Map<BackendId, string>();
-  private readonly pythonInstaller: PythonInstaller;
+  private readonly definitions = new Map<string, BackendDefinition>();
+  private readonly processes = new Map<string, ManagedProcess>();
+  private readonly prepares = new Map<string, PrepareHook>();
+  private readonly binaries = new Map<string, InstalledBinary>();
+  private readonly installPromises = new Map<string, Promise<InstalledBinary | null>>();
+  private readonly skipReasons = new Map<string, string>();
 
   constructor(
-    private readonly config: Config,
-    private readonly paths: Paths,
+    definitions: BackendDefinition[],
+    private readonly options: BackendManagerOptions,
     private readonly settings: SettingsStore,
-    private readonly log: FastifyBaseLogger,
+    protected readonly log: FastifyBaseLogger,
     private readonly logs: LogBuffer,
   ) {
-    for (const backend of BACKENDS) {
-      this.installers.set(
-        backend,
-        new BinaryInstaller(
-          {
-            backend,
-            repo: config.releaseRepos[backend],
-            installDir: backendBinDir(paths, backend),
-            accel: config.accel,
-          },
-          log,
-        ),
-      );
-    }
-    this.pythonInstaller = new PythonInstaller(config.pythonDir ?? backendBinDir(paths, 'python'), log);
+    for (const definition of definitions) this.definitions.set(definition.id, definition);
+  }
+
+  /** Every backend id this manager knows, in definition order. */
+  ids(): string[] {
+    return [...this.definitions.keys()];
+  }
+
+  has(backend: string): boolean {
+    return this.definitions.has(backend);
+  }
+
+  private definition(backend: string): BackendDefinition {
+    const definition = this.definitions.get(backend);
+    if (!definition) throw errors.backendNotFound(backend);
+    return definition;
   }
 
   /** Register a hook run before each spawn of `backend`. */
-  setPrepare(backend: BackendId, hook: PrepareHook): void {
+  setPrepare(backend: string, hook: PrepareHook): void {
     this.prepares.set(backend, hook);
   }
 
@@ -148,8 +194,12 @@ export class BackendManager {
     };
   }
 
-  private pidFile(backend: BackendId): string {
-    return join(this.paths.cacheDir, 'run', `${backend}.pid`);
+  private pidFile(backend: string): string {
+    return join(this.options.runDir, `${backend}.pid`);
+  }
+
+  private serverIds(): string[] {
+    return this.ids().filter((id) => this.definitions.get(id)!.argSpec.kind === 'server');
   }
 
   /**
@@ -159,8 +209,8 @@ export class BackendManager {
    */
   async reapOrphans(): Promise<void> {
     await Promise.all(
-      SERVER_BACKENDS.map(async (backend) => {
-        const binaryPath = this.binaries.get(backend)?.binaryPath ?? DEFAULT_COMMANDS[backend];
+      this.serverIds().map(async (backend) => {
+        const binaryPath = this.binaries.get(backend)?.binaryPath ?? this.definitions.get(backend)!.command;
         if (!binaryPath || this.processes.get(backend)?.status === 'ready') return;
         try {
           await reapOrphan(
@@ -177,7 +227,7 @@ export class BackendManager {
 
   /** How long a backend may sit unused before it is stopped (0 = never). */
   idleTimeoutMs(): number {
-    return this.settings.get(idleTimeoutKey) ?? this.config.backendIdleTimeoutMs;
+    return this.settings.get(idleTimeoutKey) ?? this.options.idleTimeoutMs;
   }
 
   /** Persist the Preferences idle timeout; `null` reverts to the env default. */
@@ -188,7 +238,7 @@ export class BackendManager {
   }
 
   /** Resolve a usable binary path, installing one if allowed. */
-  async ensureInstalled(backend: BackendId, signal?: AbortSignal): Promise<InstalledBinary | null> {
+  async ensureInstalled(backend: string, signal?: AbortSignal): Promise<InstalledBinary | null> {
     const cached = this.binaries.get(backend);
     if (cached) return cached;
 
@@ -206,16 +256,11 @@ export class BackendManager {
     }
   }
 
-  private async doEnsureInstalled(
-    backend: BackendId,
-    signal?: AbortSignal,
-  ): Promise<InstalledBinary | null> {
-    if (backend === 'python') return this.ensurePythonInstalled(signal);
-    if (backend === 'vllm') return this.checkVllmBinary();
+  private async doEnsureInstalled(backend: string, signal?: AbortSignal): Promise<InstalledBinary | null> {
+    const definition = this.definition(backend);
+    const installer = definition.installer;
 
-    const installer = this.installers.get(backend)!;
-
-    const previous = await installer.installed();
+    const previous = await installer?.installed();
     if (previous) {
       this.binaries.set(backend, previous);
       this.log.info({ backend, binaryPath: previous.binaryPath, tag: previous.tag }, 'backend already installed');
@@ -225,21 +270,15 @@ export class BackendManager {
     // A binary already on PATH wins over downloading one — that is how a
     // developer points the app at a locally built backend, and how an image
     // that bakes the binaries in avoids a pointless download on every boot.
-    const specName = DEFAULT_COMMANDS[backend];
-    if (specName && (await isExecutableAvailable(specName))) {
-      const found: InstalledBinary = {
-        backend,
-        binaryPath: specName,
-        tag: 'system',
-        asset: specName,
-        installedAt: new Date().toISOString(),
-      };
-      this.binaries.set(backend, found);
-      this.log.info({ backend, binary: specName }, 'using backend binary from PATH');
-      return found;
-    }
+    const found = await this.fromPath(definition);
+    if (found) return found;
 
-    if (!this.config.autoInstallBackends) {
+    if (!installer?.install) {
+      this.log.info({ backend }, `${backend} is not installed and cannot be installed by the app`);
+      return null;
+    }
+    if (installer.implicit === false && !signal) return null;
+    if (!this.options.autoInstall && installer.implicit !== false) {
       this.log.warn({ backend }, 'backend not installed and AUTO_INSTALL_BACKENDS is off');
       return null;
     }
@@ -249,90 +288,35 @@ export class BackendManager {
     return installed;
   }
 
-  /**
-   * vLLM has no release-archive install path: it is baked into the production
-   * image (see Dockerfile.vllm) rather than downloaded, so `vllm` on PATH is either
-   * there from the image or not there at all. A developer without it locally
-   * gets a clear "not found" rather than a pip-install attempt against
-   * whatever CUDA/PyTorch happens to be on their machine.
-   */
-  private async checkVllmBinary(): Promise<InstalledBinary | null> {
-    const cached = this.binaries.get('vllm');
-    if (cached) return cached;
-    if (!(await isExecutableAvailable('vllm'))) {
-      // Normal for the default image; only Dockerfile.vllm bakes it in.
-      this.log.info({ backend: 'vllm' }, 'vllm not on PATH; the vllm backend is unavailable (see Dockerfile.vllm)');
-      return null;
-    }
+  private async fromPath(definition: BackendDefinition): Promise<InstalledBinary | null> {
+    if (!definition.command || !(await isExecutableAvailable(definition.command))) return null;
     const found: InstalledBinary = {
-      backend: 'vllm',
-      binaryPath: 'vllm',
-      tag: 'image',
-      asset: 'vllm',
+      backend: definition.id,
+      binaryPath: definition.command,
+      tag: 'system',
+      asset: definition.command,
       installedAt: new Date().toISOString(),
     };
-    this.binaries.set('vllm', found);
+    this.binaries.set(definition.id, found);
+    this.log.info({ backend: definition.id, binary: definition.command }, 'using backend binary from PATH');
     return found;
   }
 
-  private async ensurePythonInstalled(signal?: AbortSignal): Promise<InstalledBinary | null> {
-    const existing = await this.pythonInstaller.installed();
-    if (existing) {
-      const record: InstalledBinary = {
-        backend: 'python',
-        binaryPath: existing.pythonPath,
-        tag: existing.version,
-        asset: existing.version,
-        installedAt: existing.installedAt,
-      };
-      this.binaries.set('python', record);
-      return record;
-    }
-    // Never installed implicitly: a standalone runtime plus a package tree is
-    // gigabytes and minutes, and nothing generates against it yet. It is
-    // installed when asked for, via POST /v1/backends/python/install.
-    if (!signal) return null;
-
-    const runtime = await this.pythonInstaller.installRuntime(signal);
-    const record: InstalledBinary = {
-      backend: 'python',
-      binaryPath: runtime.pythonPath,
-      tag: runtime.version,
-      asset: runtime.version,
-      installedAt: runtime.installedAt,
-    };
-    this.binaries.set('python', record);
-    return record;
-  }
-
   /** Force a reinstall from the latest release, restarting the backend after. */
-  async reinstall(backend: BackendId, signal?: AbortSignal): Promise<InstalledBinary> {
-    if (backend === 'vllm') {
-      // No release archive to redownload — vLLM only ever comes from the
-      // image it was baked into. "Reinstall" just re-checks PATH.
-      this.binaries.delete('vllm');
-      const found = await this.checkVllmBinary();
-      if (!found) {
-        throw errors.backendBinaryNotFound('vllm', DEFAULT_COMMANDS.vllm ?? 'vllm');
-      }
-      const proc = this.processes.get('vllm');
-      if (proc && proc.status === 'ready') await proc.restart('backend reinstalled', signal);
-      return found;
-    }
-    if (backend === 'python') {
-      const runtime = await this.pythonInstaller.installRuntime(signal ?? AbortSignal.timeout(1_800_000));
-      const record: InstalledBinary = {
-        backend: 'python',
-        binaryPath: runtime.pythonPath,
-        tag: runtime.version,
-        asset: runtime.version,
-        installedAt: runtime.installedAt,
-      };
-      this.binaries.set('python', record);
-      return record;
-    }
+  async reinstall(backend: string, signal?: AbortSignal): Promise<InstalledBinary> {
+    const definition = this.definition(backend);
+    const installer = definition.installer;
 
-    const installed = await this.installers.get(backend)!.install(signal);
+    let installed: InstalledBinary | null;
+    if (installer?.install) {
+      installed = await installer.install(signal ?? AbortSignal.timeout(1_800_000));
+    } else {
+      // Nothing to redownload — the backend only ever comes from the image or
+      // PATH. "Reinstall" re-checks what is there.
+      this.binaries.delete(backend);
+      installed = (await installer?.installed()) ?? (await this.fromPath(definition));
+      if (!installed) throw errors.backendBinaryNotFound(backend, definition.command ?? backend);
+    }
     this.binaries.set(backend, installed);
 
     const proc = this.processes.get(backend);
@@ -344,96 +328,54 @@ export class BackendManager {
   }
 
   /** The resolved binary path, or null if the backend is not installed. */
-  binaryPath(backend: BackendId): string | null {
+  binaryPath(backend: string): string | null {
     return this.binaries.get(backend)?.binaryPath ?? null;
   }
 
   /** Argv for a backend, as currently configured. */
-  argv(backend: BackendId, managed: Record<string, string | number | boolean | null> = {}): string[] {
-    return buildArgv(ARG_SPECS[backend], readOverrides(this.settings, backend), managed);
+  argv(backend: string, managed: Record<string, ArgValue> = {}): string[] {
+    return buildArgv(this.definition(backend).argSpec, readOverrides(this.settings, backend), managed);
   }
 
-  /** Values the process manager computes for a backend's locked arguments. */
-  private managedValues(backend: BackendId): Record<string, string | number | boolean | null> {
-    switch (backend) {
-      case 'llamacpp':
-        return {
-          models_dir: join(this.paths.modelsDir, 'llm'),
-          host: '127.0.0.1',
-          port: this.config.llamacppPort,
-        };
-      case 'audiocpp':
-        return {
-          config: join(this.paths.cacheDir, 'audio-server-config.generated.json'),
-          host: '127.0.0.1',
-          port: this.config.audiocppPort,
-          // Every Accel value is a name audiocpp_server accepts verbatim
-          // (it treats rocm as an alias for hip), so no mapping is needed.
-          backend: this.config.accel,
-        };
-      case 'python':
-        return { listen: '127.0.0.1', port: this.config.pythonPort };
-      case 'vllm':
-        return { host: '127.0.0.1', port: this.config.vllmPort };
-      default:
-        return {};
-    }
+  private managedValues(backend: string): Record<string, ArgValue> {
+    return this.definition(backend).managed?.() ?? {};
   }
 
-  /**
-   * `healthPath` overrides the path (not the host/port) for a spawn whose
-   * prepare hook knows better than the backend-wide default — the Python
-   * backend's `/system_stats` is ComfyUI's endpoint, and a different package
-   * installed into the same venv (see `PrepareResult.healthPath`) almost
-   * certainly answers somewhere else.
-   */
-  private healthUrl(backend: BackendId, healthPath?: string): string | undefined {
-    switch (backend) {
-      case 'llamacpp':
-        return `http://127.0.0.1:${this.config.llamacppPort}${healthPath ?? '/health'}`;
-      case 'audiocpp':
-        return `http://127.0.0.1:${this.config.audiocppPort}${healthPath ?? '/health'}`;
-      case 'python':
-        return `http://127.0.0.1:${this.config.pythonPort}${healthPath ?? '/system_stats'}`;
-      case 'vllm':
-        return `http://127.0.0.1:${this.config.vllmPort}${healthPath ?? '/health'}`;
-      default:
-        return undefined;
-    }
+  private healthUrl(backend: string, healthPath?: string): string | undefined {
+    const server = this.definition(backend).server;
+    if (!server) return undefined;
+    return `http://127.0.0.1:${server.port}${healthPath ?? server.healthPath}`;
   }
 
   /** Base URL of a backend's loopback HTTP server. */
-  baseUrl(backend: BackendId): string {
-    switch (backend) {
-      case 'llamacpp':
-        return `http://127.0.0.1:${this.config.llamacppPort}`;
-      case 'audiocpp':
-        return `http://127.0.0.1:${this.config.audiocppPort}`;
-      case 'python':
-        return `http://127.0.0.1:${this.config.pythonPort}`;
-      case 'vllm':
-        return `http://127.0.0.1:${this.config.vllmPort}`;
-      default:
-        throw errors.unsupported(`${backend} is not an HTTP backend`);
-    }
+  baseUrl(backend: string): string {
+    const server = this.definition(backend).server;
+    if (!server) throw errors.unsupported(`${backend} is not an HTTP backend`);
+    return `http://127.0.0.1:${server.port}`;
   }
 
-  get(backend: BackendId): ManagedProcess | undefined {
+  get(backend: string): ManagedProcess | undefined {
     return this.processes.get(backend);
+  }
+
+  private async spawnArgs(backend: string, overrides: BackendOverrides, prepared: PrepareResult): Promise<string[]> {
+    const managed = { ...this.managedValues(backend), ...prepared.managed };
+    return [...(prepared.argvPrefix ?? []), ...buildArgv(this.definition(backend).argSpec, overrides, managed)];
   }
 
   /**
    * Install if needed, then start — the single entry point every caller uses.
    * Idempotent, and safe to call from several places at once.
    */
-  async ensureRunning(backend: BackendId, signal?: AbortSignal): Promise<ManagedProcess | null> {
-    if (!SERVER_BACKENDS.includes(backend)) {
+  async ensureRunning(backend: string, signal?: AbortSignal): Promise<ManagedProcess | null> {
+    const definition = this.definition(backend);
+    if (definition.argSpec.kind !== 'server') {
       throw errors.unsupported(`${backend} is not a supervised server backend`);
     }
 
     const installed = await this.ensureInstalled(backend, signal);
     if (!installed) {
-      throw errors.backendBinaryNotFound(backend, DEFAULT_COMMANDS[backend] ?? backend);
+      throw errors.backendBinaryNotFound(backend, definition.command ?? backend);
     }
 
     const prepare = this.prepares.get(backend);
@@ -445,9 +387,7 @@ export class BackendManager {
     }
     this.skipReasons.delete(backend);
 
-    const managed = { ...this.managedValues(backend), ...prepared.managed };
-    const overrides = readOverrides(this.settings, backend);
-    const args = [...(prepared.argvPrefix ?? []), ...buildArgv(ARG_SPECS[backend], overrides, managed)];
+    const args = await this.spawnArgs(backend, readOverrides(this.settings, backend), prepared);
 
     let proc = this.processes.get(backend);
     if (!proc) {
@@ -456,8 +396,9 @@ export class BackendManager {
           backend,
           binaryPath: installed.binaryPath,
           args,
+          env: prepared.env,
           healthUrl: this.healthUrl(backend, prepared.healthPath),
-          startupTimeoutMs: this.config.backendStartupTimeoutMs,
+          startupTimeoutMs: this.options.startupTimeoutMs,
           policy: this.policy(),
           idleTimeoutMs: () => this.idleTimeoutMs(),
           pidFile: this.pidFile(backend),
@@ -468,7 +409,7 @@ export class BackendManager {
       this.processes.set(backend, proc);
     } else {
       // Pick up a settings change or a reinstall that happened while stopped.
-      proc.configure({ binaryPath: installed.binaryPath, args });
+      proc.configure({ binaryPath: installed.binaryPath, args, env: prepared.env });
     }
 
     await proc.ensureRunning(signal);
@@ -485,7 +426,7 @@ export class BackendManager {
    * backend has nothing to serve (see `PrepareResult.skip`).
    */
   async acquire(
-    backend: BackendId,
+    backend: string,
     signal?: AbortSignal,
   ): Promise<{ process: ManagedProcess; release: () => void } | null> {
     const process = await this.ensureRunning(backend, signal);
@@ -497,7 +438,7 @@ export class BackendManager {
    * Restart a backend because the world changed under it — a model finished
    * downloading, settings were saved. Debounced and non-throwing.
    */
-  scheduleRestart(backend: BackendId, reason: string): void {
+  scheduleRestart(backend: string, reason: string): void {
     const proc = this.processes.get(backend);
     if (!proc) return;
 
@@ -507,33 +448,30 @@ export class BackendManager {
     void (async () => {
       const prepare = this.prepares.get(backend);
       const prepared = prepare ? await prepare().catch(() => ({}) as PrepareResult) : {};
-      const managed = { ...this.managedValues(backend), ...prepared.managed };
-      const args = [
-        ...(prepared.argvPrefix ?? []),
-        ...buildArgv(ARG_SPECS[backend], readOverrides(this.settings, backend), managed),
-      ];
-      proc.configure({ args, healthUrl: this.healthUrl(backend, prepared.healthPath) });
+      const args = await this.spawnArgs(backend, readOverrides(this.settings, backend), prepared);
+      proc.configure({ args, env: prepared.env, healthUrl: this.healthUrl(backend, prepared.healthPath) });
       proc.scheduleRestart(reason);
     })();
   }
 
   /** Update a backend's CLI arguments and restart it if it is running. */
-  async updateArgs(backend: BackendId, overrides: BackendOverrides): Promise<BackendStatus> {
+  async updateArgs(backend: string, overrides: BackendOverrides): Promise<BackendStatus> {
+    this.definition(backend);
     writeOverrides(this.settings, backend, overrides);
     const proc = this.processes.get(backend);
     if (proc) {
       const prepare = this.prepares.get(backend);
       const prepared = prepare ? await prepare().catch(() => ({}) as PrepareResult) : {};
-      const managed = { ...this.managedValues(backend), ...prepared.managed };
-      const args = [...(prepared.argvPrefix ?? []), ...buildArgv(ARG_SPECS[backend], overrides, managed)];
-      proc.configure({ args, healthUrl: this.healthUrl(backend, prepared.healthPath) });
+      const args = await this.spawnArgs(backend, overrides, prepared);
+      proc.configure({ args, env: prepared.env, healthUrl: this.healthUrl(backend, prepared.healthPath) });
       if (proc.status === 'ready') await proc.restart('arguments changed');
     }
     return this.status(backend);
   }
 
-  status(backend: BackendId): BackendStatus {
-    const spec = ARG_SPECS[backend];
+  status(backend: string): BackendStatus {
+    const definition = this.definition(backend);
+    const spec = definition.argSpec;
     const overrides = readOverrides(this.settings, backend);
     const args = effectiveArgs(spec, overrides, this.managedValues(backend));
     const installed = this.binaries.get(backend);
@@ -554,7 +492,7 @@ export class BackendManager {
       installed: Boolean(installed),
       binaryPath: installed?.binaryPath,
       releaseTag: installed?.tag,
-      releaseRepo: this.config.releaseRepos[backend],
+      releaseRepo: definition.releaseRepo,
       args,
       extraArgs: overrides.extraArgs,
       argv: buildArgv(spec, overrides, this.managedValues(backend)),
@@ -564,33 +502,18 @@ export class BackendManager {
   }
 
   statusAll(): BackendStatus[] {
-    return BACKENDS.map((backend) => this.status(backend));
+    return this.ids().map((backend) => this.status(backend));
   }
 
-  /** Discover what is already installed, without starting anything. */
+  /** Discover what is already installed, without starting or installing anything. */
   async refreshInstalled(): Promise<void> {
     await Promise.all(
-      BACKENDS.map(async (backend) => {
+      this.ids().map(async (backend) => {
+        const definition = this.definitions.get(backend)!;
         try {
-          if (backend === 'python') {
-            const runtime = await this.pythonInstaller.installed();
-            if (runtime) {
-              this.binaries.set('python', {
-                backend: 'python',
-                binaryPath: runtime.pythonPath,
-                tag: runtime.version,
-                asset: runtime.version,
-                installedAt: runtime.installedAt,
-              });
-            }
-            return;
-          }
-          if (backend === 'vllm') {
-            await this.checkVllmBinary();
-            return;
-          }
-          const installed = await this.installers.get(backend)!.installed();
+          const installed = await definition.installer?.installed();
           if (installed) this.binaries.set(backend, installed);
+          else if (!definition.installer?.install) await this.fromPath(definition);
         } catch (err) {
           this.log.warn({ backend, err: (err as Error).message }, 'failed to inspect backend install');
         }
@@ -601,16 +524,4 @@ export class BackendManager {
   async stopAll(): Promise<void> {
     await Promise.all([...this.processes.values()].map((proc) => proc.stop().catch(() => {})));
   }
-
-  get python(): PythonInstaller {
-    return this.pythonInstaller;
-  }
 }
-
-/** Command names looked for on PATH before falling back to a download. */
-const DEFAULT_COMMANDS: Partial<Record<BackendId, string>> = {
-  sdcpp: 'sd-cli',
-  llamacpp: 'llama-server',
-  audiocpp: 'audiocpp_server',
-  vllm: 'vllm',
-};

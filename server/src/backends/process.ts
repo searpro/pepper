@@ -5,9 +5,11 @@ import { createInterface } from 'node:readline';
 import { basename, delimiter, dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { FastifyBaseLogger } from 'fastify';
-import type { BackendId } from '../config.js';
 import { errors } from '../errors.js';
 import type { LogBuffer, LogSource } from '../logs/buffer.js';
+
+/** A backend's id, as its product's definitions name it. */
+type BackendId = string;
 import { parseBackendLine, parseProgress } from '../logs/parse.js';
 import { evaluatePolicy, sampleProcess, type HealthPolicy, type ProcessStats } from './monitor.js';
 

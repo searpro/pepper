@@ -21,7 +21,7 @@ import { buildPaths, ensureDirs } from './paths.js';
 import { openDb, type Db } from './db/client.js';
 import { SettingsStore } from './db/settings.js';
 import { LogBuffer } from './logs/buffer.js';
-import { BackendManager } from './backends/manager.js';
+import { PepperBackendManager } from './backends/pepper-backends.js';
 import { vllmActiveModelKey, vllmManagedValues } from './backends/vllm.js';
 import { pythonActiveModelKey, pythonManagedValues } from './backends/python.js';
 import { ModelManager } from './models/manager.js';
@@ -126,7 +126,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 
   const settings = new SettingsStore(db);
   const models = new ModelManager(paths, app.log);
-  const backends = new BackendManager(config, paths, settings, app.log, logs);
+  const backends = new PepperBackendManager(config, paths, settings, app.log, logs);
   const catalogue = new CatalogueManager(config, paths, app.log);
 
   const storage = new StorageMonitor(

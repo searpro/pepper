@@ -2074,3 +2074,65 @@ describe('engines', () => {
     expect(registry.status().find((s) => s.id === 'txt')?.kinds).toEqual(['text']);
   });
 });
+
+describe('backend definitions', () => {
+  const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as import('fastify').FastifyBaseLogger;
+  async function manager(definitions: import('../src/backends/manager.js').BackendDefinition[], autoInstall = true) {
+    const { BackendManager } = await import('../src/backends/manager.js');
+    const { openDb } = await import('../src/db/client.js');
+    const { SettingsStore } = await import('../src/db/settings.js');
+    const { db } = openDb(':memory:');
+    return new BackendManager(
+      definitions,
+      { autoInstall, startupTimeoutMs: 1000, idleTimeoutMs: 0, runDir: tmpdir() },
+      new SettingsStore(db),
+      log,
+      new LogBuffer(100),
+    );
+  }
+  const spec = (id: string, kind: 'server' | 'cli') => ({ backend: id, label: id, kind, args: [] });
+  const record = (id: string) => ({ backend: id, binaryPath: '/bin/' + id, tag: 't', asset: 'a', installedAt: '' });
+
+  it('installs a runtime marked non-implicit only when explicitly asked', async () => {
+    let installs = 0;
+    const backends = await manager([
+      {
+        id: 'rt',
+        argSpec: spec('rt', 'server'),
+        installer: { implicit: false, installed: async () => null, install: async () => (installs++, record('rt')) },
+      },
+    ]);
+    expect(await backends.ensureInstalled('rt')).toBeNull();
+    expect(installs).toBe(0);
+    expect((await backends.ensureInstalled('rt', new AbortController().signal))?.binaryPath).toBe('/bin/rt');
+    expect(installs).toBe(1);
+  });
+
+  it('respects AUTO_INSTALL_BACKENDS for release installs, and reports the definition in status', async () => {
+    let installs = 0;
+    const backends = await manager(
+      [
+        {
+          id: 'cli',
+          argSpec: spec('cli', 'cli'),
+          releaseRepo: 'o/r',
+          installer: { installed: async () => null, install: async () => (installs++, record('cli')) },
+        },
+      ],
+      false,
+    );
+    expect(await backends.ensureInstalled('cli')).toBeNull();
+    expect(installs).toBe(0);
+    expect(backends.status('cli')).toMatchObject({ kind: 'cli', releaseRepo: 'o/r', installed: false });
+    expect(backends.ids()).toEqual(['cli']);
+    expect(() => backends.status('nope')).toThrow(/Unknown backend/);
+  });
+
+  it('builds loopback URLs from the server definition', async () => {
+    const backends = await manager([
+      { id: 'srv', argSpec: spec('srv', 'server'), server: { port: 9999, healthPath: '/ok' } },
+    ]);
+    expect(backends.baseUrl('srv')).toBe('http://127.0.0.1:9999');
+    await expect(backends.reinstall('srv')).rejects.toThrow();
+  });
+});
