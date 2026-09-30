@@ -21,6 +21,13 @@ export interface BuildInput {
   /** Validate against these node types when given. */
   objectInfo?: ObjectInfo;
   validate?: ValidateOptions;
+  /**
+   * A per-job `filename_prefix` for the output nodes. ComfyUI caches a node
+   * whose inputs have not changed and reports the file it wrote last time,
+   * which the previous job has already moved out; a fresh prefix makes only
+   * the save node run again, with everything upstream still cached.
+   */
+  outputPrefix?: string;
 }
 
 export function buildPrompt(input: BuildInput): Prompt {
@@ -55,6 +62,12 @@ export function buildPrompt(input: BuildInput): Prompt {
   } catch (err) {
     if (err instanceof Error && err.name === 'AppError') throw err;
     throw errors.validation(`Recipe "${recipe.id}" does not match its workflow: ${(err as Error).message}`);
+  }
+
+  if (input.outputPrefix) {
+    for (const { node } of workflow.outputs) {
+      if (prompt[node] && 'filename_prefix' in prompt[node].inputs) prompt[node].inputs.filename_prefix = input.outputPrefix;
+    }
   }
 
   prune(prompt, unused, input.objectInfo, workflow.bypass);

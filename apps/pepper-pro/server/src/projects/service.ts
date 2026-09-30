@@ -7,7 +7,7 @@ import type { Db } from '@pepper/core/db/client.js';
 import { errors } from '@pepper/core/errors.js';
 import type { Job, JobManager } from '@pepper/core/jobs/manager.js';
 import { safeResolve } from '@pepper/core/paths.js';
-import type { ProConfig } from '../config.js';
+import type { LicenceMode, ProConfig } from '../config.js';
 import type { ComfyEngine, RecipeJobParams } from '../engines/comfy.js';
 import { proErrors } from '../errors.js';
 import type { ProPaths } from '../paths.js';
@@ -431,6 +431,8 @@ export class ProjectService {
    */
   async recipeFor(shot: ShotRow): Promise<Recipe> {
     if (shot.recipeId) return this.deps.recipes.require(shot.recipeId);
+    const project = this.requireProject(shot.projectId);
+    const licenceMode = project.licenceMode === 'commercial' ? 'commercial' : this.deps.config.licenceMode;
     const wanted: Record<string, string[]> = {
       dialogue: ['dialogue', 'subject-tags', 'references'],
       talking: ['lip-sync', 'audio-driven', 'dialogue'],
@@ -444,7 +446,7 @@ export class ProjectService {
     for (const recipe of this.deps.recipes.list()) {
       // A shot is written as a prompt; finishing recipes (an upscaler) take a take instead.
       if (recipe.kind !== 'video' || !recipe.params.some((p) => p.name === 'prompt')) continue;
-      const status = await this.deps.recipes.status(recipe, this.deps.config.tier, this.deps.config.licenceMode);
+      const status = await this.deps.recipes.status(recipe, this.deps.config.tier, licenceMode);
       if (status.state === 'installed' && !status.licenceBlock) candidates.push(recipe);
     }
     const prefs = wanted[shot.kind] ?? [];
@@ -484,7 +486,9 @@ export class ProjectService {
       const count = options.fromTake ? 1 : (options.count ?? 1);
       for (let i = 0; i < count; i++) {
         const takeId = newId('tak');
-        const prepared = await this.deps.comfy.prepareRequest(request);
+        const prepared = await this.deps.comfy.prepareRequest(request, {
+          licenceMode: this.requireProject(this.requireShot(shotId).projectId).licenceMode as LicenceMode,
+        });
         const job = this.deps.jobs.create(prepared.recipe.kind, {
           recipe: prepared.recipe.id,
           mode: prepared.mode,
@@ -553,6 +557,12 @@ export class ProjectService {
 
   chooseTake(id: string): ShotRow {
     const take = this.requireTake(id);
+    // A take still rendering can be chosen (it is what the cut will use once
+    // it lands); one that failed or was cancelled never will be.
+    const { status } = this.viewTake(take);
+    if (status === 'failed' || status === 'cancelled' || status === 'missing') {
+      throw errors.validation(`Take ${id} ${status === 'missing' ? 'has no file' : status}; choose another`);
+    }
     this.db.update(shots).set({ chosenTakeId: id, updatedAt: Date.now() }).where(eq(shots.id, take.shotId)).run();
     this.touch(take.projectId);
     return this.requireShot(take.shotId);

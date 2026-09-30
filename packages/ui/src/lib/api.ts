@@ -307,7 +307,8 @@ export interface DownloadTask {
 
 export interface Job {
   id: string;
-  kind: 'image' | 'video' | 'audio' | 'text';
+  /** `render` and `analyze` are Pepper Pro's: a cut export, a media analysis. */
+  kind: 'image' | 'video' | 'audio' | 'text' | 'render' | 'analyze';
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   step?: number;

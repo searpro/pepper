@@ -134,10 +134,19 @@ function JobRow({
         .reverse()
         .find((message) => message?.role === 'user')?.content
     : undefined;
+  // Pepper Pro's recipe jobs nest the request's own parameters under `params`.
+  const recipeParams = job.params.recipe ? (job.params.params as Record<string, unknown> | undefined) : undefined;
   const prompt =
     job.params.task === 'upscale'
       ? `Upscale ${String(job.params.scale)}× · ${String(job.params.image)}`
-      : String(job.params.prompt ?? job.params.input ?? lastUserMessage ?? '');
+      : job.kind === 'render'
+        ? `Cut export · ${String(job.params.cut_id)}`
+        : String(
+            job.params.prompt ??
+              job.params.input ??
+              lastUserMessage ??
+              (recipeParams ? `${String(job.params.recipe)} · ${String(recipeParams.prompt ?? '')}` : ''),
+          );
   const duration = (job.result?.metadata as { duration_ms?: number } | undefined)?.duration_ms;
   const resultUrl = (job.result?.image_url ?? job.result?.video_url ?? job.result?.audio_url) as
     | string
@@ -239,9 +248,9 @@ function JobRow({
           </div>
           {resultUrl ? (
             <div className="flex w-full justify-center lg:w-56">
-              {job.kind === 'video' ? (
+              {job.result?.video_url ? (
                 <video src={resultUrl} controls className="max-h-48 rounded-md" preload="metadata" />
-              ) : job.kind === 'audio' ? (
+              ) : job.result?.audio_url ? (
                 <audio src={resultUrl} controls className="w-full self-center" preload="metadata" />
               ) : (
                 <img src={resultUrl} alt="" className="max-h-48 rounded-md object-contain" />

@@ -9,7 +9,7 @@ import { Semaphore } from '@pepper/core/util/semaphore.js';
 import { uniqueOutputName } from '@pepper/core/util/files.js';
 import type { BackendManager } from '@pepper/core/backends/manager.js';
 import { ComfyClient, PromptRejected, type ExecutionEvent, type ObjectInfo, type OutputFile, type Prompt } from '../comfy/client.js';
-import type { ProConfig } from '../config.js';
+import type { LicenceMode, ProConfig } from '../config.js';
 import { proErrors } from '../errors.js';
 import type { ProPaths } from '../paths.js';
 import type { Recipe, WorkflowSpec } from '../recipes/schema.js';
@@ -104,15 +104,24 @@ export class ComfyEngine implements Engine {
    * a job, so a bad request is a 400 in milliseconds rather than a failed
    * job minutes later.
    */
-  async prepareRequest(request: RecipeJobParams): Promise<{ recipe: Recipe; mode: string; values: ParamValues }> {
+  async prepareRequest(
+    request: RecipeJobParams,
+    options: { licenceMode?: LicenceMode } = {},
+  ): Promise<{ recipe: Recipe; mode: string; values: ParamValues }> {
     const recipe = this.deps.recipes.require(request.recipe);
     const modeName = request.mode ?? recipe.default_mode;
     const mode = recipe.modes[modeName];
     if (!mode) {
       throw errors.validation(`Recipe "${recipe.id}" has no mode "${modeName}" (${Object.keys(recipe.modes).join(', ')})`);
     }
-    const blocked = licenceBlock(recipe.licence, this.deps.config.licenceMode);
-    if (blocked) throw proErrors.recipeLicence(`${blocked}; this server runs in commercial mode.`);
+    // A commercial project is held to commercial terms even on a server that
+    // defaults to personal use, and a commercial server holds every project.
+    const projectCommercial = options.licenceMode === 'commercial';
+    const licenceMode = projectCommercial ? 'commercial' : this.deps.config.licenceMode;
+    const blocked = licenceBlock(recipe.licence, licenceMode);
+    if (blocked) {
+      throw proErrors.recipeLicence(`${blocked}; ${projectCommercial ? 'this project is marked commercial' : 'this server runs in commercial mode'}.`);
+    }
     const values = resolveParams(recipe, mode, request.params ?? {});
     await checkUploads(recipe, values, this.deps.paths.uploadsDir);
     const files = await this.deps.recipes.resolveFiles(recipe, this.deps.config.tier);
@@ -155,6 +164,7 @@ export class ComfyEngine implements Engine {
             // choice lists in a cached /object_info would not show a file
             // uploaded or downloaded since it was read.
             validate: { ignoreFileChoices: true },
+            outputPrefix: `pepper-pro/${context.job.id}`,
           });
           const outputs = await this.execute(prompt, workflow, context);
           this.family = recipe.family;

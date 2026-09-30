@@ -509,6 +509,22 @@ describe('api', () => {
     expect((await inject('POST', `/v1/cuts/${cut.json().id}/export`)).statusCode).toBe(400);
   });
 
+  it('holds a commercial project to commercial licences on a personal server', async () => {
+    const make = async (licenceMode: string) => {
+      const project = (await inject('POST', '/v1/projects', { name: `Ad ${licenceMode}`, licenceMode })).json();
+      const plan = (
+        await inject('POST', `/v1/projects/${project.id}/plan`, { scenes: [{ shots: [{ prompt: 'A jingle.', recipe: 'test-audio' }] }] })
+      ).json();
+      return inject('POST', '/v1/shots/render', { shot_ids: [plan.shots[0].id] });
+    };
+    const refused = await make('commercial');
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json().error.message).toMatch(/project is marked commercial/);
+    const allowed = await make('personal');
+    expect(allowed.statusCode).toBe(202);
+    for (const take of allowed.json().takes) server.jobs.cancel(take.jobId);
+  });
+
   it('answers MCP tool listing with the Pro tools', async () => {
     const response = await server.app.inject({
       method: 'POST',
@@ -595,6 +611,13 @@ describe.skipIf(!haveComfy)('comfyui end to end', () => {
     const kept = server.projects.requireTake(take.id).file!;
     expect(kept).toMatch(/\.mp4$/);
     expect((await stat(server.projects.takeFile(project.id, kept))).size).toBeGreaterThan(0);
+
+    // The same prompt again is a ComfyUI cache hit; it must still write a file
+    // of its own rather than report the one the first take already moved.
+    const [again] = await server.projects.renderShots([shot.id], { count: 1, fromTake: take.id });
+    const repeat = await settle(again.jobId);
+    expect(repeat.error).toBeUndefined();
+    expect(repeat.result!.video_url).not.toBe(job.result!.video_url);
 
     const audio = await settle(server.jobs.create('audio', { recipe: 'test-audio', params: { duration: 0.5 } }).id);
     expect(audio.status).toBe('completed');
