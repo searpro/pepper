@@ -14,6 +14,7 @@ import type { UpscaleService } from './services/upscale.js';
 import type { PythonVideoService } from './services/python-video.js';
 import type { CharacterService } from './services/characters.js';
 import type { ResourceMonitor } from './services/resources.js';
+import type { StorageMonitor } from './services/storage.js';
 import type { ActivityTracker } from './services/activity.js';
 
 /**
@@ -40,6 +41,7 @@ declare module 'fastify' {
     pythonVideo: PythonVideoService;
     characters: CharacterService;
     resources: ResourceMonitor;
+    storage: StorageMonitor;
     activity: ActivityTracker;
     appVersion: string;
   }

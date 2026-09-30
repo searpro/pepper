@@ -20,11 +20,43 @@ Loaded when working under `server/`. Root `CLAUDE.md` has commands and layout.
 - sd-cli exits 0 even when it wrote nothing — stat and size-check outputs.
 - Python runners: `python/pepper_runner`, one job JSON in, protocol lines out
   (`common.emit`), registered in `runners/__init__.py:RUNNERS`. Deps pinned in
-  `python/requirements.txt`; bump together.
+  `python/requirements.txt`; bump together. The image bakes that environment
+  at `PYTHON_DIR` (`src/scripts/install-python.ts`), because installing onto
+  a network volume at run time takes 20+ minutes — a new dependency is an
+  image change. A runner whose pins conflict with it gets an isolated venv
+  (`ensureIsolatedEnvironment`, as YuE2 does), built on first use.
+- Runners are spawned with `HF_HUB_OFFLINE=1` unless the task opts out; weights
+  belong in the bundle as catalogue components, not in a run-time download.
+- Auth (`src/auth.ts`) is a root `onRequest` hook registered *before* the
+  plugins so it covers `/docs` too. There is no loopback exemption: the tunnel
+  connects from 127.0.0.1. `requiresAuth` guards `/v1/*`, `/mcp` and `/docs`; a route
+  outside those prefixes is public unless it is added there.
+- MCP (`src/routes/mcp.ts`, `src/mcp/tools.ts`): stateless, a fresh server per
+  POST, tools call the HTTP API through `app.inject`. When a route gains a
+  parameter Claude should use, add it to the tool's schema too, and to the
+  `mcp` tests. Only `tools/call` counts as activity (`services/activity.ts`);
+  the RunPod idle shutdown depends on that.
+- Media tools carry `_meta: SHOWS_MEDIA`, which makes Claude render
+  `mcp/media-view.ts` in the chat. That file is one HTML document inside a
+  `String.raw` template: keep its script free of backticks and `${`. The view
+  draws `structuredContent.jobs` (`viewJob`); a new kind of output needs a
+  case there and in the view's `card()`. There is no claude.ai in the test
+  loop, so check changes against a local host harness before deploying.
+- `openDb` uses `locking_mode = EXCLUSIVE` on purpose (a full network volume
+  otherwise kills the process with SIGBUS); never open a second connection.
+- Model defaults come from the catalogue entry via `model.json`
+  (`models/bundle.ts`): scheduler, sigmas, default LoRAs, `high_noise`,
+  `hires`. `services/image-args.ts` merges them under the request; a LoRA
+  preset's schedule suppresses the default hires pass.
+- Music: audio.cpp task `gen` via `/v1/tasks/run` (`services/audio-gen.ts`);
+  request fields differ per family (`musicRequest`). audio.cpp models load
+  lazily, and a Python-backend audio download must not restart audio.cpp.
+- `openDb` quarantines a corrupt database (`.corrupt-<ts>`) and starts fresh
+  rather than refusing to boot; a full volume is how that happens.
 
 ## Tests
 
-Single file `test/unit.test.ts` (~1,400 lines, vitest). Add tests to the matching
+Single file `test/unit.test.ts` (~1,800 lines, vitest). Add tests to the matching
 `describe('<area>')` block; run only that block:
 
 ```bash

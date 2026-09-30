@@ -231,6 +231,9 @@ def cmd_up(rp: RunPod, env: dict, a) -> None:
     pod_env = {
         **{key: f"{{{{ RUNPOD_SECRET_{SECRETS[key]} }}}}" for key in synced},
         "PEPPER_IDLE_MINUTES": str(a.idle_minutes),
+        # A network volume is a quota the filesystem does not report, so Pepper
+        # is told its size and refuses downloads that would overrun it.
+        "DATA_VOLUME_GB": str(volume["size"]),
         **({"PEPPER_HOSTNAME": env["PEPPER_HOSTNAME"]} if "PEPPER_TUNNEL_TOKEN" in synced else {}),
         **({"CATALOGUE_URL": CATALOGUE_RAW.format(branch=a.catalogue_branch)} if a.catalogue_branch else {}),
     }

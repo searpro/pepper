@@ -1,4 +1,5 @@
-import { existsSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.js';
@@ -83,6 +84,11 @@ export interface OpenDbResult {
   db: Db;
   /** The underlying handle, for `close()` on shutdown. */
   sqlite: Database.Database;
+  /**
+   * Set when the file could not be written and the database lives in memory
+   * for this run instead: why, in SQLite's words.
+   */
+  temporary?: string;
 }
 
 /**
@@ -96,18 +102,46 @@ export interface OpenDbResult {
  * fails SQLite's own check is renamed `<file>.corrupt-<time>` and a fresh one
  * is created, which turns an unusable server into one that has forgotten its
  * history.
+ *
+ * A full volume that leaves the file intact is handled one step further on:
+ * if the database cannot be written at all (no space, quota exceeded, a
+ * read-only mount), this run keeps its state in memory and says so
+ * (`temporary`). The server then starts, which is the only way anyone can
+ * delete a model to make room; refusing to boot would leave a pod with no
+ * shell restarting forever.
  */
 export function openDb(file: string, onRecovered?: (movedTo: string, reason: string) => void): OpenDbResult {
-  const reason = corruption(file);
-  if (reason) {
-    const movedTo = `${file}.corrupt-${Date.now()}`;
-    renameSync(file, movedTo);
-    // The write-ahead log and shared-memory files belong to the old database.
-    for (const suffix of ['-wal', '-shm']) rmSync(file + suffix, { force: true });
-    onRecovered?.(movedTo, reason);
+  if (file !== ':memory:') {
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      const reason = corruption(file);
+      if (reason) {
+        const movedTo = `${file}.corrupt-${Date.now()}`;
+        renameSync(file, movedTo);
+        // The write-ahead log and shared-memory files belong to the old database.
+        for (const suffix of ['-wal', '-shm']) rmSync(file + suffix, { force: true });
+        onRecovered?.(movedTo, reason);
+      }
+      return prepare(configure(new Database(file)), true);
+    } catch (err) {
+      return { ...prepare(configure(new Database(':memory:')), false), temporary: (err as Error).message };
+    }
   }
-  const sqlite = new Database(file);
+  return prepare(configure(new Database(file)), false);
+}
 
+/**
+ * Connection settings. Exclusive locking comes first, and matters: in WAL
+ * mode SQLite otherwise coordinates through a memory-mapped `-shm` file, and
+ * a mapped page the filesystem cannot back kills the process with SIGBUS — no
+ * exception, no log line. That is what a RunPod volume at its quota did, on
+ * every boot. With the lock held exclusively the index lives on the heap, no
+ * `-shm` file exists, and a full disk is an error SQLite reports. Nothing is
+ * lost by it: this process is the database's only user. (It is also the one
+ * configuration in which SQLite supports WAL on a network filesystem.)
+ */
+function configure(sqlite: Database.Database): Database.Database {
+  sqlite.pragma('locking_mode = EXCLUSIVE');
   // WAL lets the SSE/streaming readers run while a job writer commits; without
   // it, SQLite's default rollback journal takes a whole-database write lock and
   // a progress update can block a list query mid-stream.
@@ -116,10 +150,27 @@ export function openDb(file: string, onRecovered?: (movedTo: string, reason: str
   // A download settling and a job finishing can land at the same instant; five
   // seconds of retry is far cheaper than surfacing SQLITE_BUSY to a client.
   sqlite.pragma('busy_timeout = 5000');
+  return sqlite;
+}
 
-  sqlite.exec(CREATE_SQL);
-  applyMigrations(sqlite);
-
+function prepare(sqlite: Database.Database, proveWritable: boolean): OpenDbResult {
+  try {
+    sqlite.exec(CREATE_SQL);
+    applyMigrations(sqlite);
+    // Creating tables that already exist writes nothing, so write something:
+    // better to learn now that the disk is full than on the first job.
+    if (proveWritable) {
+      sqlite
+        .prepare(
+          `INSERT INTO settings (key, value, updated_at) VALUES ('db.opened_at', @now, @now)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        )
+        .run({ now: Date.now() });
+    }
+  } catch (err) {
+    sqlite.close();
+    throw err;
+  }
   return { db: drizzle(sqlite, { schema }), sqlite };
 }
 
@@ -129,6 +180,8 @@ function corruption(file: string): string | null {
   let probe: Database.Database | undefined;
   try {
     probe = new Database(file);
+    // As in `configure`: never map the shared-memory file.
+    probe.pragma('locking_mode = EXCLUSIVE');
     const result = probe.pragma('quick_check', { simple: true });
     return result === 'ok' ? null : String(result);
   } catch (err) {

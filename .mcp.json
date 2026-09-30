@@ -1,11 +1,9 @@
 {
   "mcpServers": {
     "pepper": {
-      "type": "http",
-      "url": "${PEPPER_URL:-http://localhost:3000}/mcp",
-      "headers": {
-        "Authorization": "Bearer ${PEPPER_API_TOKEN:-}"
-      }
+      "type": "stdio",
+      "command": "node",
+      "args": [".claude/pepper-mcp.mjs"]
     }
   }
 }
