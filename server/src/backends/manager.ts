@@ -130,7 +130,7 @@ export class BackendManager {
         ),
       );
     }
-    this.pythonInstaller = new PythonInstaller(backendBinDir(paths, 'python'), log);
+    this.pythonInstaller = new PythonInstaller(config.pythonDir ?? backendBinDir(paths, 'python'), log);
   }
 
   /** Register a hook run before each spawn of `backend`. */

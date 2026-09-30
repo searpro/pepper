@@ -4,11 +4,12 @@
 #     docker run --gpus all -p 3000:3000 -v pepper-data:/data \
 #       -e PEPPER_API_TOKEN=... pepper
 #
-# Deliberately small. Nothing GPU-specific is baked in, because nothing needs
-# to be: the sd-cli, llama.cpp and audio.cpp releases Pepper installs each
-# bundle their own CUDA runtime, and the Python runners bring a standalone
-# interpreter and pinned wheels. All of that downloads on first boot into
-# DATA_DIR/bin — on a network volume, so it happens once, not once per pod.
+# The .cpp backends are not baked in, because they need not be: the sd-cli,
+# llama.cpp and audio.cpp releases Pepper installs each bundle their own CUDA
+# runtime and download in about a minute on first boot into DATA_DIR/bin — on
+# a network volume, so it happens once, not once per pod. The Python runner
+# environment (torch and friends, for SeedVR2 upscaling and the Python video
+# runners) is the exception and is baked in; see PYTHON_DIR below.
 # The host supplies only the NVIDIA driver, which the container toolkit mounts
 # in; the `nvidia/cuda` *base* flavour (no CUDA libraries, ~100 MB) is used for
 # the environment it sets up for that, and for nvidia-smi, which the resource
@@ -75,6 +76,17 @@ COPY --from=builder /app/server/public ./server/public
 # The Python runners' code; their runtime installs into DATA_DIR on first use.
 COPY --from=builder /app/server/python ./server/python
 COPY deploy/runpod/entrypoint.mjs ./deploy/runpod/entrypoint.mjs
+
+# The Python runner environment (standalone interpreter, torch, diffusers,
+# spandrel, the SeedVR2 checkout), installed by the server's own installer so
+# its receipts match what the server looks for. Baked in rather than installed
+# at first use: pip writing torch onto a RunPod network volume took over twenty
+# minutes. It adds several GB to the image, pulled once per host. Per-model
+# isolated environments (YuE2) are still built on first use, under the same
+# directory on the container's local disk.
+ENV PYTHON_DIR=/opt/pepper-python
+RUN PIP_NO_CACHE_DIR=1 node server/dist/scripts/install-python.js \
+    && rm -rf /root/.cache /tmp/*
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \

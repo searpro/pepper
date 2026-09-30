@@ -15,6 +15,7 @@ on:
       - server/**
       - web/**
       - deploy/runpod/entrypoint.mjs
+      - server/python/requirements.txt
       - .github/workflows/image.yml
   workflow_dispatch:
 
@@ -31,6 +32,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # The image carries torch and its CUDA wheels; the default runner's free
+      # disk is not enough for the build cache and the layer together.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
 
       - uses: docker/setup-buildx-action@v3
 

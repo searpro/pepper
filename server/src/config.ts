@@ -105,6 +105,14 @@ export interface Config {
    */
   pythonExecutable?: string;
   /**
+   * Where the managed Python runtime, its venvs and cloned packages live.
+   * Defaults to `DATA_DIR/bin/python`. The Docker image points it at a
+   * directory baked in at build time: installing torch onto a network volume
+   * at first use took over twenty minutes on RunPod, against none when the
+   * environment ships in the image.
+   */
+  pythonDir?: string;
+  /**
    * Stop the other resident backends (llama.cpp, audio.cpp, vLLM) before a
    * Python video job. On unified memory a video model and a resident LLM do
    * not fit together; the stopped backends restart on their next request.
@@ -278,6 +286,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     audiocppPort: positiveNum('AUDIOCPP_PORT', env.AUDIOCPP_PORT, DEFAULTS.audiocppPort),
     pythonPort: positiveNum('PYTHON_PORT', env.PYTHON_PORT, DEFAULTS.pythonPort),
     pythonExecutable: env.PYTHON_EXECUTABLE?.trim() ? path(env.PYTHON_EXECUTABLE.trim()) : undefined,
+    pythonDir: env.PYTHON_DIR?.trim() ? path(env.PYTHON_DIR.trim()) : undefined,
     pythonExclusiveMemory: bool('PYTHON_EXCLUSIVE_MEMORY', env.PYTHON_EXCLUSIVE_MEMORY, true),
     vllmPort: positiveNum('VLLM_PORT', env.VLLM_PORT, DEFAULTS.vllmPort),
 
