@@ -108,7 +108,12 @@ export class ComfyClient {
       body: JSON.stringify({ prompt, client_id: this.clientId }),
     });
     const nodeErrors = result.node_errors ?? {};
-    if (Object.keys(nodeErrors).length > 0) throw new PromptRejected('Prompt has node errors', nodeErrors);
+    if (Object.keys(nodeErrors).length > 0) {
+      // ComfyUI queues a prompt whose *other* outputs validated (a text
+      // preview) and silently drops the rest; none of it is wanted.
+      await this.dequeue(result.prompt_id).catch(() => {});
+      throw new PromptRejected('Prompt has node errors', nodeErrors);
+    }
     return result.prompt_id;
   }
 

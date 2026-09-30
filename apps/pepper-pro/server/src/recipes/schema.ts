@@ -92,13 +92,20 @@ const target = z.object({ node: z.string(), input: z.string() });
 
 /**
  * How one value reaches the graph:
- * - `param` + `node`/`input`: a request parameter into one input;
+ * - `param` + `node`/`input`: a request parameter into one input (through
+ *   `map` when the graph's value differs from the option shown);
  * - `param` + `nodes`: a list parameter, one item per slot; slots left empty
  *   are pruned from the graph (see `graph.ts`);
  * - `file`: the installed file name of a recipe file, for a loader's input.
  */
 const bindingSchema = z.union([
-  z.object({ param: z.string(), node: z.string(), input: z.string() }),
+  z.object({
+    param: z.string(),
+    node: z.string(),
+    input: z.string(),
+    /** Graph values for an enum's options, when the graph wants an index or a code. */
+    map: z.record(z.unknown()).optional(),
+  }),
   z.object({ param: z.string(), nodes: z.array(target).min(1) }),
   z.object({ file: z.string(), node: z.string(), input: z.string() }),
 ]);

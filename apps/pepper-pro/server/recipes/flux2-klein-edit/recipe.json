@@ -1,13 +1,15 @@
 {
   "schema": 1,
   "id": "flux2-klein-edit",
-  "version": 1,
+  "version": 2,
   "kind": "image",
   "name": "FLUX.2 klein 4B — quick edits",
-  "description": "Instruction edits in 4 steps under a permissive licence: recolour, restyle, change a background.",
+  "description": "Instruction edits in 4 steps under a permissive licence: recolour, restyle, change a background, or combine with a second image (put this garment on this person, this product in this scene).",
   "family": "flux2-klein",
   "capabilities": [
     "edit",
+    "try-on",
+    "multi-reference",
     "keyframe"
   ],
   "licence": {
@@ -62,13 +64,20 @@
       "name": "prompt",
       "type": "text",
       "label": "Instruction",
-      "required": true
+      "required": true,
+      "description": "Refer to the images as \"image 1\" and \"image 2\"."
     },
     {
       "name": "image",
       "type": "image",
       "label": "Image",
       "required": true
+    },
+    {
+      "name": "reference",
+      "type": "image",
+      "label": "Second image",
+      "description": "A garment, a product or a style to bring in."
     },
     {
       "name": "seed",
@@ -114,12 +123,41 @@
           "file": "vae",
           "node": "75:72",
           "input": "vae_name"
+        },
+        {
+          "param": "reference",
+          "nodes": [
+            {
+              "node": "81",
+              "input": "image"
+            }
+          ]
         }
       ],
       "outputs": [
         {
           "node": "9",
           "kind": "image"
+        }
+      ],
+      "bypass": [
+        {
+          "node": "90",
+          "requires": [
+            "latent"
+          ],
+          "through": {
+            "0": "conditioning"
+          }
+        },
+        {
+          "node": "91",
+          "requires": [
+            "latent"
+          ],
+          "through": {
+            "0": "conditioning"
+          }
         }
       ]
     }

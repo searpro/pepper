@@ -56,7 +56,9 @@ export function buildPrompt(input: BuildInput): Prompt {
           throw errors.validation(`${binding.param}: this recipe takes at most ${binding.nodes.length}`);
         }
       } else if (values[binding.param] !== undefined) {
-        setInput(prompt, binding.node, binding.input, values[binding.param]);
+        const value = values[binding.param];
+        if (binding.map && !(String(value) in binding.map)) throw new Error(`no mapping for ${binding.param} "${String(value)}"`);
+        setInput(prompt, binding.node, binding.input, binding.map ? binding.map[String(value)] : value);
       }
     }
   } catch (err) {

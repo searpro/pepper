@@ -21,6 +21,15 @@
       "title": "Load Image"
     }
   },
+  "81": {
+    "inputs": {
+      "image": "input.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
   "75:61": {
     "inputs": {
       "sampler_name": "euler"
@@ -255,17 +264,68 @@
         0
       ],
       "positive": [
-        "75:123",
+        "90",
         0
       ],
       "negative": [
-        "75:121",
+        "91",
         0
       ]
     },
     "class_type": "CFGGuider",
     "_meta": {
       "title": "CFG Guider"
+    }
+  },
+  "93": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "81",
+        0
+      ]
+    }
+  },
+  "92": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "93",
+        0
+      ],
+      "vae": [
+        "75:72",
+        0
+      ]
+    }
+  },
+  "90": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "75:123",
+        0
+      ],
+      "latent": [
+        "92",
+        0
+      ]
+    }
+  },
+  "91": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "75:121",
+        0
+      ],
+      "latent": [
+        "92",
+        0
+      ]
     }
   }
 }

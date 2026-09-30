@@ -1,0 +1,247 @@
+{
+  "schema": 1,
+  "id": "wan-animate2",
+  "version": 1,
+  "kind": "video",
+  "name": "Wan-Animate 2 — your character, their moves",
+  "description": "A character from one image performs the motion of a driving video (a dance, a walk, a performance), with the background and camera from the prompt and the driving video's own soundtrack.",
+  "family": "wan-animate-2",
+  "capabilities": [
+    "motion-transfer",
+    "performance",
+    "dance",
+    "first-frame"
+  ],
+  "licence": {
+    "id": "apache-2.0",
+    "name": "Apache 2.0 (Wan and its LoRAs)",
+    "url": "https://www.apache.org/licenses/LICENSE-2.0",
+    "commercial": "yes"
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "Wan-Animate 2 distilled (int8)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan-Animate-2",
+          "path": "diffusion_models/wan_animate_2_distill_int8_convrot.safetensors",
+          "bytes": 16653175528,
+          "sha256": "d2e566ecac3f164cb1a6b63dc7d868d6678c9affa49fbceb3abe4f9458f89c8a"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "umT5 XXL (fp8)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan-Animate-2",
+          "path": "text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "bytes": 6735906897,
+          "sha256": "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68"
+        }
+      ]
+    },
+    {
+      "id": "clip_vision",
+      "folder": "clip_vision",
+      "label": "CLIP vision H",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan-Animate-2",
+          "path": "clip_vision/clip_vision_h.safetensors",
+          "bytes": 1264219396,
+          "sha256": "64a7ef761bfccbadbaa3da77366aac4185a6c58fa5de5f589b42a65bcc21f161"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "Wan 2.1 VAE",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan-Animate-2",
+          "path": "vae/Wan2_1_VAE_bf16.safetensors",
+          "bytes": 253806278,
+          "sha256": "1ab9a32cc2c740f6e39d80d367ce5dcc28db8c71b79b28670546b8973e9d75f9"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Character and scene",
+      "required": true,
+      "description": "Who the character is and where: appearance, background, camera."
+    },
+    {
+      "name": "motion",
+      "type": "text",
+      "label": "Motion",
+      "default": "",
+      "description": "What the driving video shows, e.g. \"energetic street dance with body waves\"."
+    },
+    {
+      "name": "image",
+      "type": "image",
+      "label": "Character",
+      "required": true
+    },
+    {
+      "name": "video",
+      "type": "video",
+      "label": "Driving video",
+      "required": true
+    },
+    {
+      "name": "width",
+      "type": "int",
+      "label": "Width",
+      "default": 480,
+      "min": 256,
+      "max": 1280
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "label": "Height",
+      "default": 832,
+      "min": 256,
+      "max": 1280
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "605",
+          "input": "value"
+        },
+        {
+          "param": "motion",
+          "node": "604",
+          "input": "value"
+        },
+        {
+          "param": "width",
+          "node": "261:243",
+          "input": "resize_type.width"
+        },
+        {
+          "param": "height",
+          "node": "261:243",
+          "input": "resize_type.height"
+        },
+        {
+          "param": "seed",
+          "node": "261:19",
+          "input": "noise_seed"
+        },
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "189",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "video",
+          "nodes": [
+            {
+              "node": "240",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "file": "model",
+          "node": "261:239",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "261:9",
+          "input": "clip_name"
+        },
+        {
+          "file": "clip_vision",
+          "node": "261:75",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "261:7",
+          "input": "vae_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "246",
+          "kind": "video"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "draft": {
+      "label": "Draft (first 81 frames)",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "261:258",
+          "input": "switch",
+          "value": false
+        },
+        {
+          "node": "261:247",
+          "input": "length",
+          "value": 81
+        }
+      ]
+    },
+    "final": {
+      "label": "Final (whole video)",
+      "description": "Sliding context windows over the full driving video.",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "261:258",
+          "input": "switch",
+          "value": true
+        },
+        {
+          "node": "261:247",
+          "input": "length",
+          "value": [
+            "701",
+            1
+          ]
+        }
+      ]
+    }
+  },
+  "default_mode": "draft",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "The output keeps the driving video's frame rate and audio. Its length is the driving video's."
+}

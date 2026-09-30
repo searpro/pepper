@@ -92,9 +92,9 @@ export interface ValidateOptions {
 
 /**
  * Inputs whose choices are lists of files on disk (`unet_name`, `lora_name`,
- * `clip_name2`, `text_encoder`, LoadImage's `image`…). `sampler_name` is a real choice list.
+ * `clip_name2`, `text_encoder`, ModelPatchLoader's `name`, LoadImage's `image`…). `sampler_name` is a real choice list.
  */
-const FILE_INPUT = /^(?!sampler_name$)(.+_name\d*|text_encoder\d*|image|audio|video|file)$/;
+const FILE_INPUT = /^(?!sampler_name$)(.+_name\d*|name|text_encoder\d*|image|audio|video|file)$/;
 
 /**
  * Check a prompt against the node types a ComfyUI knows: every class exists,
@@ -139,7 +139,9 @@ export function validatePrompt(prompt: Prompt, info: ObjectInfo, options: Valida
       // `format.codec`) are how several core nodes take variable arguments.
       if (!decl) continue;
       const choices = choiceList(decl);
-      if (!choices) continue;
+      // An empty list is one the node fills at run time (CustomCombo's options
+      // are its own inputs); only ComfyUI can check those.
+      if (!choices || choices.length === 0) continue;
       if (options.ignoreFileChoices && FILE_INPUT.test(input)) continue;
       if (!choices.includes(value as string)) {
         issues.push({

@@ -20,10 +20,13 @@ recipes/<id>/
 | `ltx25-video` | video | Fast b-roll and transitions between two keyframes | LTX-2.x (under $10M) |
 | `ltx23-audio-to-video` | video | One image performing to a finished track or recorded line | LTX-2 (under $10M) |
 | `seedvr2-upscale-video` | video | Finishing: restore and upscale a chosen take | Apache 2.0 |
+| `infinitetalk` | video | A portrait lip-synced to a voice recording, 3-12 s | Apache 2.0 |
+| `wan-animate2` | video | A character performing a driving video's motion (dance, walk) | Apache 2.0 |
+| `wan-dancer` | video | A character dancing to a music track, choreographed to its beat | Apache 2.0 |
 | `krea2-image` | image | Photoreal stills, keyframes, looks | Krea 2 (under $1M) |
 | `zimage-turbo` | image | Fast permissive stills | Apache 2.0 |
 | `qwen-image-edit` | image | Edits and combining images (try-on, product placement) | Research only |
-| `flux2-klein-edit` | image | Quick permissive edits | Apache 2.0 |
+| `flux2-klein-edit` | image | Quick permissive edits, and try-on with a second image | Apache 2.0 |
 | `seedvr2-upscale-image` | image | Restore and upscale a still | Apache 2.0 |
 | `ace-step-music` | audio | Songs from style tags and lyrics, fast | MIT |
 | `minimax-music-3` | audio | Produced songs, slower | Apache 2.0 (per the Comfy-Org repackage) |
@@ -57,7 +60,8 @@ the shot names none (`ProjectService.recipeFor`).
 
 ## Bindings
 
-- `{ param, node, input }` sets one input.
+- `{ param, node, input }` sets one input; `map` turns an enum's option into
+  the value the graph wants (Wan-Dancer's style is an index).
 - `{ param, nodes: [...] }` fills slots in order; slots left empty are
   **pruned** with whatever only they fed, and an optional input they fed is
   dropped. Single optional media (a last frame) use this form with one slot,
@@ -68,8 +72,11 @@ the shot names none (`ProjectService.recipeFor`).
   what they need is absent (`MiniMaxH3AddGuide` with no audio passes
   `positive` through).
 
-Mode `set` entries fix constants (the turbo switch), and mode `defaults`
-override parameter defaults (a draft's smaller size).
+Mode `set` entries fix constants (the turbo switch) or rewire an input (a
+final mode's length linked to the driving video's frame count), and mode
+`defaults` override parameter defaults (a draft's smaller size). A mode may
+also pick a different workflow file: InfiniteTalk's draft, final and long
+modes are one, two and four chained 81-frame windows.
 
 ## Adding or changing a recipe
 
