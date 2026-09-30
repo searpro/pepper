@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -171,8 +172,14 @@ def sync_secrets(rp: RunPod, env: dict) -> set[str]:
     return synced
 
 
+PULL_NOISE = re.compile(r"^[0-9a-f]{12} (Pulling fs layer|Waiting|Downloading|Verifying Checksum|"
+                        r"Download complete|Extracting|Already exists)$")
+
+
 def follow_logs(rp: RunPod, pod_id: str, stop: threading.Event, tail: int = 200) -> None:
-    """Print the pod's log (SSE) until `stop` is set; reconnects from the last event."""
+    """Print the pod's log (SSE) until `stop` is set; reconnects from the last event.
+    Per-layer image pull progress is dropped: hundreds of lines saying nothing
+    beyond the "Pull complete" and "Status:" lines that are kept."""
     last_id = None
     while not stop.is_set():
         headers = {"Last-Event-ID": last_id} if last_id else {}
@@ -190,6 +197,8 @@ def follow_logs(rp: RunPod, pod_id: str, stop: threading.Event, tail: int = 200)
                     elif raw.startswith("data:"):
                         try:
                             event = json.loads(raw[5:])
+                            if PULL_NOISE.match(event.get("line", "").strip()):
+                                continue
                             print(f"[{event.get('source', 'pod')}] {event.get('line', '').rstrip()}", flush=True)
                         except ValueError:
                             pass

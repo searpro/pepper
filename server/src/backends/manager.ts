@@ -260,10 +260,8 @@ export class BackendManager {
     const cached = this.binaries.get('vllm');
     if (cached) return cached;
     if (!(await isExecutableAvailable('vllm'))) {
-      this.log.warn(
-        { backend: 'vllm' },
-        'vllm not found on PATH — expected to be baked into the image',
-      );
+      // Normal for the default image; only Dockerfile.vllm bakes it in.
+      this.log.info({ backend: 'vllm' }, 'vllm not on PATH; the vllm backend is unavailable (see Dockerfile.vllm)');
       return null;
     }
     const found: InstalledBinary = {

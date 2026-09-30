@@ -93,6 +93,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:${PORT}/health || exit 1
 
 # Runs Pepper, the tunnel when PEPPER_TUNNEL_TOKEN is set, and the optional
-# idle shutdown; see the file for the environment it reads.
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# idle shutdown; see the file for the environment it reads. `-s` makes tini a
+# subreaper: RunPod starts containers under its own init, so tini is not PID 1
+# and would otherwise not reap the backend processes Pepper spawns.
+ENTRYPOINT ["/usr/bin/tini", "-s", "--"]
 CMD ["node", "deploy/runpod/entrypoint.mjs"]
