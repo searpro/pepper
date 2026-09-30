@@ -23,12 +23,12 @@ rather than VRAM).
 1. Read the relevant part of `docs/ARCHITECTURE.md` (Gotchas, Conventions)
    and the area's `CLAUDE.md` before editing.
 2. Make the change. Add or extend tests in the matching
-   `describe('<area>')` block of `server/test/unit.test.ts`.
+   `describe('<area>')` block of `apps/pepper/server/test/unit.test.ts`.
 3. `npm run typecheck`, then the affected test block
-   (`cd server && npx vitest run -t "<area>"`), then `npm test`.
+   (`cd apps/pepper/server && npx vitest run -t "<area>"`), then `npm test`.
 4. UI changes: verify with the `web` preview (`.claude/launch.json`), which
    proxies to an API on :3004.
-5. A change to an MCP tool (`server/src/mcp/tools.ts`) changes what every
+5. A change to an MCP tool (`apps/pepper/server/src/mcp/tools.ts`) changes what every
    connected client sees: keep descriptions short, and tell the user to
    reconnect the claude.ai connector once it is deployed, or it keeps the old
    tool list.
@@ -68,7 +68,7 @@ Run `up` in the background and watch for `Pepper is up:`. Useful options:
 long test session terminating itself (default 30). Then `launch.py logs`
 for the container log, and **`launch.py down` when finished** — a forgotten
 pod bills until it idles out. Anything that adds Python dependencies must be
-baked into the image (`Dockerfile`, `server/src/scripts/install-python.ts`):
+baked into the image (`Dockerfile`, `apps/pepper/server/src/scripts/install-python.ts`):
 installing onto the network volume at run time takes 20+ minutes.
 
 ### Kaggle
@@ -105,6 +105,26 @@ missing, the instance was down when the session started — reconnect it from
 
 Fix, and redeploy only if a server change is needed: on RunPod that is a
 push, an image build (~10 min) and a new pod; on Kaggle a full rebuild.
+
+## Pepper Pro
+
+The same loop, with Pro's own checks (`apps/pepper-pro/server/CLAUDE.md`):
+
+1. Local: `npm run typecheck`, then `cd apps/pepper-pro/server && npx vitest run`.
+   A recipe change also needs `npm run validate-recipes -- --comfy <url>
+   --write-fixture test/fixtures/object_info.json` against a ComfyUI at the
+   pinned version (`scripts/install-comfy.sh`; CPU torch is enough), which
+   builds every mode with and without its optional inputs and checks link
+   types. The `comfyui end to end` tests run the engine, projects, cuts,
+   beats and golden runs on that CPU ComfyUI with model-free fixture recipes:
+   `COMFY_TEST_DIR=… COMFY_TEST_PYTHON=… npx vitest run -t "comfyui end to end"`.
+2. GPU: push, wait for the `image-pro` workflow, then
+   `uv run deploy/runpod/launch.py up --product pro --tier <tier>` (ask first;
+   it bills). Install the recipe, render its golden shots from the Recipes
+   screen (or `POST /v1/golden/runs`), look at every result, and when it holds
+   up fill in the recipe's `verified` with the date, GPU and seconds per shot.
+3. Report which recipes and modes actually rendered on which tier, and what
+   was only validated structurally.
 
 ## Reporting
 

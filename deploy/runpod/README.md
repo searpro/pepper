@@ -85,6 +85,28 @@ uv run deploy/runpod/launch.py down     # terminate; the volume and its models s
 
 Ctrl-C during `up` only detaches; the pod keeps running (and billing).
 
+## Pepper Pro
+
+`up --product pro --tier <tier>` runs `ghcr.io/searpro/pepper-pro` instead,
+asks for the GPUs that tier is for and a host with the RAM it assumes, and
+tells the server its tier, so recipes install the right file variants:
+
+| `--tier` | GPUs tried, in order | Min host RAM |
+| --- | --- | --- |
+| `24gb-64ram` | RTX 4090, RTX A5000 | 62 GB |
+| `32gb` | RTX 5090 | 62 GB |
+| `48gb` | L40S, RTX 6000 Ada, RTX A6000 | 90 GB |
+| `96gb` | RTX PRO 6000 Blackwell, H100 80GB | 120 GB |
+
+`--gpu` and `--min-ram` override them. Pro keeps its models in ComfyUI's
+folders under `/data/models` on the same volume, and its own database next to
+Pepper's, so one volume serves both products (never at the same time: they
+share the hostname). The Pro image carries torch and ComfyUI, so its first
+pull on a host is several GB larger than Pepper's; models are downloaded by
+installing a recipe, once per volume. None of the tiers above has been
+measured yet: the first run of each is the moment to record its timings here,
+as the 4090 numbers below were for Pepper.
+
 ## Memory and storage, measured on a 4090 pod
 
 - **System RAM is the real limit, not VRAM.** A 24 GB 4090 pod usually has

@@ -485,3 +485,67 @@ Pepper's engines from its platform code.
   them) or keep H3 recipes to personal projects.
 - **A second ComfyUI instance by default?** Only if TTS packs conflict with
   the video packs in practice. Test before building it.
+
+---
+
+## 13. Status
+
+What exists now, where it departs from the plan above, and what has not been
+proven.
+
+### 13.1 Built
+
+| Step | What is in the repository |
+| --- | --- |
+| 1. Seam | `Engine` and `EngineRegistry` in `packages/core/src/engines`; Pepper's sd-cli, llama.cpp, audio.cpp, vLLM and Python runners behind it (`apps/pepper/server/src/engines/pepper.ts`), memory arbitration in core |
+| 2. Split | `packages/core`, `packages/ui`, `apps/pepper`; Pepper's image, Kaggle kernel and RunPod entrypoint build and run from the new layout; its 129 tests pass |
+| 3. Engine | `apps/pepper-pro`: the ComfyUI process (pinned v0.38.0, custom nodes off except what recipes whitelist, no API nodes), one prompt at a time over HTTP and the websocket, cancel by dequeue + interrupt, `/free` on a family switch, recycling after N jobs, OOM mapped to a clear error; recipes, bindings and validation; ComfyUI-layout downloads; `Dockerfile.pro` (validates every recipe against the ComfyUI it installs before the image can publish); `launch.py up --product pro --tier …` |
+| 4. Recipes | 15 recipes (below); `validate-recipes` against a live ComfyUI, and offline in the unit tests against a saved subset of its node types; a `test` workflow in CI |
+| 5. Projects | Tables, routes and screens for projects, cast, scenes, shots, takes and cuts; the cut render (trims, crossfades, ducked music bed, LUT, burned-in or sidecar subtitles, two-pass −14 LUFS); the MCP tools |
+| 6. Specialists | InfiniteTalk, Wan-Animate 2, Wan-Dancer, two-image try-on; `analyze` jobs (beats, stems, a vision model's check of a take); cuts that land on the beat; golden shots with a blind A/B per recipe version |
+
+Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `ltx23-audio-to-video`,
+`infinitetalk`, `wan-animate2`, `wan-dancer`, `seedvr2-upscale-video`,
+`krea2-image`, `zimage-turbo`, `qwen-image-edit`, `flux2-klein-edit`,
+`seedvr2-upscale-image`, `ace-step-music`, `minimax-music-3`.
+
+### 13.2 Different from the plan, and why
+
+- **Characters stayed in Pepper.** Its Character Studio and table are
+  unchanged; Pro's cast is its own `assets` table. Moving characters into core
+  would have tied Pro's asset model to a Pepper screen for no gain to either.
+- **Recipes ship in the repository and the image**, not in a remote Pro
+  catalogue: a recipe pins node packs, and a node pack is an image change
+  anyway. A recipe change is a pull request here.
+- **The recipe format grew where real templates needed it.** Files carry
+  per-tier *variants* (not a tier → file map); bindings live per workflow;
+  a list parameter fills slot nodes and empty slots are pruned; `bypass`
+  passes a guide node's input through when what it needs is absent; `map`
+  turns an enum option into the graph's value. Modes are `draft` and `final`.
+  `recipes/README.md` is the reference.
+- **H3 references use the native Ref2VA model**, not the hybrid loader, which
+  holds the FL2VA and Ref2VA weights at once; worth measuring on a 48 GB tier
+  before adopting.
+- **More MCP tools than three**: `pro_status`, `list_recipes`,
+  `install_recipe`, `generate` and `analyze` beside the trio, because Claude
+  needs to see what is installed, make keyframes outside a project and check
+  takes. Each is short, and none waits past 50 s.
+- **Pepper Pro is RunPod-only.** Kaggle's 16 GB is below every Pro tier.
+
+### 13.3 Not yet proven or not yet built
+
+- **Nothing has run on a GPU.** Every recipe is validated against ComfyUI
+  v0.38.0's node types, by our validator and by ComfyUI's own `/prompt`
+  validation, with and without its optional inputs. The engine, projects,
+  cuts, analysis and golden runs are tested end to end on a CPU ComfyUI with
+  model-free recipes. No recipe has a `verified` entry: the first pod session
+  per tier should render the golden shots and fill them in.
+- **The Pro image has not been built by CI yet** (the workflow runs on
+  `main`); its install and smoke scripts were run locally.
+- Not built: long takes by chaining (H3 Motion Context is a GPL pack, and
+  engine-side chaining is its own piece of work); TTS recipes and a second
+  ComfyUI instance for them; LongCat-Avatar (no native nodes in v0.38.0);
+  SCAIL-2 character replacement (its template is converted but not wired);
+  FastH3; H3 multi-keyframe guides; two-speaker InfiniteTalk (it needs a mask
+  per speaker); retaking a time range; LUT upload in the UI; a
+  "new from script" button (Claude does this through `plan_project`).

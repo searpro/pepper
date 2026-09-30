@@ -6,7 +6,7 @@ this covers how it is put together and, where it differs from sd-api, why.
 ## Shape
 
 ```
-HTTP (server/src/routes/*)
+HTTP (apps/pepper/server/src/routes/*, packages/core/src/routes/*)
   ↓
 Services decorated on the Fastify instance
   ↓
@@ -21,11 +21,38 @@ JobManager · DownloadManager · ModelManager · CatalogueManager · LogBuffer
 SQLite (jobs, downloads, settings) · filesystem (models, outputs, uploads)
 ```
 
-`server/src/index.ts` loads config, builds the server, **starts listening**, and
+`apps/pepper/server/src/index.ts` loads config, builds the server, **starts listening**, and
 only then installs backends in the background — it starts none; see "Backends
 run on demand" below. That ordering is deliberate: a cold start downloads hundreds of megabytes, and blocking the listen on it means
 the orchestrator's health check fails for minutes and kills the container —
 repeatedly, never finishing the download it keeps restarting.
+
+## Two products on one core
+
+The repository holds two products that share a platform (`docs/PEPPER-PRO.md`
+has the reasoning):
+
+```
+packages/core   jobs · downloads · logs · SQLite · auth · media · BackendManager
+                · Engine / EngineRegistry · llama.cpp · MCP transport and toolkit
+packages/ui     shell · primitives · sign-in · status · settings · Jobs · Logs · API client
+apps/pepper       sd-cli, llama.cpp, audio.cpp, vLLM, Python runners   (this document)
+apps/pepper-pro   ComfyUI recipes, llama.cpp, ffmpeg cuts, projects      (PEPPER-PRO.md)
+```
+
+Dependencies point one way: an app imports core, core imports no app. What
+core needs from a product arrives as options (a route plugin's Fastify
+options, a service's constructor, a `BackendDefinition`, a `DownloadLayout`,
+a `ProductSchema` of tables and migrations). Each product registers its
+engines with core's `EngineRegistry`, which owns the job kinds and hands the
+GPU to one engine at a time: an engine about to load a model calls
+`exclusive()`, and every other engine holding memory releases it.
+
+Core is consumed as TypeScript source during development (the `pepper-source`
+export condition, set for tsx, vitest and typecheck) and as `dist/` in a
+build, so a production image builds core first and apps compile against its
+declarations. The declarations must keep the Fastify plugin augmentations;
+`app.ts` pins them with `/// <reference types … preserve="true" />`.
 
 ## What changed from sd-api, and why
 
@@ -241,7 +268,7 @@ never have passed a health check, and no job path routed video generation to
 it anyway.
 
 Video models now run through Pepper's own runners
-(`server/python/pepper_runner`): one process per job that loads the model,
+(`apps/pepper/server/python/pepper_runner`): one process per job that loads the model,
 writes an MP4 and exits, driven by a JSON spec and reporting over
 `@@pepper {json}` stdout lines. That is sd-cli's shape for the same reasons:
 nothing stays resident between jobs on a machine where the video model and the
@@ -250,7 +277,7 @@ LLM do not fit together, a crash cannot poison the next job, cancel is a kill.
 a 24 GB Mac a video decode next to a loaded LLM once exhausted memory and swap
 and took the machine down.
 
-The runners pin their own environment (`server/python/requirements.txt`),
+The runners pin their own environment (`apps/pepper/server/python/requirements.txt`),
 installed into the managed CPython venv on first use, rather than each model's
 upstream requirements — EchoMimicV3's pins TensorFlow 2.15, which does not even
 install on the runtime's Python. Upstream model code is cloned at a pinned
@@ -296,7 +323,7 @@ complete, including jobs that settle while no browser is open.
 ### One token, three ways to present it
 
 Pepper has one user, so auth is a single shared secret (`PEPPER_API_TOKEN`,
-`server/src/auth.ts`) rather than accounts. It is checked in a root
+`packages/core/src/auth.ts`) rather than accounts. It is checked in a root
 `onRequest` hook for `/v1/*`, `/mcp*` and `/docs*`; `/health` and the SPA's
 static files stay public so the sign-in screen can load. Each client presents
 it the only way it can: scripts and Claude Code send a Bearer header; the
@@ -477,11 +504,35 @@ These cost real debugging time; the code comments carry the short version.
   better bandwidth (a cloud VM, not a laptop on residential internet) if
   this recurs.
 
+- **ComfyUI reports a cached output's old file.** A prompt whose inputs have
+  not changed is served from ComfyUI's cache, and its save node reports the
+  file it wrote last time, which Pepper Pro has already moved into the
+  previous job's outputs. Every Pro job therefore gives its save nodes their
+  own `filename_prefix`: the save node runs again, cheaply, and everything
+  upstream stays cached.
+
+- **ComfyUI accepts a prompt in part.** When one output node fails validation
+  and another (a text preview inside a template) passes, `/prompt` answers 200
+  with `node_errors`, queues what passed and drops the rest. Pro's client
+  treats any `node_errors` as a rejection and dequeues the prompt.
+
+- **A required growable group can lose a slot.** `/object_info` declares a
+  group such as Qwen-Image's `images` as required, but each member
+  (`images.image_2`) is optional. Pruning an unused reference must drop the
+  slot, not cascade through the node that owns the group.
+
+- **InfiniteTalk offsets its audio by the frames it is given.** A
+  continuation window reads `previous_frames.shape[0]` to decide where in the
+  audio it is, so each window must be given every frame so far (not just the
+  last window's), and its first `trim_image` frames, which repeat the
+  previous window, are dropped before batching.
+
 ## Conventions
 
-- A route is a plugin: `export async function xRoutes(fastify)`, registered in
-  `server.ts`, with a zod `schema` carrying tags and summaries so `/docs` stays
-  useful.
+- A route is a plugin: `export async function xRoutes(fastify, options)`,
+  registered in the app's `server.ts`, with a zod `schema` carrying tags and
+  summaries so `/docs` stays useful. A plugin in core takes everything it
+  needs as options and never imports an app.
 - Services take their dependencies as constructor arguments and are decorated
   onto the app once, so a route's dependencies are visible at the call site.
 - Reuse `errors.*`, `safeResolve`/`assertSafeName`, `parseBackendLine`,

@@ -1,4 +1,5 @@
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import {
   bool,
@@ -63,8 +64,8 @@ export interface ProConfig extends CoreConfig {
   llamacppTimeoutMs: number;
   llamacppReleaseRepo: string;
   /**
-   * The llama.cpp model (a vision model, its GGUF and mmproj in one folder
-   * under llm/) that checks takes; empty until one is installed.
+   * The llama.cpp vision model that checks takes, by the name llama.cpp's
+   * router lists it under; empty until one is installed.
    */
   checkModel: string;
 
@@ -90,7 +91,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProConfig {
     licenceMode: enumOf('LICENCE_MODE', licenceSchema, env.LICENCE_MODE, 'personal'),
 
     comfyDir,
-    comfyPython: env.COMFY_PYTHON?.trim() ? path(env.COMFY_PYTHON.trim()) : 'python3',
+    // install-comfy.sh puts the venv next to the checkout; use it when present.
+    comfyPython: env.COMFY_PYTHON?.trim()
+      ? path(env.COMFY_PYTHON.trim())
+      : existsSync(join(dirname(comfyDir), 'venv', 'bin', 'python'))
+        ? join(dirname(comfyDir), 'venv', 'bin', 'python')
+        : 'python3',
     comfyPort: positiveNum('COMFY_PORT', env.COMFY_PORT, 8188),
     comfyNodes: (env.COMFY_NODES ?? '')
       .split(',')

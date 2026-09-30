@@ -181,7 +181,7 @@ export class AnalyzeEngine implements Engine {
     const { projects, paths } = this.deps;
     const model = params.model ?? this.deps.config.checkModel;
     if (!model) {
-      throw errors.validation('No check model: set CHECK_MODEL to a vision model in llm/ (GGUF plus its mmproj), or pass `model`');
+      throw errors.validation('No check model: set CHECK_MODEL to a llama.cpp vision model (GGUF plus its mmproj, as GET /v1/llm/models lists it), or pass `model`');
     }
     if (!params.take_id) throw errors.validation('`take_id` is required to check a take');
     const take = projects.requireTake(params.take_id);

@@ -4,9 +4,29 @@
     {
       "name": "web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:web"],
-      "env": { "PEPPER_API": "http://localhost:3004" },
+      "runtimeArgs": [
+        "run",
+        "dev:web"
+      ],
+      "env": {
+        "PEPPER_API": "http://localhost:3004"
+      },
       "port": 5173
+    },
+    {
+      "name": "pro-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:pro-web",
+        "--",
+        "--port",
+        "5174"
+      ],
+      "env": {
+        "PEPPER_API": "http://localhost:3014"
+      },
+      "port": 5174
     }
   ]
 }

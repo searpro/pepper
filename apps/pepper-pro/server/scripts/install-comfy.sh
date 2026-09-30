@@ -4,13 +4,15 @@
 #
 #   scripts/install-comfy.sh [--packs-only]
 #
-#   COMFY_DIR     where ComfyUI goes        (default: ../../data/comfy/ComfyUI)
+#   COMFY_DIR     where ComfyUI goes        (default: the server's data/comfy/ComfyUI,
+#                 which is where the server looks without COMFY_DIR)
 #   COMFY_VENV    its virtual environment   (default: next to it, venv/)
 #   TORCH_INDEX   the PyTorch wheel index   (default: CUDA 12.8; use
 #                 https://download.pytorch.org/whl/cpu for a CPU-only checkout)
 #   RECIPES_DIR   whose `nodes` to install  (default: ../recipes)
 #
-# Then point the server at it: COMFY_DIR=… COMFY_PYTHON=$COMFY_VENV/bin/python.
+# With the defaults the server finds both; otherwise set COMFY_DIR and
+# COMFY_PYTHON=$COMFY_VENV/bin/python.
 #
 # ComfyUI is pinned by tag *and* commit: the recipes' graphs are validated
 # against this version's node types (test/fixtures/object_info.json), so
@@ -24,7 +26,7 @@ COMFY_COMMIT=6b747c0428c343e1417219641db93a4fb7cb69ae
 COMFY_REPO=https://github.com/comfyanonymous/ComfyUI
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COMFY_DIR="${COMFY_DIR:-$HERE/../../../../data/comfy/ComfyUI}"
+COMFY_DIR="${COMFY_DIR:-$HERE/../data/comfy/ComfyUI}"
 COMFY_VENV="${COMFY_VENV:-$(dirname "$COMFY_DIR")/venv}"
 TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu128}"
 RECIPES_DIR="${RECIPES_DIR:-$HERE/../recipes}"
