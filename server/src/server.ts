@@ -133,7 +133,19 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     if ((task.kind === 'image' || task.kind === 'video') && task.slot === 'clip') {
       backends.scheduleRestart('llamacpp', 'text encoder downloaded');
     }
-    if (task.kind === 'audio') backends.scheduleRestart('audiocpp', 'audio model downloaded');
+    if (task.kind === 'audio') {
+      // audio.cpp needs a restart to see a new model, which interrupts any
+      // request in flight. A Python-runner model (YuE2) is not audio.cpp's, so
+      // its files arriving must not cost a running song.
+      void models
+        .find(task.bundle, ['audio'])
+        .catch(() => null)
+        .then((bundle) => {
+          if (bundle?.manifest?.backend !== 'python') {
+            backends.scheduleRestart('audiocpp', 'audio model downloaded');
+          }
+        });
+    }
   });
 
   const snapshotDownloads = new SnapshotDownloader(paths, models, config.hfToken, app.log);
