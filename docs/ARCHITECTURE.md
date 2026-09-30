@@ -307,6 +307,11 @@ which may not offer a header field, can use `/mcp/<token>`, censored from
 every log line by pino `redact`. Unset, the server stays open, so local
 development and the sd-api contract are unchanged.
 
+One output file can also be opened by a signed link, `/v1/outputs/<name>?exp=…&sig=…`
+(`signMediaUrl`): an HMAC over the name and expiry, good for a week, valid
+for `GET`/`HEAD` of that file only. It exists for the media view below, whose
+iframe can present none of the three.
+
 ### Claude drives Pepper over MCP
 
 `/mcp` (`routes/mcp.ts`, tools in `mcp/tools.ts`) is a stateless Streamable
@@ -320,6 +325,33 @@ no tool waits past 50 s, because Cloudflare drops requests at 100 s and MCP
 clients time out sooner, so videos return a job id for `get_job`. Finished
 images come back inline (a 1024 px JPEG via ffmpeg when available) plus an
 absolute link built from the caller's `Host`/`X-Forwarded-*` headers.
+
+### Results are shown in the chat, not linked
+
+An image in a tool result goes to the model, not to the person, and a host has
+no way at all to present a video or a song; a chat got links. So the media
+tools name a UI resource (`ui://pepper/media.html`, `mcp/media-view.ts`) under
+the MCP Apps extension (SEP-1865), which claude.ai and Claude Desktop render
+in a sandboxed iframe for each call. Hosts without it ignore the key.
+
+- The view is one dependency-free HTML document speaking the extension's
+  JSON-RPC over `postMessage` directly; there is no bundler here to carry the
+  SDK. It draws from `structuredContent.jobs`, which `jobsResult` builds
+  beside the text the model reads.
+- Images use the inline preview already in the result. Video and audio load
+  from Pepper by signed link, so the resource declares the caller's origin in
+  `_meta.ui.csp.resourceDomains` (read per request) and `/v1/outputs` answers
+  `Range`, which Safari requires of any media and every browser needs to seek.
+- If the host blocks that load, the view reads `pepper://outputs/<name>`
+  through the host and plays a blob (files up to 12 MB). Found the hard way
+  in a test harness: an iframe sandboxed without an origin cannot play
+  cross-origin media by URL at all.
+- A job still queued or running is followed by the view calling `get_job`
+  through the host, so a video appears where its progress bar was. These are
+  `tools/call`s and count as activity, but only while a job runs, which
+  counts anyway.
+- The server is stateless and never sees the client's capabilities when tools
+  are listed, so the UI metadata is always advertised.
 
 ### Image quality comes from precision and a second pass, not step counts
 
@@ -369,6 +401,18 @@ long as it lasts, so a 20-minute video never looks idle.
 ## Gotchas worth keeping
 
 These cost real debugging time; the code comments carry the short version.
+
+- **A full data volume must not stop the server.** A RunPod network volume is
+  a quota on a shared filesystem: `statfs` reports petabytes free and the first
+  symptom is a failed write. SQLite in WAL mode memory-maps its `-shm` file, and
+  a mapped page the filesystem cannot back kills the process with **SIGBUS** —
+  no exception, no log line, and the pod restarts into the same state forever.
+  `openDb` therefore takes the lock exclusively (no `-shm` at all), and falls
+  back to an in-memory database for the run when the file cannot be written, so
+  the server still starts and a model can be deleted. Prevention is
+  `DATA_VOLUME_GB` (set by the RunPod launcher from the volume's size):
+  `StorageMonitor` measures use with `du` and refuses a download that will not
+  fit before its first byte.
 
 - **Never exempt loopback requests from auth.** cloudflared connects to
   Pepper from `127.0.0.1`, so "trust localhost" means "trust every request

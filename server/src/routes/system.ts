@@ -68,6 +68,8 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       // Sampled here rather than on its own poll, so the header meters and the
       // backend pills refresh together from the one request the UI already makes.
       resources: await app.resources.sample(),
+      // Only where the volume's size is configured; see services/storage.ts.
+      storage: app.storage.snapshot(),
       idleTimeoutMs: app.backends.idleTimeoutMs(),
       jobs: app.jobs.stats(),
       activity: app.activity.snapshot(isBusy()),

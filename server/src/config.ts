@@ -113,6 +113,13 @@ export interface Config {
    */
   pythonDir?: string;
   /**
+   * The size of the volume behind `DATA_DIR`, in GB, when the filesystem does
+   * not report it: a RunPod network volume is a quota that `statfs` cannot
+   * see. Set, downloads that would not fit are refused up front
+   * (services/storage.ts). Unset, there is no check.
+   */
+  dataVolumeGb?: number;
+  /**
    * Stop the other resident backends (llama.cpp, audio.cpp, vLLM) before a
    * Python video job. On unified memory a video model and a resident LLM do
    * not fit together; the stopped backends restart on their next request.
@@ -287,6 +294,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     pythonPort: positiveNum('PYTHON_PORT', env.PYTHON_PORT, DEFAULTS.pythonPort),
     pythonExecutable: env.PYTHON_EXECUTABLE?.trim() ? path(env.PYTHON_EXECUTABLE.trim()) : undefined,
     pythonDir: env.PYTHON_DIR?.trim() ? path(env.PYTHON_DIR.trim()) : undefined,
+    dataVolumeGb: env.DATA_VOLUME_GB?.trim() ? positiveNum('DATA_VOLUME_GB', env.DATA_VOLUME_GB, 0) : undefined,
     pythonExclusiveMemory: bool('PYTHON_EXCLUSIVE_MEMORY', env.PYTHON_EXCLUSIVE_MEMORY, true),
     vllmPort: positiveNum('VLLM_PORT', env.VLLM_PORT, DEFAULTS.vllmPort),
 

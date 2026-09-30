@@ -41,6 +41,7 @@ import { AudioService } from './services/audio-gen.js';
 import { TextService } from './services/text-gen.js';
 import { CharacterService } from './services/characters.js';
 import { ResourceMonitor } from './services/resources.js';
+import { StorageMonitor } from './services/storage.js';
 import { ActivityTracker, isActivity } from './services/activity.js';
 import { systemRoutes } from './routes/system.js';
 import { modelRoutes } from './routes/models.js';
@@ -97,9 +98,16 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     ]),
   );
 
-  const { db, sqlite } = openDb(paths.dbFile, (movedTo, reason) =>
+  const { db, sqlite, temporary } = openDb(paths.dbFile, (movedTo, reason) =>
     logger.error({ movedTo, reason }, 'the database was corrupt; set it aside and started a new one'),
   );
+  if (temporary) {
+    logger.error(
+      { file: paths.dbFile, reason: temporary },
+      'the database cannot be written (is the data volume full?); keeping state in memory for this run — ' +
+        'delete a model to free space, then restart',
+    );
+  }
 
   const app = Fastify({
     loggerInstance: logger,
@@ -122,7 +130,12 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   const backends = new BackendManager(config, paths, settings, app.log, logs);
   const catalogue = new CatalogueManager(config, paths, app.log);
 
-  const downloads = new DownloadManager(config, db, models, app.log, (task) => {
+  const storage = new StorageMonitor(
+    paths.dataDir,
+    config.dataVolumeGb ? config.dataVolumeGb * 1024 ** 3 : null,
+  );
+
+  const downloads = new DownloadManager(config, db, models, app.log, storage, (task) => {
     if (task.status !== 'completed') return;
     // A newly downloaded model is invisible to a backend that scanned its
     // directory at startup, so the download settling is what triggers the
@@ -237,6 +250,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   app.decorate('pythonVideo', pythonVideo);
   app.decorate('characters', characterService);
   app.decorate('resources', new ResourceMonitor());
+  app.decorate('storage', storage);
   app.decorate('activity', new ActivityTracker());
   // `version` is taken by Fastify itself, so the app's own version needs a
   // distinct name rather than shadowing the framework's.

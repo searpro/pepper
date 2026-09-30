@@ -12,6 +12,7 @@ import { downloads, type DownloadRow } from '../db/schema.js';
 import { AppError, errors } from '../errors.js';
 import type { ModelKind } from '../paths.js';
 import type { ModelManager } from '../models/manager.js';
+import type { StorageMonitor } from '../services/storage.js';
 import { parseSlot, type ComponentSlot } from '../models/bundle.js';
 import { gatedHint, hfAuthHeaders, isHuggingFaceUrl } from '../util/hf.js';
 
@@ -107,6 +108,8 @@ export class DownloadManager extends EventEmitter {
     private readonly db: Db,
     private readonly models: ModelManager,
     private readonly log: FastifyBaseLogger,
+    /** Refuses a file the data volume has no room for, where it has a known size. */
+    private readonly storage: StorageMonitor,
     /** Fired whenever a download settles, so backends can pick up new models. */
     private readonly onSettle?: (task: DownloadTask) => void,
   ) {
@@ -336,6 +339,7 @@ export class DownloadManager extends EventEmitter {
 
   private settle(id: string, status: DownloadStatus, error?: string): DownloadTask {
     const task = this.update(id, { status, error: error ?? null });
+    this.storage.invalidate();
     this.emit('settled', task);
     this.onSettle?.(task);
     return task;
@@ -478,6 +482,20 @@ export class DownloadManager extends EventEmitter {
     }
 
     if (!res.body) throw errors.downloadFailed('Empty response body');
+
+    if (total !== null && this.storage.limited) {
+      // What the other running downloads have yet to write is space already
+      // spoken for, though nothing on disk shows it.
+      const pending = this.list({ status: ['downloading'] })
+        .filter((other) => other.id !== task.id && other.total !== null)
+        .reduce((sum, other) => sum + Math.max(0, other.total! - other.received), 0);
+      try {
+        await this.storage.assertRoom(total - received, pending);
+      } catch (err) {
+        await res.body.cancel().catch(() => {});
+        throw err;
+      }
+    }
 
     this.update(task.id, { received, total });
 

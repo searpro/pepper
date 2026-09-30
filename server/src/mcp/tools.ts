@@ -2,13 +2,16 @@ import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { FastifyInstance } from 'fastify';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { ResourceTemplate, type McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import { signMediaUrl } from '../auth.js';
 import { safeResolve } from '../paths.js';
+import { contentType } from '../routes/media.js';
 import { uniqueOutputName } from '../util/files.js';
 import { ffmpegAvailable, runFfmpeg } from '../util/ffmpeg.js';
 import type { Job } from '../jobs/manager.js';
+import { MEDIA_VIEW_HTML, MEDIA_VIEW_MIME, MEDIA_VIEW_URI, mediaViewMeta } from './media-view.js';
 
 /**
  * The tools Pepper exposes over MCP (see routes/mcp.ts for the transport).
@@ -27,11 +30,19 @@ import type { Job } from '../jobs/manager.js';
  * drops any request that runs past 100 seconds, and MCP clients time tool
  * calls out well before a video finishes, so no tool waits longer than
  * `MAX_WAIT_S`; past that the caller gets a job id for `get_job`.
+ *
+ * Results are shown, not just linked. The tools that produce media name a UI
+ * resource (mcp/media-view.ts) that a host supporting MCP Apps renders in the
+ * chat: the image, a player, or a progress bar that follows the job. What the
+ * model reads (`content`) and what the view draws (`structuredContent`) are
+ * built from the same job, side by side, in `jobsResult`.
  */
 
 const MAX_WAIT_S = 50;
 /** Previews above this are sent as a link only; clients reject very large tool results. */
 const MAX_PREVIEW_BYTES = 1_500_000;
+/** The largest output handed over through MCP itself (see the `output` resource). */
+const MAX_RESOURCE_BYTES = 12 * 1024 * 1024;
 const IMAGE_MIME: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -192,13 +203,41 @@ async function imagePreview(ctx: ToolContext, job: Job): Promise<Content | null>
   return { type: 'image', data: data.toString('base64'), mimeType: mime };
 }
 
-async function jobResult(ctx: ToolContext, job: Job): Promise<CallToolResult> {
-  const content: Content[] = [json(summarizeJob(ctx, job))];
-  if (job.status === 'completed') {
-    const preview = await imagePreview(ctx, job);
+/**
+ * A job as the media view draws it: the summary, plus what kind of media the
+ * output is, a link the view's iframe can load without credentials, and where
+ * in `content` the inline image preview sits.
+ */
+function viewJob(ctx: ToolContext, job: Job, previewIndex?: number): Record<string, unknown> {
+  const result = (job.result ?? {}) as Record<string, unknown>;
+  const media = result.image_url ? 'image' : result.video_url ? 'video' : result.audio_url ? 'audio' : undefined;
+  const summary = summarizeJob(ctx, job);
+  const name = summary.output_name as string | undefined;
+  return defined({
+    ...summary,
+    next: undefined,
+    text: undefined,
+    media,
+    media_url: media && name ? absolute(ctx, signMediaUrl(ctx.app.config.apiToken, name)) : undefined,
+    preview: previewIndex,
+  });
+}
+
+/** Report jobs to the model (`content`) and to the media view (`structuredContent`). */
+export async function jobsResult(ctx: ToolContext, jobs: Job[]): Promise<CallToolResult> {
+  const content: Content[] = [];
+  const view: Array<Record<string, unknown>> = [];
+  for (const job of jobs) {
+    content.push(json(summarizeJob(ctx, job)));
+    const preview = job.status === 'completed' ? await imagePreview(ctx, job) : null;
     if (preview) content.push(preview);
+    view.push(viewJob(ctx, job, preview ? content.length - 1 : undefined));
   }
-  return { content, isError: job.status === 'failed' };
+  return { content, structuredContent: { jobs: view } };
+}
+
+async function jobResult(ctx: ToolContext, job: Job): Promise<CallToolResult> {
+  return { ...(await jobsResult(ctx, [job])), isError: job.status === 'failed' };
 }
 
 /** Enqueue through the API, wait up to `wait` seconds, and report. */
@@ -215,17 +254,12 @@ async function submit(
   }
   // A batch: wait on each in turn within the one budget, then report all.
   const deadline = Date.now() + Math.min(wait, MAX_WAIT_S) * 1000;
-  const content: Content[] = [];
+  const settled: Job[] = [];
   for (const job of jobs) {
     const left = Math.max(0, (deadline - Date.now()) / 1000);
-    const settled = (await waitForJob(ctx, job.id, left)) ?? job;
-    content.push(json(summarizeJob(ctx, settled)));
-    if (settled.status === 'completed') {
-      const preview = await imagePreview(ctx, settled);
-      if (preview) content.push(preview);
-    }
+    settled.push((await waitForJob(ctx, job.id, left)) ?? job);
   }
-  return { content };
+  return jobsResult(ctx, settled);
 }
 
 const waitSeconds = (fallback: number) =>
@@ -239,8 +273,61 @@ const waitSeconds = (fallback: number) =>
 
 const MODEL_KINDS = ['image', 'video', 'audio', 'llm'] as const;
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false } as const;
+/**
+ * Marks a tool whose result the media view renders. Both spellings: the
+ * nested key is the specification's, the flat one what earlier hosts read.
+ */
+const SHOWS_MEDIA = { ui: { resourceUri: MEDIA_VIEW_URI }, 'ui/resourceUri': MEDIA_VIEW_URI };
+/** Said once per media tool, so the model does not repeat what the view already shows. */
+const SHOWN =
+  ' The result is displayed to the user in the chat (image, player or progress), so do not paste its link.';
 
 export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
+  // Read per request, so the CSP names the origin this caller reached us on.
+  server.registerResource(
+    'media-view',
+    MEDIA_VIEW_URI,
+    {
+      title: 'Pepper media',
+      description: 'Shows generated images, video and audio, and the progress of running jobs.',
+      mimeType: MEDIA_VIEW_MIME,
+      _meta: mediaViewMeta(ctx.baseUrl),
+    },
+    async () => ({
+      contents: [
+        { uri: MEDIA_VIEW_URI, mimeType: MEDIA_VIEW_MIME, text: MEDIA_VIEW_HTML, _meta: mediaViewMeta(ctx.baseUrl) },
+      ],
+    }),
+  );
+
+  // The media view's second way to a file. Normally it loads a signed link
+  // straight from Pepper; a host that does not apply the view's CSP, or
+  // sandboxes it without an origin, blocks that, and the bytes can still
+  // travel through the MCP connection the host already trusts. Capped,
+  // because base64 in a JSON response is no way to move a long video.
+  server.registerResource(
+    'output',
+    new ResourceTemplate('pepper://outputs/{name}', { list: undefined }),
+    { title: 'A generated output', description: 'One generated image, video or audio file, by output_name.' },
+    async (uri, variables) => {
+      const name = decodeURIComponent(String(variables.name));
+      let path: string;
+      let size: number;
+      try {
+        path = safeResolve(ctx.app.paths.outputDir, name);
+        size = (await stat(path)).size;
+      } catch {
+        throw new ApiCallError(`OUTPUT_NOT_FOUND: no output named ${name}`);
+      }
+      if (size > MAX_RESOURCE_BYTES) {
+        throw new ApiCallError(`OUTPUT_TOO_LARGE: ${name} is ${size} bytes; open its link instead`);
+      }
+      return {
+        contents: [{ uri: uri.href, mimeType: contentType(name), blob: (await readFile(path)).toString('base64') }],
+      };
+    },
+  );
+
   // --- Discovery ------------------------------------------------------------
 
   server.registerTool(
@@ -248,7 +335,7 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
     {
       title: 'Pepper status',
       description:
-        'Check that Pepper is up and what it can do right now: backend states, GPU/RAM use, ' +
+        'Check that Pepper is up and what it can do right now: backend states, GPU/RAM/volume use, ' +
         'the job queue, and installed models by kind (with whether each is ready). Call this ' +
         'first in a session, and to find a valid `model` id before generating.',
       annotations: READ_ONLY,
@@ -302,6 +389,7 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
               accel: status.accel,
               base_url: ctx.baseUrl,
               resources: status.resources,
+              storage: status.storage ?? undefined,
               jobs: status.jobs,
               activity: status.activity,
               catalogue: status.catalogue,
@@ -358,7 +446,9 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
         'Text-to-image, image-to-image or image editing with an installed image model. ' +
         'Omitted settings use the model defaults, which are usually right. For img2img or ' +
         'edit models, first put the source image into uploads with add_input and pass its ' +
-        'name as init_image or in ref_images. Returns the image inline plus a link.',
+        'name as init_image or in ref_images. Returns the image inline plus a link.' +
+        SHOWN,
+      _meta: SHOWS_MEDIA,
       inputSchema: {
         model: z.string().describe('Image model id from pepper_status.'),
         prompt: z.string().min(1),
@@ -389,7 +479,9 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
       description:
         'Text-to-video, image-to-video (init_image) or speech-to-video (audio, for models whose ' +
         'capabilities include "s2v") with an installed video model. Videos take minutes: this ' +
-        'returns a job id immediately by default; follow it with get_job.',
+        'returns a job id immediately by default; follow it with get_job.' +
+        SHOWN,
+      _meta: SHOWS_MEDIA,
       inputSchema: {
         model: z.string().describe('Video model id from pepper_status.'),
         prompt: z.string().min(1),
@@ -419,7 +511,9 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
       description:
         'Text-to-speech with an installed audio model. `voice` picks a preset or built-in ' +
         'speaker; `voice_ref` clones the voice in an uploaded clip; voice-design models need ' +
-        '`instructions` describing the voice. Returns a link to the audio file.',
+        '`instructions` describing the voice. Returns a link to the audio file.' +
+        SHOWN,
+      _meta: SHOWS_MEDIA,
       inputSchema: {
         model: z.string().describe('Audio model id from pepper_status.'),
         input: z.string().min(1).describe('The text to speak.'),
@@ -440,7 +534,9 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
         'A song or instrumental from an installed music model (audio models whose task is "gen": ' +
         'ACE-Step 1.5, HeartMuLa, Stable Audio 3). `prompt` is the style — genre, instruments, mood, ' +
         'vocal type, tempo; `lyrics` uses [Verse]/[Chorus]/[Bridge] markers, omit for instrumental. ' +
-        'A few minutes of music takes about a minute; this returns a job id by default.',
+        'A few minutes of music takes about a minute; this returns a job id by default.' +
+        SHOWN,
+      _meta: SHOWS_MEDIA,
       inputSchema: {
         model: z.string().describe('Music model id from pepper_status (kind audio).'),
         prompt: z.string().min(1),
@@ -484,7 +580,9 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
       description:
         'Images: ESRGAN 2x or 4x. Videos: SeedVR2 diffusion super-resolution to `resolution` ' +
         '(short side, default 1080), keeping the soundtrack — the standard finishing pass for ' +
-        'generated video; minutes per clip, so poll with get_job. Takes an output_name or upload name.',
+        'generated video; minutes per clip, so poll with get_job. Takes an output_name or upload name.' +
+        SHOWN,
+      _meta: SHOWS_MEDIA,
       inputSchema: {
         image: z.string().describe('output_name from a finished job, or an upload name (image or video).'),
         scale: z.union([z.literal(2), z.literal(4)]).optional().describe('Images only; default 4.'),
@@ -511,7 +609,9 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
       title: 'Get a job',
       description:
         'Status and result of a generation job, optionally waiting for it to finish. Shows ' +
-        'image results inline.',
+        'image results inline.' +
+        SHOWN,
+      _meta: SHOWS_MEDIA,
       inputSchema: { id: z.string(), wait_seconds: waitSeconds(30) },
       annotations: READ_ONLY,
     },

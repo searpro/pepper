@@ -18,6 +18,11 @@ import { errors } from './errors.js';
  *   writing) cannot always be configured with a request header. The path
  *   is censored from logs by `redactTokenPath`.
  *
+ * A fourth form covers one narrow case: a signed, expiring link to a single
+ * output file (`signMediaUrl`). The media view Claude renders in a chat runs
+ * in a sandboxed iframe on the host's origin, which can send neither a header
+ * nor our cookie, yet has to load the image, video or audio it shows.
+ *
  * There is deliberately no bypass for requests from localhost: cloudflared
  * connects to Pepper from 127.0.0.1, so a loopback exemption would exempt all
  * tunnel traffic, i.e. the whole internet.
@@ -90,7 +95,53 @@ export function isAuthenticated(request: FastifyRequest, token: string): boolean
   const mcp = MCP_TOKEN_PATH.exec(request.url);
   if (mcp && secretsMatch(token, decodeURIComponent(mcp[1]))) return true;
 
-  return false;
+  return isSignedMediaRequest(request.method, request.url, token);
+}
+
+/** One output file, nothing beneath it: not `/info`, not the listing. */
+const OUTPUT_PATH = /^\/v1\/outputs\/([^/?#]+)$/;
+/** Long enough to reopen a conversation later; outputs rarely outlive their pod anyway. */
+export const MEDIA_LINK_TTL_S = 7 * 24 * 60 * 60;
+
+function mediaSignature(token: string, name: string, expires: number): string {
+  return createHmac('sha256', token).update(`pepper-media-v1\n${name}\n${expires}`).digest('base64url');
+}
+
+/**
+ * A link to one output that carries its own proof: `?exp=<unix seconds>&sig=…`.
+ * The signature covers the file name and the expiry, so it opens that file
+ * until then and nothing else, and rotating the token revokes every link.
+ * Without a token the server is open and the plain path is returned.
+ */
+export function signMediaUrl(
+  token: string | undefined,
+  name: string,
+  now: number = Date.now(),
+  ttlSeconds: number = MEDIA_LINK_TTL_S,
+): string {
+  const path = `/v1/outputs/${encodeURIComponent(name)}`;
+  if (!token) return path;
+  const expires = Math.floor(now / 1000) + ttlSeconds;
+  return `${path}?exp=${expires}&sig=${mediaSignature(token, name, expires)}`;
+}
+
+/** Whether `url` is a read of one output with a valid, unexpired signature. */
+export function isSignedMediaRequest(method: string, url: string, token: string, now: number = Date.now()): boolean {
+  if (method !== 'GET' && method !== 'HEAD') return false;
+  const [path, search = ''] = url.split('?');
+  const match = OUTPUT_PATH.exec(path);
+  if (!match) return false;
+  const params = new URLSearchParams(search);
+  const expires = Number(params.get('exp'));
+  const signature = params.get('sig');
+  if (!signature || !Number.isInteger(expires) || expires * 1000 < now) return false;
+  let name: string;
+  try {
+    name = decodeURIComponent(match[1]);
+  } catch {
+    return false;
+  }
+  return secretsMatch(mediaSignature(token, name, expires), signature);
 }
 
 /** Log-safe form of a URL: the `/mcp/<token>` segment is replaced. */

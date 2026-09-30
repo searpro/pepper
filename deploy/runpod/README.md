@@ -99,6 +99,13 @@ Ctrl-C during `up` only detaches; the pod keeps running (and billing).
   1.5 28 GB each, SeedVR2 9 GB, music 7-11 GB each. Everything at once is
   about 250 GB; 100 GB holds the two image models, one video model, SeedVR2
   and a music model.
+- **A full volume.** The volume is a quota the filesystem does not report, so
+  the launcher tells Pepper its size (`DATA_VOLUME_GB`) and a download that
+  would not fit is refused up front, with the numbers. `pepper_status` and
+  `/v1/system/status` show `storage` (used / total). If the volume fills
+  anyway, Pepper starts with a temporary in-memory database and says so in the
+  log; delete a model and restart the pod. To grow a volume: runpod.io →
+  Storage → edit (it can grow, never shrink).
 - **Downloads can stall.** HuggingFace transfers sometimes drop to a crawl
   after the first few GB; cancel and retry the download (Models → Downloads),
   which resumes from the partial file on a fresh connection.

@@ -47,7 +47,7 @@ function mediaKind(name: string): 'image' | 'video' | 'audio' | 'other' {
   return 'other';
 }
 
-function contentType(name: string): string {
+export function contentType(name: string): string {
   return MIME_TYPES[extname(name).toLowerCase()] ?? 'application/octet-stream';
 }
 
@@ -101,13 +101,27 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       } catch {
         throw errors.outputNotFound(req.params.name);
       }
-      return reply
+      reply
         .header('Content-Type', contentType(req.params.name))
-        .header('Content-Length', size)
+        .header('Accept-Ranges', 'bytes')
         // Outputs are immutable and uniquely named, so a client that has one
         // never needs to ask again.
-        .header('Cache-Control', 'public, max-age=31536000, immutable')
-        .send(createReadStream(path));
+        .header('Cache-Control', 'public, max-age=31536000, immutable');
+
+      // Safari will not play a <video> or <audio> from a server that ignores
+      // Range, and no browser can seek without it.
+      const range = parseRange(req.headers.range, size);
+      if (range === 'unsatisfiable') {
+        return reply.code(416).header('Content-Range', `bytes */${size}`).send();
+      }
+      if (range) {
+        return reply
+          .code(206)
+          .header('Content-Range', `bytes ${range.start}-${range.end}/${size}`)
+          .header('Content-Length', range.end - range.start + 1)
+          .send(createReadStream(path, range));
+      }
+      return reply.header('Content-Length', size).send(createReadStream(path));
     },
   );
 
@@ -387,4 +401,31 @@ export async function mediaRoutes(fastify: FastifyInstance): Promise<void> {
       return reply.code(204).send(null);
     },
   );
+}
+
+/**
+ * A single `bytes=` range against a file of `size` bytes, inclusive at both
+ * ends as createReadStream wants it. Anything else (no header, several
+ * ranges, another unit) is served whole, which the spec allows.
+ */
+export function parseRange(
+  header: string | undefined,
+  size: number,
+): { start: number; end: number } | 'unsatisfiable' | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header?.trim() ?? '');
+  if (!match || (match[1] === '' && match[2] === '')) return null;
+  let start: number;
+  let end: number;
+  if (match[1] === '') {
+    // A suffix: the last N bytes.
+    const suffix = Number(match[2]);
+    if (suffix === 0) return 'unsatisfiable';
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === '' ? size - 1 : Math.min(Number(match[2]), size - 1);
+  }
+  if (start >= size || start > end) return 'unsatisfiable';
+  return { start, end };
 }

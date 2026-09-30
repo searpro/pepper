@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,12 +32,22 @@ import { UpscaleService, upscalerPreferencesKey, type UpscalerPreferences } from
 import { catalogueEntryFor, sdcppCompatible, UPSCALER_CATALOGUE } from '../src/services/upscalers-catalogue.js';
 import { parseJsonObject, speechParams, SHEET_TEMPLATE } from '../src/services/characters.js';
 import type { ImageService } from '../src/services/image.js';
-import { redactTokenPath, requiresAuth, secretsMatch, sessionValue } from '../src/auth.js';
+import {
+  isSignedMediaRequest,
+  redactTokenPath,
+  requiresAuth,
+  secretsMatch,
+  sessionValue,
+  signMediaUrl,
+} from '../src/auth.js';
+import { parseRange } from '../src/routes/media.js';
+import { MEDIA_VIEW_MIME, MEDIA_VIEW_URI } from '../src/mcp/media-view.js';
 import { buildServer } from '../src/server.js';
-import { selectFiles, type CatalogueComponent } from '../src/mcp/tools.js';
+import { jobsResult, selectFiles, type CatalogueComponent } from '../src/mcp/tools.js';
 import { ActivityTracker, isActivity } from '../src/services/activity.js';
 import { cgroupMemory } from '../src/services/resources.js';
 import { openDb } from '../src/db/client.js';
+import { StorageMonitor } from '../src/services/storage.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -1515,6 +1526,66 @@ describe('auth', () => {
     }
   });
 
+  it('signs a link to one output that opens that file until it expires, and nothing else', () => {
+    const now = Date.UTC(2026, 8, 30);
+    const url = signMediaUrl('tok', 'a b.webm', now, 60);
+    expect(url).toMatch(/^\/v1\/outputs\/a%20b\.webm\?exp=\d+&sig=[\w-]+$/);
+    expect(isSignedMediaRequest('GET', url, 'tok', now)).toBe(true);
+    expect(isSignedMediaRequest('HEAD', url, 'tok', now)).toBe(true);
+
+    expect(isSignedMediaRequest('GET', url, 'tok', now + 61_000), 'expired').toBe(false);
+    expect(isSignedMediaRequest('GET', url, 'other', now), 'another token').toBe(false);
+    expect(isSignedMediaRequest('DELETE', url, 'tok', now), 'a write').toBe(false);
+    expect(isSignedMediaRequest('GET', url.replace('a%20b', 'c'), 'tok', now), 'another file').toBe(false);
+    expect(isSignedMediaRequest('GET', url.replace('?', '/info?'), 'tok', now), 'a sub-route').toBe(false);
+    expect(isSignedMediaRequest('GET', url.replace(/exp=\d+/, 'exp=9999999999'), 'tok', now), 'a later expiry').toBe(false);
+    expect(isSignedMediaRequest('GET', '/v1/models?exp=9999999999&sig=x', 'tok', now)).toBe(false);
+
+    // An open server has nothing to sign with, and needs nothing.
+    expect(signMediaUrl(undefined, 'a.png')).toBe('/v1/outputs/a.png');
+  });
+
+  it('serves an output to a signed link without any other credential', async () => {
+    const { app, closeDb } = await server({ PEPPER_API_TOKEN: 'tok' });
+    try {
+      await mkdir(app.paths.outputDir, { recursive: true });
+      await writeFile(join(app.paths.outputDir, 'clip.webm'), '0123456789');
+      const url = signMediaUrl('tok', 'clip.webm');
+
+      expect((await app.inject({ url: '/v1/outputs/clip.webm' })).statusCode).toBe(401);
+      const whole = await app.inject({ url });
+      expect(whole.statusCode).toBe(200);
+      expect(whole.headers['accept-ranges']).toBe('bytes');
+      expect(whole.body).toBe('0123456789');
+      expect((await app.inject({ url: url.replace(/sig=.{4}/, 'sig=AAAA') })).statusCode).toBe(401);
+      // The link reads the file; it does not delete it, or list the folder.
+      expect((await app.inject({ method: 'DELETE', url })).statusCode).toBe(401);
+      expect((await app.inject({ url: `/v1/outputs?${url.split('?')[1]}` })).statusCode).toBe(401);
+
+      const part = await app.inject({ url, headers: { range: 'bytes=2-5' } });
+      expect(part.statusCode).toBe(206);
+      expect(part.headers['content-range']).toBe('bytes 2-5/10');
+      expect(part.body).toBe('2345');
+      expect((await app.inject({ url, headers: { range: 'bytes=50-' } })).statusCode).toBe(416);
+    } finally {
+      await app.close();
+      closeDb();
+    }
+  });
+
+  it('reads byte ranges the way players send them', () => {
+    expect(parseRange(undefined, 10)).toBeNull();
+    expect(parseRange('bytes=0-', 10)).toEqual({ start: 0, end: 9 });
+    expect(parseRange('bytes=2-5', 10)).toEqual({ start: 2, end: 5 });
+    expect(parseRange('bytes=2-500', 10)).toEqual({ start: 2, end: 9 });
+    expect(parseRange('bytes=-3', 10)).toEqual({ start: 7, end: 9 });
+    expect(parseRange('bytes=10-', 10)).toBe('unsatisfiable');
+    expect(parseRange('bytes=5-2', 10)).toBe('unsatisfiable');
+    // Several ranges, or another unit: serve the whole file.
+    expect(parseRange('bytes=0-1,4-5', 10)).toBeNull();
+    expect(parseRange('items=0-1', 10)).toBeNull();
+  });
+
   it('stays open when no token is configured', async () => {
     const { app, closeDb } = await server();
     try {
@@ -1586,6 +1657,81 @@ describe('mcp', () => {
 
       const missing = await rpc('tools/call', { name: 'get_job', arguments: { id: 'nope', wait_seconds: 0 } });
       expect(missing.result.isError).toBe(true);
+    } finally {
+      await app.close();
+      closeDb();
+    }
+  });
+
+  it('offers a media view to hosts that can render one', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-mcp-'));
+    const { app, closeDb } = await buildServer(
+      loadConfig({ DATA_DIR: dir, OUTPUT_DIR: join(dir, 'out'), LOG_LEVEL: 'fatal', PEPPER_API_TOKEN: 'tok' }),
+    );
+    await app.ready();
+    try {
+      const rpc = (method: string, params: unknown) =>
+        app
+          .inject({
+            method: 'POST',
+            url: '/mcp',
+            headers: {
+              accept: 'application/json, text/event-stream',
+              authorization: 'Bearer tok',
+              host: 'pepper.test',
+              'x-forwarded-proto': 'https',
+            },
+            payload: { jsonrpc: '2.0', id: 1, method, params },
+          })
+          .then((r) => r.json());
+
+      // The tools that produce media point at the view; the rest do not.
+      const tools: Array<{ name: string; _meta?: { ui?: { resourceUri?: string } } }> = (await rpc('tools/list', {}))
+        .result.tools;
+      const shown = tools.filter((t) => t._meta?.ui?.resourceUri === MEDIA_VIEW_URI).map((t) => t.name);
+      expect(shown.sort()).toEqual(
+        ['generate_image', 'generate_music', 'generate_speech', 'generate_video', 'get_job', 'upscale_image'].sort(),
+      );
+
+      // The view itself, allowed to load media from the origin the caller used.
+      const view = (await rpc('resources/read', { uri: MEDIA_VIEW_URI })).result.contents[0];
+      expect(view.mimeType).toBe(MEDIA_VIEW_MIME);
+      expect(view.text).toContain('ui/initialize');
+      expect(view._meta.ui.csp.resourceDomains).toEqual(['https://pepper.test']);
+
+      // A finished video: the model gets a summary, the view a link it can load unauthenticated.
+      await mkdir(app.paths.outputDir, { recursive: true });
+      await writeFile(join(app.paths.outputDir, 'clip.webm'), 'webm');
+      const job = {
+        id: 'j1',
+        kind: 'video',
+        status: 'completed',
+        progress: 1,
+        params: {},
+        result: { video_url: '/v1/outputs/clip.webm', metadata: { seed: 7 } },
+        attempts: 1,
+        createdAt: new Date().toISOString(),
+      } as const;
+      const result = await jobsResult({ app, baseUrl: 'https://pepper.test' }, [{ ...job }]);
+      expect(JSON.parse((result.content[0] as { text: string }).text).url).toBe('https://pepper.test/v1/outputs/clip.webm');
+      const [shownJob] = (result.structuredContent as { jobs: Array<Record<string, string>> }).jobs;
+      expect(shownJob).toMatchObject({ id: 'j1', media: 'video', status: 'completed', seed: 7 });
+      expect(shownJob.media_url).toMatch(/^https:\/\/pepper\.test\/v1\/outputs\/clip\.webm\?exp=\d+&sig=/);
+      const fetched = await app.inject({ url: shownJob.media_url.replace('https://pepper.test', '') });
+      expect(fetched.statusCode).toBe(200);
+
+      // The same file through MCP itself, for a host that blocks the direct link.
+      const blob = (await rpc('resources/read', { uri: 'pepper://outputs/clip.webm' })).result.contents[0];
+      expect(blob.mimeType).toBe('video/webm');
+      expect(Buffer.from(blob.blob, 'base64').toString()).toBe('webm');
+      expect((await rpc('resources/read', { uri: 'pepper://outputs/nope.webm' })).error.message).toMatch(/OUTPUT_NOT_FOUND/);
+      expect((await rpc('resources/read', { uri: 'pepper://outputs/..%2Fpepper.db' })).error).toBeTruthy();
+
+      // A job that is still running says so, which is what the view polls on.
+      const running = await jobsResult({ app, baseUrl: 'https://pepper.test' }, [
+        { ...job, status: 'running', progress: 0.25, result: undefined },
+      ]);
+      expect((running.structuredContent as { jobs: unknown[] }).jobs[0]).toMatchObject({ status: 'running', progress: 0.25 });
     } finally {
       await app.close();
       closeDb();
@@ -1823,5 +1969,58 @@ describe('database', () => {
     // The new database is usable.
     expect(recovered.sqlite.pragma('quick_check', { simple: true })).toBe('ok');
     recovered.sqlite.close();
+  });
+
+  it('never maps a shared-memory file, which a full volume turns into a SIGBUS', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-db-'));
+    const file = join(dir, 'pepper.db');
+    const { sqlite } = openDb(file);
+    expect(sqlite.pragma('journal_mode', { simple: true })).toBe('wal');
+    expect(sqlite.pragma('locking_mode', { simple: true })).toBe('exclusive');
+    sqlite.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('k', '1', 0)").run();
+    expect(existsSync(`${file}-wal`)).toBe(true);
+    expect(existsSync(`${file}-shm`)).toBe(false);
+    sqlite.close();
+
+    // A truncated -shm left by an earlier crash is ignored rather than mapped.
+    await writeFile(`${file}-shm`, 'xyz');
+    const again = openDb(file);
+    expect(again.temporary).toBeUndefined();
+    expect(again.sqlite.prepare("SELECT value FROM settings WHERE key = 'k'").pluck().get()).toBe('1');
+    again.sqlite.close();
+  });
+
+  it('runs from memory when the database cannot be written, rather than not at all', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-db-'));
+    // The parent "directory" is a file, so nothing can be created beneath it.
+    await writeFile(join(dir, 'db'), '');
+    const { sqlite, temporary } = openDb(join(dir, 'db', 'pepper.db'));
+    expect(temporary).toBeTruthy();
+    sqlite.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('k', '1', 0)").run();
+    expect(sqlite.prepare('SELECT count(*) FROM settings').pluck().get()).toBe(1);
+    sqlite.close();
+  });
+});
+
+describe('storage budget', () => {
+  it('refuses a download that would overrun a volume of known size', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-storage-'));
+    await writeFile(join(dir, 'model.bin'), Buffer.alloc(3 * 1024 * 1024));
+    const GB = 1024 ** 3;
+
+    // 10 GB volume, ~3 MB used, 2 GB kept in reserve: just under 8 GB fit.
+    const storage = new StorageMonitor(dir, 10 * GB);
+    await expect(storage.assertRoom(7 * GB)).resolves.toBeUndefined();
+    await expect(storage.assertRoom(9 * GB)).rejects.toThrow(/Not enough room.*Delete a model/);
+    // What other downloads have still to write counts as used.
+    await expect(storage.assertRoom(7 * GB, 2 * GB)).rejects.toThrow(/Not enough room/);
+    const snapshot = storage.snapshot();
+    expect(snapshot?.totalBytes).toBe(10 * GB);
+    expect(snapshot?.usedBytes).toBeGreaterThan(3 * 1024 * 1024 - 1);
+
+    // No size configured: no opinion.
+    const unlimited = new StorageMonitor(dir, null);
+    await expect(unlimited.assertRoom(1e15)).resolves.toBeUndefined();
+    expect(unlimited.snapshot()).toBeNull();
   });
 });

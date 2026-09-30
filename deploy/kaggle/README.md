@@ -120,14 +120,22 @@ PEPPER_HOSTNAME=pepper.example.com
 ## Using Pepper from Claude
 
 Pepper serves a Model Context Protocol endpoint at `/mcp` with tools to
-generate images, video, speech and text, follow jobs, read logs, and search,
-install and delete catalogue models.
+generate images, video, speech, music and text, upscale images and videos,
+follow jobs, read logs, and search, install and delete catalogue models.
 
-- **Claude Code** in this repo: `.mcp.json` points at `$PEPPER_URL/mcp` with
-  `Authorization: Bearer $PEPPER_API_TOKEN`. Export both in your shell profile
-  (`PEPPER_URL=https://pepper.example.com`) and approve the server on first use.
+- **Claude Code** in this repo: `.mcp.json` starts `.claude/pepper-mcp.mjs`, a
+  small stdio bridge that forwards to `https://<PEPPER_HOSTNAME>/mcp` with
+  `PEPPER_API_TOKEN`, both read from the `.env` files above (this folder's or
+  `deploy/runpod`'s). Nothing needs exporting in a shell profile, which the
+  desktop app would not read anyway; approve the server on first use. With
+  neither file it talks to `http://localhost:3000`, and `PEPPER_URL` in the
+  environment overrides both. It connects when a session starts, so with no
+  instance running it shows as failed: reconnect it from `/mcp` once one is up.
   Elsewhere:
   `claude mcp add --transport http pepper https://pepper.example.com/mcp --header "Authorization: Bearer $PEPPER_API_TOKEN"`.
+- After deploying a version that adds or changes tools, reconnect the
+  connector (claude.ai: Settings → Connectors → Pepper → reconnect): clients
+  keep the tool list they fetched when they connected.
 - **claude.ai** (Settings → Connectors → Add custom connector): if the dialog
   offers request headers, use `https://pepper.example.com/mcp` with the
   `Authorization` header above. Otherwise use
