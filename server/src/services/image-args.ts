@@ -113,9 +113,9 @@ export function buildImageArgs(input: BuildArgsInput): string[] {
   // it is the one piece of S2V wiring that varies between model families.
   if (audio) {
     args.push(audio.flag, audio.path);
-    // Wan 2.2 S2V needs its wav2vec2 speech encoder passed alongside the audio.
-    // Emitted only when the manifest names a flag for it: passing a path under
-    // a guessed flag would fail the whole run rather than degrade.
+    // Wan 2.2 S2V needs its wav2vec2 speech encoder passed alongside the audio
+    // (sd-cli's `--audio-encoder`, the default in S2V_DEFAULTS). Emitted only
+    // when the bundle actually has an encoder in `aux/`.
     if (bundle.s2v?.audioEncoderFlag && bundle.audioEncoderPath) {
       args.push(bundle.s2v.audioEncoderFlag, bundle.audioEncoderPath);
     }

@@ -825,15 +825,27 @@ describe('speech-to-video', () => {
     const params = { prompt: 'x', model: 'wan22-s2v' };
     const audio = { path: '/tmp/c0.wav', flag: '--ref-audio' };
 
-    // No flag configured: the file is on disk but stays out of the command,
-    // because a guessed flag fails the run rather than degrading it.
-    const without = buildImageArgs({
+    // No flag in model.json (bundles installed before the catalogue named
+    // one): sd-cli's --audio-encoder is the default, since Wan S2V fails
+    // without its encoder.
+    const byDefault = buildImageArgs({
       params,
-      bundle: { ...bundle, s2v: { audioFlag: '--ref-audio' } } as never,
+      bundle: { ...bundle, s2v: resolveS2vConfig(null) } as never,
       outputPath: '/out/s.webm',
       audio,
     });
-    expect(without).not.toContain('/models/aux/wav2vec2.safetensors');
+    expect(byDefault[byDefault.indexOf('--audio-encoder') + 1]).toBe(
+      '/models/aux/wav2vec2.safetensors',
+    );
+
+    // A model with no encoder file gets no flag, whatever the default.
+    const noEncoder = buildImageArgs({
+      params,
+      bundle: { ...bundle, audioEncoderPath: undefined, s2v: resolveS2vConfig(null) } as never,
+      outputPath: '/out/s.webm',
+      audio,
+    });
+    expect(noEncoder).not.toContain('--audio-encoder');
 
     const withFlag = buildImageArgs({
       params,

@@ -66,7 +66,7 @@ start publishing an attribute before the server understands it.
 
   // --- audio ---
   "family": "chatterbox",          // must match audio.cpp's model_specs/<family>.json
-  "task": "tts",                   // tts | asr | voice-design | voice-conversion
+  "task": "tts",                   // audio.cpp's task code: tts | asr | vdes | clon | …
   "audioMode": null,
 
   // --- backend selection ---
@@ -209,6 +209,10 @@ for this app today, and should not be listed.
   (`model_specs/<family>.json`), confirmed from its source. A bundle whose
   manifest declares neither is skipped when the server registry is generated,
   and the model silently never appears.
+- **A wrong `task` stops every audio model, not just that one.** audio.cpp
+  refuses to start when any registered model has a task it does not support
+  (Qwen3-TTS VoiceDesign is `vdes` only; Chatterbox is `clon`, not `tts`), so a
+  single bad entry takes speech, cloning and transcription down together.
 
 ## Speech-to-video
 
@@ -229,7 +233,7 @@ so a model that matches Wan's window needs only the capability flag.
   "sample_rate": 16000,         // resample chunks to what the audio encoder expects
   "chain_frames": true,         // seed each window with the last frame of the previous
   "chain_flag": "-i",           // the flag that chained frame is passed under
-  "audio_encoder_flag": null,   // flag a separate speech encoder is passed under, if any
+  "audio_encoder_flag": "--audio-encoder",  // flag for a speech encoder in aux/ (this is the default)
   "frame_grid": { "stride": 17, "offset": 5 }  // round frame counts to stride*k + offset
 }
 ```
@@ -342,17 +346,11 @@ sd-cli -M vid_gen \
 
 Chunks after the first add `-i <last frame of the previous segment>`.
 
-Two things to know before the first run on a GPU host:
-
-- **sd-cli has no Wan S2V implementation as of this writing.** Upstream
-  `docs/wan.md` covers T2V, I2V and FLF2V, and `--ref-audio` is registered for
-  MiniMax-H3's Ref2VA. Whether it reaches Wan's audio conditioning is the thing
-  the first run answers. If sd-cli rejects the flag or ignores the audio, the
-  fix is `s2v.audio_flag` here, not a code change.
-- **The wav2vec2 speech encoder is downloaded but not passed.** Wan 2.2 S2V
-  needs it, and sd-cli registers no flag that takes it. It installs into `aux/`
-  so the weights are already local; set `s2v.audio_encoder_flag` once the flag
-  exists and it is emitted automatically.
+**The wav2vec2 speech encoder is required.** The sd-cli fork implements Wan
+S2V and refuses to run without it: *S2V audio conditioning requires
+--audio-encoder (wav2vec2)*. It installs into `aux/`, and Pepper passes any
+`aux/` audio encoder under `s2v.audio_encoder_flag`, which defaults to
+`--audio-encoder`, so a bundle whose `model.json` predates the flag works too.
 
 Unlike Wan 2.2 T2V/I2V A14B, S2V is a **single** 14B model — there is no
 high-noise expert, so `--high-noise-diffusion-model` does not appear.

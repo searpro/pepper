@@ -163,10 +163,9 @@ export const manifestSchema = z.object({
        */
       chain_flag: z.string().optional(),
       /**
-       * The flag a separate speech encoder is passed under. Wan 2.2 S2V needs
-       * a wav2vec2 encoder alongside the diffusion model, and sd-cli does not
-       * register a flag for one yet — so the file is downloaded into `aux/`
-       * and stays unused until this names the flag that consumes it.
+       * The flag a separate speech encoder in `aux/` is passed under.
+       * Defaults to sd-cli's `--audio-encoder`, which Wan 2.2 S2V requires for
+       * its wav2vec2 encoder; only emitted when the bundle has one.
        */
       audio_encoder_flag: z.string().optional(),
       /**
@@ -317,6 +316,11 @@ export const S2V_DEFAULTS: S2vConfig = {
   overlapSeconds: 0.5,
   chainFrames: true,
   chainFlag: '-i',
+  // sd-cli's flag for a separate speech encoder. Wan 2.2 S2V fails without
+  // it ("S2V audio conditioning requires --audio-encoder"), and bundles
+  // installed before the catalogue named it must work too. Harmless for a
+  // model with no encoder file: the flag is only emitted alongside one.
+  audioEncoderFlag: '--audio-encoder',
 };
 
 /** Everything the image/video generator needs, with absolute paths. */
@@ -359,7 +363,7 @@ export function resolveS2vConfig(manifest: ModelManifest | null): S2vConfig {
     sampleRate: declared?.sample_rate,
     chainFrames: declared?.chain_frames ?? S2V_DEFAULTS.chainFrames,
     chainFlag: declared?.chain_flag ?? S2V_DEFAULTS.chainFlag,
-    audioEncoderFlag: declared?.audio_encoder_flag,
+    audioEncoderFlag: declared?.audio_encoder_flag ?? S2V_DEFAULTS.audioEncoderFlag,
     frameGrid: declared?.frame_grid,
   };
 }
