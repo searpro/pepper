@@ -71,11 +71,6 @@ RUN curl -fsSL -o /usr/local/bin/cloudflared \
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/server/package.json ./server/package.json
-COPY --from=builder /app/server/dist ./server/dist
-COPY --from=builder /app/server/public ./server/public
-# The Python runners' code; their runtime installs into DATA_DIR on first use.
-COPY --from=builder /app/server/python ./server/python
-COPY deploy/runpod/entrypoint.mjs ./deploy/runpod/entrypoint.mjs
 
 # The Python runner environment (standalone interpreter, torch, diffusers,
 # spandrel, the SeedVR2 checkout), installed by the server's own installer so
@@ -84,9 +79,25 @@ COPY deploy/runpod/entrypoint.mjs ./deploy/runpod/entrypoint.mjs
 # minutes. It adds several GB to the image, pulled once per host. Per-model
 # isolated environments (YuE2) are still built on first use, under the same
 # directory on the container's local disk.
+#
+# Only the installer's own files and requirements.txt are copied before it
+# runs, so this multi-gigabyte layer is rebuilt when they change and not on
+# every server edit. The list is the installer's import closure; a new import
+# there fails this step loudly rather than silently.
 ENV PYTHON_DIR=/opt/pepper-python
+COPY --from=builder /app/server/dist/scripts/install-python.js ./server/dist/scripts/install-python.js
+COPY --from=builder /app/server/dist/backends/python.js /app/server/dist/backends/python-packages.js ./server/dist/backends/
+COPY --from=builder /app/server/dist/db/settings.js /app/server/dist/db/schema.js ./server/dist/db/
+COPY --from=builder /app/server/dist/errors.js /app/server/dist/paths.js ./server/dist/
+COPY --from=builder /app/server/python/requirements.txt ./server/python/requirements.txt
 RUN PIP_NO_CACHE_DIR=1 node server/dist/scripts/install-python.js \
     && rm -rf /root/.cache /tmp/*
+
+COPY --from=builder /app/server/dist ./server/dist
+COPY --from=builder /app/server/public ./server/public
+# The Python runners' code (their environment is the layer above).
+COPY --from=builder /app/server/python ./server/python
+COPY deploy/runpod/entrypoint.mjs ./deploy/runpod/entrypoint.mjs
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \

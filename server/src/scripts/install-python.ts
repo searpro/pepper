@@ -12,7 +12,7 @@
 import pino from 'pino';
 import type { FastifyBaseLogger } from 'fastify';
 import { PythonInstaller } from '../backends/python.js';
-import { SEEDVR2_PACKAGE } from '../services/upscale.js';
+import { SEEDVR2_PACKAGE } from '../backends/python-packages.js';
 
 const dir = process.env.PYTHON_DIR?.trim();
 if (!dir) {

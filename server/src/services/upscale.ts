@@ -14,6 +14,7 @@ import { ffmpegAvailable, runFfmpeg } from '../util/ffmpeg.js';
 import { uniqueOutputName } from '../util/files.js';
 import type { ImageService } from './image.js';
 import type { PythonVideoService } from './python-video.js';
+import { SEEDVR2_PACKAGE } from '../backends/python-packages.js';
 import {
   UPSCALER_CATALOGUE,
   catalogueEntryFor,
@@ -59,12 +60,7 @@ export interface UpscalerModel {
   sdcpp?: boolean;
 }
 
-/**
- * numz/ComfyUI-SeedVR2_VideoUpscaler at a pinned commit (v2.5.x): the
- * standalone CLI the runner drives. Bump deliberately; its CLI flags move.
- */
-export const SEEDVR2_PACKAGE =
-  'https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler#4490bd1f482e026674543386bb2a4d176da245b9';
+export { SEEDVR2_PACKAGE };
 
 /**
  * SeedVR2 checkpoints per quality level, for a 24 GB GPU. The 7B mixed-fp8
