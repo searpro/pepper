@@ -1713,7 +1713,7 @@ describe('mcp', () => {
         attempts: 1,
         createdAt: new Date().toISOString(),
       } as const;
-      const result = await jobsResult({ app, baseUrl: 'https://pepper.test' }, [{ ...job }]);
+      const result = await jobsResult({ app, baseUrl: 'https://pepper.test', apiToken: app.config.apiToken, jobs: app.jobs, outputDir: app.paths.outputDir, uploadsDir: app.paths.uploadsDir }, [{ ...job }]);
       expect(JSON.parse((result.content[0] as { text: string }).text).url).toBe('https://pepper.test/v1/outputs/clip.webm');
       const [shownJob] = (result.structuredContent as { jobs: Array<Record<string, string>> }).jobs;
       expect(shownJob).toMatchObject({ id: 'j1', media: 'video', status: 'completed', seed: 7 });
@@ -1729,7 +1729,7 @@ describe('mcp', () => {
       expect((await rpc('resources/read', { uri: 'pepper://outputs/..%2Fpepper.db' })).error).toBeTruthy();
 
       // A job that is still running says so, which is what the view polls on.
-      const running = await jobsResult({ app, baseUrl: 'https://pepper.test' }, [
+      const running = await jobsResult({ app, baseUrl: 'https://pepper.test', apiToken: app.config.apiToken, jobs: app.jobs, outputDir: app.paths.outputDir, uploadsDir: app.paths.uploadsDir }, [
         { ...job, status: 'running', progress: 0.25, result: undefined },
       ]);
       expect((running.structuredContent as { jobs: unknown[] }).jobs[0]).toMatchObject({ status: 'running', progress: 0.25 });

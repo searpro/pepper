@@ -45,7 +45,8 @@ import { pythonRoutes } from './routes/python.js';
 import { audioRoutes } from './routes/audio.js';
 import { compatRoutes } from './routes/compat.js';
 import { characterRoutes } from './routes/characters.js';
-import { mcpRoutes } from './routes/mcp.js';
+import { mcpRoutes } from './core/routes/mcp.js';
+import { registerPepperTools } from './mcp/tools.js';
 import './types.js';
 
 const VERSION = '0.1.0';
@@ -283,7 +284,13 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   await app.register(audioRoutes);
   await app.register(compatRoutes);
   await app.register(characterRoutes);
-  await app.register(mcpRoutes);
+  await app.register(mcpRoutes, {
+    name: 'pepper',
+    version: VERSION,
+    port: config.port,
+    context: { apiToken: config.apiToken, jobs, outputDir: paths.outputDir, uploadsDir: paths.uploadsDir },
+    register: registerPepperTools,
+  });
 
   await serveSpa(app, join(dirname(fileURLToPath(import.meta.url)), '..', 'public'));
 
