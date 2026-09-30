@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "id": "test-image",
+  "version": 1,
+  "kind": "image",
+  "name": "Test image",
+  "description": "A solid colour, inverted, with an optional reference stitched beside it. Model-free, for tests.",
+  "family": "test",
+  "capabilities": ["test"],
+  "licence": { "id": "test", "name": "Test", "commercial": "yes" },
+  "files": [],
+  "params": [
+    { "name": "width", "type": "int", "label": "Width", "default": 64, "min": 16, "max": 512 },
+    { "name": "height", "type": "int", "label": "Height", "default": 64, "min": 16, "max": 512 },
+    { "name": "color", "type": "int", "label": "Colour", "default": 0, "min": 0, "max": 16777215 },
+    { "name": "refs", "type": "images", "label": "Reference", "max_items": 1 },
+    { "name": "seed", "type": "seed", "label": "Seed" }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        { "param": "width", "node": "1", "input": "width" },
+        { "param": "height", "node": "1", "input": "height" },
+        { "param": "color", "node": "1", "input": "color" },
+        { "param": "refs", "nodes": [{ "node": "3", "input": "image" }] }
+      ],
+      "outputs": [{ "node": "5", "kind": "image" }]
+    }
+  },
+  "modes": {
+    "draft": { "label": "Draft", "workflow": "main", "defaults": { "width": 32, "height": 32 } },
+    "final": { "label": "Final", "workflow": "main" }
+  },
+  "default_mode": "draft",
+  "tiers": ["24gb-64ram", "32gb", "48gb", "96gb"]
+}

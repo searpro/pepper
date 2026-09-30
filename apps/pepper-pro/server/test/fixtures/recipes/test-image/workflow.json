@@ -1,0 +1,7 @@
+{
+  "1": { "class_type": "EmptyImage", "inputs": { "width": 64, "height": 64, "batch_size": 1, "color": 0 } },
+  "2": { "class_type": "ImageInvert", "inputs": { "image": ["1", 0] } },
+  "3": { "class_type": "LoadImage", "inputs": { "image": "placeholder.png" } },
+  "4": { "class_type": "ImageStitch", "inputs": { "image1": ["2", 0], "image2": ["3", 0], "direction": "right", "match_image_size": true, "spacing_width": 0, "spacing_color": "white" } },
+  "5": { "class_type": "SaveImage", "inputs": { "images": ["4", 0], "filename_prefix": "test/image" } }
+}

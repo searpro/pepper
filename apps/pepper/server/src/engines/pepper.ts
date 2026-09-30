@@ -12,7 +12,7 @@ import type { PythonVideoService } from '../services/python-video.js';
 import type { TextService } from '@pepper/core/services/text-gen.js';
 import type { UpscaleService } from '../services/upscale.js';
 import { uniqueOutputName } from '@pepper/core/util/files.js';
-import type { Engine, ReleaseReason } from '@pepper/core/engines/engine.js';
+import { processEngine, type Engine } from '@pepper/core/engines/engine.js';
 
 /**
  * Pepper's engines: sd-cli with the one-shot Python runners (image and video),
@@ -35,29 +35,6 @@ export interface PepperEngineDeps {
   text: TextService;
   backends: BackendManager;
   paths: Paths;
-}
-
-/** An engine backed by one supervised server process: resident while it runs, released by stopping it. */
-function serverEngine(
-  backends: BackendManager,
-  backend: BackendId,
-  label: string,
-  executors: ReturnType<Engine['executors']>,
-): Engine {
-  const running = () => {
-    const proc = backends.get(backend);
-    return Boolean(proc && proc.status !== 'stopped' && proc.status !== 'failed');
-  };
-  return {
-    id: backend,
-    label,
-    executors: () => executors,
-    resident: running,
-    release: async (_reason: ReleaseReason) => {
-      if (!running()) return;
-      await backends.get(backend)?.stop();
-    },
-  };
 }
 
 export function createPepperEngines(deps: PepperEngineDeps): Engine[] {
@@ -321,9 +298,9 @@ export function createPepperEngines(deps: PepperEngineDeps): Engine[] {
         pythonVideo.killAll();
       },
     },
-    serverEngine(backends, 'audiocpp', 'audio.cpp', { audio }),
-    serverEngine(backends, 'llamacpp', 'llama.cpp', { text }),
-    serverEngine(backends, 'vllm', 'vLLM', {}),
+    processEngine(backends, 'audiocpp', 'audio.cpp', { audio }),
+    processEngine(backends, 'llamacpp', 'llama.cpp', { text }),
+    processEngine(backends, 'vllm', 'vLLM', {}),
   ];
 }
 

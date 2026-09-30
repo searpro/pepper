@@ -48,7 +48,16 @@ export type ErrorCode =
   | 'CATALOGUE_UNAVAILABLE'
   | 'JOB_CONFLICT'
   | 'UNAUTHORIZED'
-  | 'UNSUPPORTED';
+  | 'UNSUPPORTED'
+  // --- Pepper Pro: recipes, the ComfyUI engine and projects ---
+  | 'RECIPE_NOT_FOUND'
+  | 'RECIPE_NOT_INSTALLED'
+  | 'RECIPE_LICENCE'
+  | 'ENGINE_FAILED'
+  | 'OUT_OF_MEMORY'
+  | 'PROJECT_NOT_FOUND'
+  | 'SHOT_NOT_FOUND'
+  | 'TAKE_NOT_FOUND';
 
 export class AppError extends Error {
   readonly code: ErrorCode;

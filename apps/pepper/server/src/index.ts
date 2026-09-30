@@ -1,6 +1,5 @@
 import 'dotenv/config';
-import { readdir, stat, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { onShutdown, scheduleOutputRetention } from '@pepper/core/serve.js';
 import { loadConfig } from './config.js';
 import { buildServer } from './server.js';
 
@@ -45,26 +44,16 @@ async function main(): Promise<void> {
   void app.catalogue.loadAtStartup();
   void converge(app);
 
-  scheduleOutputRetention(app);
+  scheduleOutputRetention(app.paths.outputDir, app.config.outputRetentionMs, app.log);
 
-  const shutdown = async (signal: string) => {
-    app.log.info({ signal }, 'shutting down');
-    // Order matters: stop accepting requests, then kill children. Reversing it
-    // leaves a request being served by a process that has just been killed.
-    try {
-      await app.close();
-      await app.engines.shutdown();
-      await app.backends.stopAll();
-      closeDb();
-    } catch (err) {
-      app.log.error({ err: (err as Error).message }, 'error during shutdown');
-    } finally {
-      process.exit(0);
-    }
-  };
-
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
+  // Order matters: stop accepting requests, then kill children. Reversing it
+  // leaves a request being served by a process that has just been killed.
+  onShutdown(app.log, async () => {
+    await app.close();
+    await app.engines.shutdown();
+    await app.backends.stopAll();
+    closeDb();
+  });
 }
 
 /**
@@ -93,43 +82,6 @@ async function converge(app: Awaited<ReturnType<typeof buildServer>>['app']): Pr
       app.log.warn({ backend, err: (err as Error).message }, 'backend could not be installed');
     });
   }
-}
-
-/**
- * Sweep old outputs (see `Config.outputDir` for why they are ephemeral by
- * default). Runs hourly and on boot, since a container that restarts more
- * often than the interval would otherwise never sweep at all.
- */
-function scheduleOutputRetention(app: Awaited<ReturnType<typeof buildServer>>['app']): void {
-  const { outputRetentionMs } = app.config;
-  if (outputRetentionMs <= 0) return;
-
-  const sweep = async () => {
-    const cutoff = Date.now() - outputRetentionMs;
-    let removed = 0;
-    try {
-      for (const name of await readdir(app.paths.outputDir)) {
-        const path = join(app.paths.outputDir, name);
-        try {
-          const info = await stat(path);
-          if (info.isFile() && info.mtimeMs < cutoff) {
-            await unlink(path);
-            removed++;
-          }
-        } catch {
-          // Raced with a reader or another sweep; skip it.
-        }
-      }
-    } catch (err) {
-      app.log.warn({ err: (err as Error).message }, 'output retention sweep failed');
-      return;
-    }
-    if (removed > 0) app.log.info({ removed }, 'swept expired outputs');
-  };
-
-  void sweep();
-  const timer = setInterval(() => void sweep(), 60 * 60 * 1000);
-  timer.unref();
 }
 
 main().catch((err) => {

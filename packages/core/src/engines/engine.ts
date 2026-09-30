@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import type { BackendManager } from '../backends/manager.js';
 import type { JobExecutor, JobKind, JobManager } from '../jobs/manager.js';
 
 /**
@@ -142,4 +143,31 @@ export class EngineRegistry implements MemoryArbiter {
       resident: engine.resident?.() ?? false,
     }));
   }
+}
+
+/**
+ * An engine backed by one supervised server process (llama.cpp, audio.cpp):
+ * resident while it runs, released by stopping it. It restarts on its next
+ * request.
+ */
+export function processEngine(
+  backends: BackendManager,
+  backend: string,
+  label: string,
+  executors: ReturnType<Engine['executors']>,
+): Engine {
+  const running = () => {
+    const proc = backends.get(backend);
+    return Boolean(proc && proc.status !== 'stopped' && proc.status !== 'failed');
+  };
+  return {
+    id: backend,
+    label,
+    executors: () => executors,
+    resident: running,
+    release: async () => {
+      if (!running()) return;
+      await backends.get(backend)?.stop();
+    },
+  };
 }

@@ -435,3 +435,115 @@ export async function extractLastFrame(
     timeoutMs,
   );
 }
+
+/** What a media file holds, as a cut needs to know it. */
+export interface MediaInfo {
+  duration: number;
+  width?: number;
+  height?: number;
+  hasVideo: boolean;
+  hasAudio: boolean;
+  /** A single still (PNG, JPEG, WebP): no duration of its own. */
+  still: boolean;
+}
+
+/** Probe any media file with ffprobe. */
+export async function probeMedia(path: string): Promise<MediaInfo> {
+  const probe = process.env.FFPROBE_PATH || 'ffprobe';
+  if (!(await isExecutableAvailable(probe))) {
+    throw errors.unsupported('Reading media needs ffprobe, which was not found. Install ffmpeg or set FFPROBE_PATH.');
+  }
+  const output = await new Promise<string>((resolve, reject) => {
+    const child = spawn(probe, ['-v', 'error', '-show_entries', 'stream=codec_type,width,height:format=duration,format_name', '-of', 'json', path]);
+    const chunks: string[] = [];
+    child.stdout?.on('data', (buf: Buffer) => chunks.push(buf.toString()));
+    child.on('error', (err) => reject(errors.generationFailed(`ffprobe failed: ${err.message}`)));
+    child.on('close', (code) =>
+      code === 0 ? resolve(chunks.join('')) : reject(errors.validation(`ffprobe could not read ${basename(path)}`)),
+    );
+  });
+  const parsed = JSON.parse(output) as {
+    streams?: Array<{ codec_type?: string; width?: number; height?: number }>;
+    format?: { duration?: string; format_name?: string };
+  };
+  const video = parsed.streams?.find((s) => s.codec_type === 'video');
+  const audio = parsed.streams?.find((s) => s.codec_type === 'audio');
+  const duration = Number(parsed.format?.duration);
+  const still = /image2|png_pipe|jpeg_pipe|webp_pipe|bmp_pipe/.test(parsed.format?.format_name ?? '') || (!!video && !Number.isFinite(duration));
+  return {
+    duration: Number.isFinite(duration) ? duration : 0,
+    width: video?.width,
+    height: video?.height,
+    hasVideo: Boolean(video),
+    hasAudio: Boolean(audio),
+    still,
+  };
+}
+
+/**
+ * Run ffmpeg reporting progress against an expected duration, killed by
+ * `signal` or the timeout. For long encodes (a cut), where a job's bar should
+ * move and a cancel should stop it.
+ */
+export function runFfmpegTracked(
+  args: string[],
+  options: {
+    totalSeconds: number;
+    onProgress?: (fraction: number) => void;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    /** ffmpeg's log level; `info` is needed to read what a filter prints (loudnorm's measurement). */
+    logLevel?: 'error' | 'info';
+  },
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      FFMPEG,
+      ['-hide_banner', '-loglevel', options.logLevel ?? 'error', '-y', '-progress', 'pipe:1', '-nostats', ...args],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+    const stderr: string[] = [];
+    let stderrBytes = 0;
+    child.stderr?.on('data', (buf: Buffer) => {
+      stderr.push(buf.toString());
+      stderrBytes += buf.length;
+      // Keep the tail: errors, and a filter's report, come last.
+      while (stderrBytes > 256 * 1024 && stderr.length > 1) stderrBytes -= Buffer.byteLength(stderr.shift()!);
+    });
+    let pending = '';
+    child.stdout?.on('data', (buf: Buffer) => {
+      pending += buf.toString();
+      const lines = pending.split('\n');
+      pending = lines.pop() ?? '';
+      for (const line of lines) {
+        const match = /^out_time_us=(\d+)/.exec(line.trim());
+        if (match && options.totalSeconds > 0) {
+          options.onProgress?.(Math.min(1, Number(match[1]) / 1e6 / options.totalSeconds));
+        }
+      }
+    });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(errors.generationFailed(`ffmpeg timed out after ${options.timeoutMs}ms`));
+    }, options.timeoutMs ?? 3_600_000);
+    const onAbort = () => child.kill('SIGKILL');
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', onAbort);
+      const e = err as NodeJS.ErrnoException;
+      reject(
+        e.code === 'ENOENT'
+          ? errors.unsupported(`ffmpeg not found (looked for "${FFMPEG}"). Install it, or set FFMPEG_PATH.`)
+          : errors.generationFailed(`Failed to start ffmpeg: ${e.message}`),
+      );
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', onAbort);
+      if (code === 0) return resolve(stderr.join(''));
+      if (options.signal?.aborted) return reject(new Error('Cancelled'));
+      reject(errors.generationFailed(`ffmpeg exited with code ${code ?? 'null'}: ${stderr.join('').trim().slice(-800)}`));
+    });
+  });
+}

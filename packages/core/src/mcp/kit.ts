@@ -71,7 +71,7 @@ export class ApiCallError extends Error {}
 /** Call Pepper's own HTTP API in-process, with the configured token. */
 export async function call<T = unknown>(
   ctx: ToolContext,
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   url: string,
   body?: unknown,
 ): Promise<T> {

@@ -18,7 +18,10 @@
     "dev:web": "npm run dev --workspace @pepper/web",
     "build": "npm run build --workspace @pepper/core && npm run build --workspace @pepper/web && npm run build --workspace @pepper/server",
     "start": "npm run start --workspace @pepper/server",
-    "typecheck": "npm run typecheck --workspace @pepper/core && npm run typecheck --workspace @pepper/server && npm run typecheck --workspace @pepper/ui && npm run typecheck --workspace @pepper/web",
-    "test": "npm run test --workspace @pepper/server"
+    "typecheck": "npm run typecheck --workspace @pepper/core && npm run typecheck --workspace @pepper/server && npm run typecheck --workspace @pepper/ui && npm run typecheck --workspace @pepper/web && npm run typecheck --workspace @pepper-pro/server && npm run typecheck --workspace @pepper-pro/web",
+    "test": "npm run test --workspace @pepper/server && npm run test --workspace @pepper-pro/server",
+    "dev:pro": "npm run dev --workspace @pepper-pro/server",
+    "dev:pro-web": "npm run dev --workspace @pepper-pro/web",
+    "build:pro": "npm run build --workspace @pepper/core && npm run build --workspace @pepper-pro/web && npm run build --workspace @pepper-pro/server"
   }
 }

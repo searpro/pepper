@@ -78,6 +78,8 @@ export interface BackendDefinition {
   };
   /** Values for the spec's locked arguments (host, port, model directory…). */
   managed?: () => Record<string, ArgValue>;
+  /** Overrides the manager's startup timeout for a backend that boots slowly (ComfyUI imports torch and every node pack). */
+  startupTimeoutMs?: number;
 }
 
 export interface BackendManagerOptions {
@@ -398,7 +400,7 @@ export class BackendManager {
           args,
           env: prepared.env,
           healthUrl: this.healthUrl(backend, prepared.healthPath),
-          startupTimeoutMs: this.options.startupTimeoutMs,
+          startupTimeoutMs: definition.startupTimeoutMs ?? this.options.startupTimeoutMs,
           policy: this.policy(),
           idleTimeoutMs: () => this.idleTimeoutMs(),
           pidFile: this.pidFile(backend),
