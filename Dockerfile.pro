@@ -86,6 +86,7 @@ COPY --from=builder /app/apps/pepper-pro/server/package.json ./apps/pepper-pro/s
 COPY --from=builder /app/apps/pepper-pro/server/dist ./apps/pepper-pro/server/dist
 COPY --from=builder /app/apps/pepper-pro/server/public ./apps/pepper-pro/server/public
 COPY apps/pepper-pro/server/python ./apps/pepper-pro/server/python
+COPY apps/pepper-pro/server/golden ./apps/pepper-pro/server/golden
 COPY apps/pepper-pro/server/scripts/smoke-comfy.sh ./apps/pepper-pro/server/scripts/smoke-comfy.sh
 COPY deploy/runpod/entrypoint.mjs ./deploy/runpod/entrypoint.mjs
 

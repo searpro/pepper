@@ -70,6 +70,8 @@ export interface ProConfig extends CoreConfig {
 
   /** Where the recipe templates shipped with the app live. */
   recipesDir: string;
+  /** The golden shot list (golden/shots.json). */
+  goldenFile: string;
 }
 
 const tierSchema = z.enum(TIERS);
@@ -104,5 +106,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProConfig {
     checkModel: env.CHECK_MODEL?.trim() ?? '',
 
     recipesDir: path(env.RECIPES_DIR?.trim() || new URL('../recipes', import.meta.url).pathname),
+    goldenFile: path(env.GOLDEN_FILE?.trim() || new URL('../golden/shots.json', import.meta.url).pathname),
   };
 }

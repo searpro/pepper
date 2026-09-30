@@ -25,6 +25,9 @@ import { buildPaths, ensureDirs, type ProPaths } from './paths.js';
 import { ProjectService } from './projects/service.js';
 import { PRO_MIGRATIONS, PRO_SCHEMA_SQL } from './projects/schema.js';
 import { analyzeRoutes } from './routes/analyze.js';
+import { goldenRoutes } from './routes/golden.js';
+import { GOLDEN_SCHEMA_SQL } from './golden/schema.js';
+import { GoldenService } from './golden/service.js';
 import { projectRoutes } from './routes/projects.js';
 import { DOWNLOAD_KINDS, comfyLayout, type DownloadKind, type DownloadSlot } from './recipes/layout.js';
 import { RecipeStore } from './recipes/store.js';
@@ -43,6 +46,7 @@ export interface ProServer {
   recipes: RecipeStore;
   comfy: ComfyEngine;
   projects: ProjectService;
+  golden: GoldenService;
   closeDb: () => void;
 }
 
@@ -63,7 +67,7 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
         { name: 'text', description: 'llama.cpp text generation' },
       ],
     },
-    schema: { name: 'pepper-pro', sql: PRO_SCHEMA_SQL, migrations: PRO_MIGRATIONS },
+    schema: { name: 'pepper-pro', sql: PRO_SCHEMA_SQL + GOLDEN_SCHEMA_SQL, migrations: PRO_MIGRATIONS },
   });
 
   // --- Services -------------------------------------------------------------
@@ -93,6 +97,8 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
   const comfy = new ComfyEngine({ config, paths, backends, recipes, memory: engines, log: app.log });
   const text = new TextService(config, backends, app.log, logs);
   const projects = new ProjectService({ db, jobs, comfy, recipes, paths, config, log: app.log });
+  const golden = new GoldenService({ db, jobs, comfy, recipes, paths, config, log: app.log, file: config.goldenFile });
+  await golden.load();
 
   engines
     .register(comfy)
@@ -149,6 +155,7 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
   await app.register(recipeRoutes, { config, recipes, downloads });
   await app.register(projectRoutes, { projects });
   await app.register(analyzeRoutes, { jobs, projects });
+  await app.register(goldenRoutes, { golden, paths });
   await app.register(mediaRoutes, { paths, jobs });
   await app.register(downloadRoutes, { downloads, kinds: DOWNLOAD_KINDS });
   await app.register(logRoutes, { logs, backendSources: backends.ids() });
@@ -162,5 +169,5 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
 
   await serveSpa(app, join(dirname(fileURLToPath(import.meta.url)), '..', 'public'));
 
-  return { app, paths, jobs, downloads, backends, engines, recipes, comfy, projects, closeDb };
+  return { app, paths, jobs, downloads, backends, engines, recipes, comfy, projects, golden, closeDb };
 }

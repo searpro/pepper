@@ -16,6 +16,7 @@ import { buildCutArgs, buildSrt, frameFor, isSilent, parseLoudness, snapToBeats,
 import { composePrompt, deriveParams, sizeFor } from '../src/projects/derive.js';
 import type { AssetRow, ProjectRow, ShotRow } from '../src/projects/schema.js';
 import { checkRecipe } from '../src/recipes/check.js';
+import { goldenFileSchema, goldenParams } from '../src/golden/service.js';
 import { recipeSchema, type Recipe } from '../src/recipes/schema.js';
 import { RecipeStore, licenceBlock, variantFor, variantName, variantUrl } from '../src/recipes/store.js';
 import { comfyLayout } from '../src/recipes/layout.js';
@@ -275,6 +276,50 @@ describe('shipped recipes', () => {
       // Shots draft then finish, so every recipe a shot can render with has both.
       if (recipe.kind === 'video' && recipe.params.some((p) => p.name === 'prompt')) expect(Object.keys(recipe.modes), recipe.id).toEqual(expect.arrayContaining(['draft', 'final']));
     }
+  });
+});
+
+describe('golden shots', () => {
+  const RECIPES = fileURLToPath(new URL('../recipes', import.meta.url));
+
+  it('cover the four targets, and every shot fits a shipped recipe', async () => {
+    const file = goldenFileSchema.parse(JSON.parse(await readFile(fileURLToPath(new URL('../golden/shots.json', import.meta.url)), 'utf8')));
+    expect(new Set(file.shots.map((s) => s.target))).toEqual(new Set(['short drama', 'talking', 'product', 'fashion', 'music']));
+    expect(new Set(file.shots.map((s) => s.id)).size).toBe(file.shots.length);
+    const store = new RecipeStore(RECIPES, buildPaths(await tempConfig()), log);
+    await store.load();
+    for (const shot of file.shots) {
+      const fits = store.list().filter((r) => r.kind === shot.kind && shot.capabilities.some((c) => r.capabilities.includes(c)));
+      expect(fits.length, shot.id).toBeGreaterThan(0);
+    }
+    // Every generated input has a shipped recipe that can make it.
+    for (const [name, input] of Object.entries(file.inputs)) {
+      if (!input.generate) continue;
+      expect(store.list().some((r) => r.kind === input.kind && r.capabilities.includes(input.generate!.capability)), name).toBe(true);
+    }
+  });
+
+  it('map a shot onto each recipe by parameter name, or say why not', async () => {
+    const file = goldenFileSchema.parse(JSON.parse(await readFile(fileURLToPath(new URL('../golden/shots.json', import.meta.url)), 'utf8')));
+    const store = new RecipeStore(RECIPES, buildPaths(await tempConfig()), log);
+    await store.load();
+    const shot = (id: string) => file.shots.find((s) => s.id === id)!;
+    const uploads = { mei: 'g-mei.png', jun: 'g-jun.png', host: 'g-host.png', voice: 'g-voice.wav', model: 'g-model.png', jacket: 'g-jacket.png' };
+    expect(goldenParams(store.require('h3-reference'), shot('drama-dialogue'), uploads)).toEqual({
+      params: expect.objectContaining({ refs: ['g-mei.png', 'g-jun.png'], seed: 2001 }),
+    });
+    expect(goldenParams(store.require('infinitetalk'), shot('talk-selfie'), uploads)).toEqual({
+      params: expect.objectContaining({ image: 'g-host.png', audio: 'g-voice.wav' }),
+    });
+    expect(goldenParams(store.require('h3-video'), shot('drama-closeup'), uploads)).toEqual({
+      params: expect.objectContaining({ first_frame: 'g-mei.png' }),
+    });
+    expect(goldenParams(store.require('flux2-klein-edit'), shot('edit-tryon'), uploads)).toEqual({
+      params: expect.objectContaining({ image: 'g-model.png', reference: 'g-jacket.png' }),
+    });
+    expect(goldenParams(store.require('ltx23-audio-to-video'), shot('drama-action'), uploads)).toEqual({
+      skip: expect.stringMatching(/image, audio/),
+    });
   });
 });
 
@@ -674,6 +719,38 @@ describe.skipIf(!haveComfy)('comfyui end to end', () => {
     const beats = (server.projects.requireAsset(asset.id).meta as { beats: { beats: number[] } }).beats.beats;
     expect(beats.length).toBeGreaterThan(12);
   }, 120_000);
+
+  it('renders golden shots per version and compares two versions blind', async () => {
+    const run = server.golden.start('test-video');
+    const settleRun = async (id: string) => {
+      for (let i = 0; i < 600; i++) {
+        const found = server.golden.listRuns('test-video').find((r) => r.id === id)!;
+        if (found.status === 'done' || found.status === 'failed') return found;
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      throw new Error('golden run did not finish');
+    };
+    const first = await settleRun(run.id);
+    expect(first.status).toBe('done');
+    const completed = first.results.filter((r) => r.status === 'completed');
+    expect(completed.map((r) => r.shotId)).toContain('drama-action');
+    // Shots that need a portrait are skipped: no installed recipe here can make one.
+    expect(first.results.find((r) => r.shotId === 'drama-closeup')).toMatchObject({ status: 'skipped', error: expect.stringMatching(/text-to-image/) });
+    expect((await stat(server.golden.resultPath(completed[0].file!))).size).toBeGreaterThan(0);
+
+    // A new version of the recipe, compared shot by shot against the old.
+    server.recipes.require('test-video').version = 2;
+    await settleRun(server.golden.start('test-video').id);
+    server.recipes.require('test-video').version = 1;
+    // The fixture has only a draft mode, so that is what golden runs use.
+    const pair = server.golden.pair('test-video', 'draft');
+    expect(pair).toMatchObject({ done: false, remaining: completed.length });
+    if (!pair || pair.done) throw new Error('expected a pair');
+    const vote = server.golden.vote({ recipe: 'test-video', mode: 'draft', shot: pair.shot, left: pair.left.token, right: pair.right.token, winner: 'left' });
+    expect(new Set([vote.left, vote.right])).toEqual(new Set([1, 2]));
+    const tally = server.golden.tally('test-video');
+    expect(tally.find((t) => t.version === vote.winner)).toMatchObject({ wins: 1 });
+  }, 300_000);
 
   it('cancels a running prompt through ComfyUI', async () => {
     const recipe = server.recipes.require('test-video');

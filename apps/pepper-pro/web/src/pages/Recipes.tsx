@@ -1,9 +1,10 @@
 import * as React from 'react';
-import { ChevronDown, Download, FlaskConical, RefreshCw, Trash2 } from 'lucide-react';
+import { ChevronDown, Download, FlaskConical, Medal, RefreshCw, Trash2 } from 'lucide-react';
 import { Page } from '@pepper/ui/components/layout';
 import { Badge, Button, Card, EmptyState, ErrorNote, Progress, Select, Spinner } from '@pepper/ui/components/ui';
 import { api, useResource, type DownloadTask } from '@pepper/ui/lib/api';
 import { cn, formatBytes } from '@pepper/ui/lib/utils';
+import { GoldenDialog } from '@/components/Golden';
 import { LicenceBadge, LicenceNotice } from '@/components/licence';
 import type { Recipe, RecipeList } from '@/lib/pro';
 
@@ -21,6 +22,7 @@ export function RecipesPage() {
   const list = useResource<RecipeList>('/v1/recipes', 10_000);
   const downloads = useResource<{ downloads: DownloadTask[] }>('/v1/downloads', 3000);
   const [kind, setKind] = React.useState('all');
+  const [golden, setGolden] = React.useState<Recipe>();
 
   const recipes = (list.data?.recipes ?? []).filter((r) => kind === 'all' || r.kind === kind);
   const active = (downloads.data?.downloads ?? []).filter((d) => d.status === 'queued' || d.status === 'downloading');
@@ -82,14 +84,20 @@ export function RecipesPage() {
       ) : null}
       <div className="grid gap-3 lg:grid-cols-2">
         {recipes.map((recipe) => (
-          <RecipeCard key={recipe.id} recipe={recipe} onChanged={() => (list.reload(), downloads.reload())} />
+          <RecipeCard
+            key={recipe.id}
+            recipe={recipe}
+            onChanged={() => (list.reload(), downloads.reload())}
+            onGolden={() => setGolden(recipe)}
+          />
         ))}
       </div>
+      <GoldenDialog recipe={golden} onOpenChange={(open) => !open && setGolden(undefined)} />
     </Page>
   );
 }
 
-function RecipeCard({ recipe, onChanged }: { recipe: Recipe; onChanged: () => void }) {
+function RecipeCard({ recipe, onChanged, onGolden }: { recipe: Recipe; onChanged: () => void; onGolden: () => void }) {
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
@@ -123,6 +131,9 @@ function RecipeCard({ recipe, onChanged }: { recipe: Recipe; onChanged: () => vo
           <p className="font-mono text-[11px] text-muted-foreground">{recipe.id}</p>
         </div>
         <div className="flex shrink-0 gap-2">
+          <Button size="sm" variant="ghost" aria-label="Golden shots" title="Golden shots" onClick={onGolden}>
+            <Medal />
+          </Button>
           {recipe.state !== 'installed' ? (
             <Button size="sm" disabled={busy} onClick={() => void act(() => api.post(`/v1/recipes/${recipe.id}/install`, {}))}>
               {busy ? <Spinner /> : <Download />}
