@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { startSse, startWs, type SseStream } from '../util/sse.js';
-import type { LogSource } from '../logs/buffer.js';
+import { startSse, startWs, type SseStream } from '../core/util/sse.js';
+import type { LogSource } from '../core/logs/buffer.js';
 
 const sourceEnum = z.enum([
   'app',

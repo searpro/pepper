@@ -7,8 +7,8 @@ import type { FastifyBaseLogger } from 'fastify';
 import { slotDirName, type ComponentSlot } from '../models/bundle.js';
 import { bundleDir, type ModelKind, type Paths } from '../paths.js';
 import type { ModelManager } from '../models/manager.js';
-import { resolveHfToken } from '../util/hf.js';
-import { errors } from '../errors.js';
+import { resolveHfToken } from '../core/util/hf.js';
+import { errors } from '../core/errors.js';
 
 /**
  * Whole-repo HuggingFace snapshot downloads, for vLLM models (requirement:

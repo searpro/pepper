@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { pythonActiveModelKey } from '../backends/python.js';
-import { proxyToBackend, type ProxyBody } from '../services/proxy.js';
+import { proxyToBackend, type ProxyBody } from '../core/services/proxy.js';
 
 /**
  * The Python backend's surface (requirement 5's forward-looking item, now

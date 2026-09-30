@@ -4,9 +4,9 @@ import { extname } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import { safeResolve } from '../paths.js';
-import { listFiles, uniqueOutputName } from '../util/files.js';
+import { listFiles, uniqueOutputName } from '../core/util/files.js';
 
 /**
  * Outputs and uploads — what the UI's Media page is built from (requirement

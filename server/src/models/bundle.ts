@@ -1,9 +1,9 @@
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import { assertSafeName, safeResolve, type ModelKind } from '../paths.js';
-import { listFiles, stripExt, type FileEntry } from '../util/files.js';
+import { listFiles, stripExt, type FileEntry } from '../core/util/files.js';
 import { KNOWN_LORA_PRESETS, loraPresetSchema, type LoraPreset } from './lora-presets.js';
 
 /**
@@ -463,7 +463,7 @@ function manifestRoleFor(manifest: ModelManifest | null, filename: string): Clip
 
 /** Directories present in a bundle, including any "other (specify)" ones. */
 async function bundleSlots(dir: string): Promise<ComponentSlot[]> {
-  const { listDirs } = await import('../util/files.js');
+  const { listDirs } = await import('../core/util/files.js');
   const dirs = await listDirs(dir);
   return dirs.map((name) => (isKnownSlot(name) ? name : (`other:${name}` as ComponentSlot)));
 }

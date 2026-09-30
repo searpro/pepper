@@ -1,8 +1,8 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config.js';
-import { errors } from '../errors.js';
-import type { LogBuffer } from '../logs/buffer.js';
-import type { BackendManager } from '../backends/manager.js';
+import { errors } from '../core/errors.js';
+import type { LogBuffer } from '../core/logs/buffer.js';
+import type { BackendManager } from '../core/backends/manager.js';
 
 /**
  * Text generation as a queued job.

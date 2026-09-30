@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { detectGpuCount, vllmActiveModelKey } from '../backends/vllm.js';
-import { proxyToBackend, type ProxyBody } from '../services/proxy.js';
+import { proxyToBackend, type ProxyBody } from '../core/services/proxy.js';
 
 /**
  * Direct vLLM-Omni surface (requirement: "vLLM-Omni as Inference Backend").

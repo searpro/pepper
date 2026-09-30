@@ -3,12 +3,12 @@ import { stat, unlink } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import { manifestSchema, parseSlot, type BundleInfo, type ComponentSlot } from '../models/bundle.js';
 import type { DownloadTask } from '../downloads/manager.js';
 import { safeResolve, type ModelKind } from '../paths.js';
-import { proxyToBackend } from '../services/proxy.js';
-import { startSse } from '../util/sse.js';
+import { proxyToBackend } from '../core/services/proxy.js';
+import { startSse } from '../core/util/sse.js';
 
 /**
  * sd-api compatibility layer (requirement 11: "API contract should be fully

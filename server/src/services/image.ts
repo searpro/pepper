@@ -5,17 +5,17 @@ import { access, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config.js';
-import { AppError, errors } from '../errors.js';
-import type { LogBuffer } from '../logs/buffer.js';
-import { parseBackendLine, parseProgress, type StepProgress } from '../logs/parse.js';
+import { AppError, errors } from '../core/errors.js';
+import type { LogBuffer } from '../core/logs/buffer.js';
+import { parseBackendLine, parseProgress, type StepProgress } from '../core/logs/parse.js';
 import { safeResolve, type Paths } from '../paths.js';
-import { uniqueOutputName } from '../util/files.js';
+import { uniqueOutputName } from '../core/util/files.js';
 import type { ModelManager } from '../models/manager.js';
-import type { BackendManager } from '../backends/manager.js';
-import { loaderEnv } from '../backends/process.js';
+import type { BackendManager } from '../core/backends/manager.js';
+import { loaderEnv } from '../core/backends/process.js';
 import { buildImageArgs, loraSchedule, mergeHires, resolveHiresUpscaler, type ResolvedHires } from './image-args.js';
 import { generateSpeechVideo } from './s2v.js';
-import { ffmpegAvailable, runFfmpeg } from '../util/ffmpeg.js';
+import { ffmpegAvailable, runFfmpeg } from '../core/util/ffmpeg.js';
 import type { GenerateParams } from '../schemas/generate.js';
 
 /**

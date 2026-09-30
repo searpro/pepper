@@ -1,7 +1,7 @@
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import {
   assertSafeName,
   bundleDir,
@@ -12,7 +12,7 @@ import {
   type ModelKind,
   type Paths,
 } from '../paths.js';
-import { listDirs } from '../util/files.js';
+import { listDirs } from '../core/util/files.js';
 import {
   componentPath,
   inspectBundle,

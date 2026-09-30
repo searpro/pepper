@@ -2,9 +2,9 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config.js';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import type { ModelKind, Paths } from '../paths.js';
-import { hfResolveUrl, listRepoFiles, parseQuant } from '../util/hf.js';
+import { hfResolveUrl, listRepoFiles, parseQuant } from '../core/util/hf.js';
 import {
   catalogueSchema,
   type Catalogue,

@@ -11,8 +11,8 @@ import { promisify } from 'node:util';
 import * as tar from 'tar';
 import { z } from 'zod';
 import type { FastifyBaseLogger } from 'fastify';
-import { defineSetting } from '../db/settings.js';
-import { errors } from '../errors.js';
+import { defineSetting } from '../core/db/settings.js';
+import { errors } from '../core/errors.js';
 import type { ModelManifest } from '../models/bundle.js';
 import { bundleDir, type ModelKind, type Paths } from '../paths.js';
 

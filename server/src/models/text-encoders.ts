@@ -2,8 +2,8 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Paths } from '../paths.js';
-import { readGgufInfo, type GgufInfo } from '../util/gguf.js';
-import { stripExt } from '../util/files.js';
+import { readGgufInfo, type GgufInfo } from '../core/util/gguf.js';
+import { stripExt } from '../core/util/files.js';
 import type { ModelManager } from './manager.js';
 
 /**

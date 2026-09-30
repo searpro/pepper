@@ -1,7 +1,6 @@
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { BackendId } from '../config.js';
 import { errors } from '../errors.js';
 import type { BackendManager } from '../backends/manager.js';
 
@@ -28,7 +27,7 @@ import type { BackendManager } from '../backends/manager.js';
 export type ProxyBody = string | Buffer | Uint8Array | Readable | unknown;
 
 export interface ProxyOptions {
-  backend: BackendId;
+  backend: string;
   /** Path (and query) on the upstream server. */
   upstreamPath: string;
   /** Body to forward. Omit for GET. */

@@ -9,12 +9,12 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
 import { downloads, type DownloadRow } from '../db/schema.js';
-import { AppError, errors } from '../errors.js';
+import { AppError, errors } from '../core/errors.js';
 import type { ModelKind } from '../paths.js';
 import type { ModelManager } from '../models/manager.js';
-import type { StorageMonitor } from '../services/storage.js';
+import type { StorageMonitor } from '../core/services/storage.js';
 import { parseSlot, type ComponentSlot } from '../models/bundle.js';
-import { gatedHint, hfAuthHeaders, isHuggingFaceUrl } from '../util/hf.js';
+import { gatedHint, hfAuthHeaders, isHuggingFaceUrl } from '../core/util/hf.js';
 
 /**
  * The unified download manager (requirement 8).

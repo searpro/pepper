@@ -2,10 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { publicConfig } from '../config.js';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import { backendOverridesSchema } from '../backends/args.js';
 import { ensurePythonPackageInstalled, pythonActiveModelKey } from '../backends/python.js';
-import { hfWhoami, maskToken, setHfToken } from '../util/hf.js';
+import { hfWhoami, maskToken, setHfToken } from '../core/util/hf.js';
 
 /**
  * System surface: health, configuration, backend lifecycle and HuggingFace

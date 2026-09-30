@@ -10,10 +10,10 @@ import {
   textJobSchema,
   validateDimensions,
 } from '../schemas/generate.js';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import { listTextEncoderLlms } from '../models/text-encoders.js';
-import { startSse, startWs, type SseStream } from '../util/sse.js';
-import type { JobKind } from '../jobs/manager.js';
+import { startSse, startWs, type SseStream } from '../core/util/sse.js';
+import type { JobKind } from '../core/jobs/manager.js';
 
 /**
  * Jobs (requirement 4) and synchronous generation.

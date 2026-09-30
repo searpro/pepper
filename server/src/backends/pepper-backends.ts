@@ -1,12 +1,12 @@
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { BackendId, Config } from '../config.js';
-import type { SettingsStore } from '../db/settings.js';
-import type { LogBuffer } from '../logs/buffer.js';
+import type { SettingsStore } from '../core/db/settings.js';
+import type { LogBuffer } from '../core/logs/buffer.js';
 import { backendBinDir, type Paths } from '../paths.js';
 import { ARG_SPECS } from './args.js';
-import { BinaryInstaller, type InstalledBinary } from './installer.js';
-import { BackendManager, type BackendDefinition, type BackendInstaller } from './manager.js';
+import { BinaryInstaller, type InstalledBinary } from '../core/backends/installer.js';
+import { BackendManager, type BackendDefinition, type BackendInstaller } from '../core/backends/manager.js';
 import { PythonInstaller } from './python.js';
 
 /**

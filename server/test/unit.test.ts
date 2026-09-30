@@ -6,12 +6,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadConfig, publicConfig } from '../src/config.js';
 import { assertSafeName, safeResolve } from '../src/paths.js';
-import { cudaRank, parseDriverCuda, runtimeCompanion, selectAsset } from '../src/backends/release.js';
+import { cudaRank, parseDriverCuda, runtimeCompanion, selectAsset } from '../src/core/backends/release.js';
 import type { FastifyBaseLogger } from 'fastify';
-import { evaluatePolicy } from '../src/backends/monitor.js';
-import { ManagedProcess } from '../src/backends/process.js';
-import { parseBackendLine, parseProgress } from '../src/logs/parse.js';
-import { LogBuffer } from '../src/logs/buffer.js';
+import { evaluatePolicy } from '../src/core/backends/monitor.js';
+import { ManagedProcess } from '../src/core/backends/process.js';
+import { parseBackendLine, parseProgress } from '../src/core/logs/parse.js';
+import { LogBuffer } from '../src/core/logs/buffer.js';
 import { buildArgv, effectiveArgs, LLAMACPP_ARGS, renderArgs } from '../src/backends/args.js';
 import {
   inspectBundle,
@@ -22,12 +22,12 @@ import {
   resolveS2vConfig,
   alignFrames,
 } from '../src/models/bundle.js';
-import { Semaphore } from '../src/util/semaphore.js';
-import { readGgufInfo } from '../src/util/gguf.js';
+import { Semaphore } from '../src/core/util/semaphore.js';
+import { readGgufInfo } from '../src/core/util/gguf.js';
 import { isChatLlm } from '../src/models/text-encoders.js';
 import { buildImageArgs, loraSchedule, mergeHires, resolveHiresUpscaler, withLoraTags } from '../src/services/image-args.js';
 import { musicRequest } from '../src/services/audio-gen.js';
-import { probeAudio, sliceAudio } from '../src/util/ffmpeg.js';
+import { probeAudio, sliceAudio } from '../src/core/util/ffmpeg.js';
 import { UpscaleService, upscalerPreferencesKey, type UpscalerPreferences } from '../src/services/upscale.js';
 import { catalogueEntryFor, sdcppCompatible, UPSCALER_CATALOGUE } from '../src/services/upscalers-catalogue.js';
 import { parseJsonObject, speechParams, SHEET_TEMPLATE } from '../src/services/characters.js';
@@ -39,15 +39,15 @@ import {
   secretsMatch,
   sessionValue,
   signMediaUrl,
-} from '../src/auth.js';
+} from '../src/core/auth.js';
 import { parseRange } from '../src/routes/media.js';
-import { MEDIA_VIEW_MIME, MEDIA_VIEW_URI } from '../src/mcp/media-view.js';
+import { MEDIA_VIEW_MIME, MEDIA_VIEW_URI } from '../src/core/mcp/media-view.js';
 import { buildServer } from '../src/server.js';
 import { jobsResult, selectFiles, type CatalogueComponent } from '../src/mcp/tools.js';
-import { ActivityTracker, isActivity } from '../src/services/activity.js';
-import { cgroupMemory } from '../src/services/resources.js';
+import { ActivityTracker, isActivity } from '../src/core/services/activity.js';
+import { cgroupMemory } from '../src/core/services/resources.js';
 import { openDb } from '../src/db/client.js';
-import { StorageMonitor } from '../src/services/storage.js';
+import { StorageMonitor } from '../src/core/services/storage.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -1368,7 +1368,7 @@ describe('Python runner protocol', () => {
     await mkdir(paths.cacheDir, { recursive: true });
 
     const log = { info: () => {}, warn: () => {}, error: () => {} } as unknown as import('fastify').FastifyBaseLogger;
-    const backends = { get: () => undefined } as unknown as import('../src/backends/manager.js').BackendManager;
+    const backends = { get: () => undefined } as unknown as import('../src/core/backends/manager.js').BackendManager;
     const memory = { exclusive: async () => {}, release: async () => {} };
     const service = new PythonVideoService(config, paths, backends, memory, log, new LogBuffer(100));
 
@@ -2030,14 +2030,14 @@ describe('engines', () => {
   const log = { info: () => {}, warn: () => {}, error: () => {} } as unknown as import('fastify').FastifyBaseLogger;
 
   it('refuses two engines claiming one job kind', async () => {
-    const { EngineRegistry } = await import('../src/engines/engine.js');
+    const { EngineRegistry } = await import('../src/core/engines/engine.js');
     const run = async () => ({});
     const registry = new EngineRegistry(log).register({ id: 'a', label: 'A', executors: () => ({ image: run }) });
     expect(() => registry.register({ id: 'b', label: 'B', executors: () => ({ image: run }) })).toThrow(/claimed by both/);
   });
 
   it('releases every other resident engine for exclusive work', async () => {
-    const { EngineRegistry } = await import('../src/engines/engine.js');
+    const { EngineRegistry } = await import('../src/core/engines/engine.js');
     const released: string[] = [];
     const engine = (id: string, resident: boolean) => ({
       id,
@@ -2061,9 +2061,9 @@ describe('engines', () => {
   });
 
   it('attaches executors to the job system and reports which engine owns a kind', async () => {
-    const { EngineRegistry } = await import('../src/engines/engine.js');
+    const { EngineRegistry } = await import('../src/core/engines/engine.js');
     const registered: string[] = [];
-    const jobs = { registerExecutor: (kind: string) => registered.push(kind) } as unknown as import('../src/jobs/manager.js').JobManager;
+    const jobs = { registerExecutor: (kind: string) => registered.push(kind) } as unknown as import('../src/core/jobs/manager.js').JobManager;
     const run = async () => ({});
     const registry = new EngineRegistry(log)
       .register({ id: 'gen', label: 'Gen', executors: () => ({ image: run, video: run }) })
@@ -2077,10 +2077,10 @@ describe('engines', () => {
 
 describe('backend definitions', () => {
   const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as import('fastify').FastifyBaseLogger;
-  async function manager(definitions: import('../src/backends/manager.js').BackendDefinition[], autoInstall = true) {
-    const { BackendManager } = await import('../src/backends/manager.js');
+  async function manager(definitions: import('../src/core/backends/manager.js').BackendDefinition[], autoInstall = true) {
+    const { BackendManager } = await import('../src/core/backends/manager.js');
     const { openDb } = await import('../src/db/client.js');
-    const { SettingsStore } = await import('../src/db/settings.js');
+    const { SettingsStore } = await import('../src/core/db/settings.js');
     const { db } = openDb(':memory:');
     return new BackendManager(
       definitions,

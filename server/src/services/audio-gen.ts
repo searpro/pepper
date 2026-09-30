@@ -2,12 +2,12 @@ import { randomInt } from 'node:crypto';
 import { writeFile, mkdir } from 'node:fs/promises';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config.js';
-import { errors } from '../errors.js';
-import type { LogBuffer } from '../logs/buffer.js';
+import { errors } from '../core/errors.js';
+import type { LogBuffer } from '../core/logs/buffer.js';
 import type { Paths } from '../paths.js';
 import { safeResolve } from '../paths.js';
-import { uniqueOutputName } from '../util/files.js';
-import type { BackendManager } from '../backends/manager.js';
+import { uniqueOutputName } from '../core/util/files.js';
+import type { BackendManager } from '../core/backends/manager.js';
 
 /**
  * Speech generation as a queued job.

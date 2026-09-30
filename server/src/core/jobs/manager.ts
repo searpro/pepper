@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
-import type { Config } from '../config.js';
+import type { CoreConfig } from '../config.js';
 import type { Db } from '../db/client.js';
 import { jobs, type JobRow } from '../db/schema.js';
 import { AppError, errors } from '../errors.js';
@@ -67,7 +67,7 @@ export class JobManager extends EventEmitter {
   private draining = false;
 
   constructor(
-    private readonly config: Config,
+    private readonly config: Pick<CoreConfig, 'maxConcurrentJobs'>,
     private readonly db: Db,
     private readonly log: FastifyBaseLogger,
     private readonly logs: LogBuffer,

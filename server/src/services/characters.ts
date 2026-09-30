@@ -3,16 +3,16 @@ import { copyFile, stat } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { desc, eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
-import type { MemoryArbiter } from '../engines/engine.js';
+import type { MemoryArbiter } from '../core/engines/engine.js';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
 import { characters, type CharacterRow } from '../db/schema.js';
-import { AppError, errors } from '../errors.js';
-import type { Job, JobManager } from '../jobs/manager.js';
+import { AppError, errors } from '../core/errors.js';
+import type { Job, JobManager } from '../core/jobs/manager.js';
 import type { ModelManager } from '../models/manager.js';
 import { listTextEncoderLlms } from '../models/text-encoders.js';
 import { safeResolve, type Paths } from '../paths.js';
-import { uniqueOutputName } from '../util/files.js';
+import { uniqueOutputName } from '../core/util/files.js';
 import type { TextService } from './text-gen.js';
 
 /**

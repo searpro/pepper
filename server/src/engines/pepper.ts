@@ -1,8 +1,8 @@
 import { randomInt } from 'node:crypto';
 import { join } from 'node:path';
 import type { BackendId } from '../config.js';
-import type { BackendManager } from '../backends/manager.js';
-import type { JobContext, JobExecutor, JobManager } from '../jobs/manager.js';
+import type { BackendManager } from '../core/backends/manager.js';
+import type { JobContext, JobExecutor, JobManager } from '../core/jobs/manager.js';
 import type { ModelManager } from '../models/manager.js';
 import { bundleDir, safeResolve, type Paths } from '../paths.js';
 import type { GenerateParams } from '../schemas/generate.js';
@@ -11,8 +11,8 @@ import type { ImageService } from '../services/image.js';
 import type { PythonVideoService } from '../services/python-video.js';
 import type { TextService } from '../services/text-gen.js';
 import type { UpscaleService } from '../services/upscale.js';
-import { uniqueOutputName } from '../util/files.js';
-import type { Engine, ReleaseReason } from './engine.js';
+import { uniqueOutputName } from '../core/util/files.js';
+import type { Engine, ReleaseReason } from '../core/engines/engine.js';
 
 /**
  * Pepper's engines: sd-cli with the one-shot Python runners (image and video),

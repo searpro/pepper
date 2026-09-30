@@ -5,13 +5,13 @@ import type { FastifyInstance } from 'fastify';
 import { ResourceTemplate, type McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { signMediaUrl } from '../auth.js';
+import { signMediaUrl } from '../core/auth.js';
 import { safeResolve } from '../paths.js';
 import { contentType } from '../routes/media.js';
-import { uniqueOutputName } from '../util/files.js';
-import { ffmpegAvailable, runFfmpeg } from '../util/ffmpeg.js';
-import type { Job } from '../jobs/manager.js';
-import { MEDIA_VIEW_HTML, MEDIA_VIEW_MIME, MEDIA_VIEW_URI, mediaViewMeta } from './media-view.js';
+import { uniqueOutputName } from '../core/util/files.js';
+import { ffmpegAvailable, runFfmpeg } from '../core/util/ffmpeg.js';
+import type { Job } from '../core/jobs/manager.js';
+import { MEDIA_VIEW_HTML, MEDIA_VIEW_MIME, MEDIA_VIEW_URI, mediaViewMeta } from '../core/mcp/media-view.js';
 
 /**
  * The tools Pepper exposes over MCP (see routes/mcp.ts for the transport).

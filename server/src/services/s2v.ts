@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import { errors } from '../errors.js';
-import type { StepProgress } from '../logs/parse.js';
+import { errors } from '../core/errors.js';
+import type { StepProgress } from '../core/logs/parse.js';
 import { alignFrames, type ResolvedImageBundle } from '../models/bundle.js';
 import type { GenerateParams } from '../schemas/generate.js';
 import {
@@ -12,7 +12,7 @@ import {
   sliceAudio,
   stitchSegments,
   type AudioChunk,
-} from '../util/ffmpeg.js';
+} from '../core/util/ffmpeg.js';
 
 /**
  * Speech-to-video orchestration.

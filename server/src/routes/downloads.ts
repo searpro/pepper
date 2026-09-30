@@ -1,10 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import { parseSlot } from '../models/bundle.js';
 import { MODEL_KINDS } from '../paths.js';
-import { startSse, startWs, type SseStream } from '../util/sse.js';
+import { startSse, startWs, type SseStream } from '../core/util/sse.js';
 
 const statusEnum = z.enum(['queued', 'downloading', 'completed', 'failed', 'cancelled']);
 

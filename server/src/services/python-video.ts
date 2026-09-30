@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config.js';
-import { AppError, errors } from '../errors.js';
-import type { LogBuffer } from '../logs/buffer.js';
-import type { StepProgress } from '../logs/parse.js';
+import { AppError, errors } from '../core/errors.js';
+import type { LogBuffer } from '../core/logs/buffer.js';
+import type { StepProgress } from '../core/logs/parse.js';
 import type { PepperBackendManager } from '../backends/pepper-backends.js';
-import type { MemoryArbiter } from '../engines/engine.js';
+import type { MemoryArbiter } from '../core/engines/engine.js';
 import { runnerSourceDir, type PythonRuntime } from '../backends/python.js';
 import {
   resolveS2vConfig,
@@ -20,7 +20,7 @@ import {
 } from '../models/bundle.js';
 import { bundleDir, safeResolve, type Paths } from '../paths.js';
 import type { GenerateParams } from '../schemas/generate.js';
-import { uniqueOutputName } from '../util/files.js';
+import { uniqueOutputName } from '../core/util/files.js';
 import { generateSpeechVideo } from './s2v.js';
 
 /**

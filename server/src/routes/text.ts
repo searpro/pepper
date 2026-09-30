@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { BackendId } from '../config.js';
-import { proxyToBackend } from '../services/proxy.js';
+import { proxyToBackend } from '../core/services/proxy.js';
 import { listTextEncoderLlms } from '../models/text-encoders.js';
 
 /**

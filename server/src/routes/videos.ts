@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import { errorResponseSchema } from '../schemas/generate.js';
-import type { Job } from '../jobs/manager.js';
+import type { Job } from '../core/jobs/manager.js';
 
 /**
  * OpenAI-shaped video generation.

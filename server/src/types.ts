@@ -1,22 +1,22 @@
 import type { Config } from './config.js';
 import type { Paths } from './paths.js';
 import type { Db } from './db/client.js';
-import type { SettingsStore } from './db/settings.js';
-import type { LogBuffer } from './logs/buffer.js';
+import type { SettingsStore } from './core/db/settings.js';
+import type { LogBuffer } from './core/logs/buffer.js';
 import type { PepperBackendManager } from './backends/pepper-backends.js';
 import type { ModelManager } from './models/manager.js';
 import type { CatalogueManager } from './catalogue/manager.js';
 import type { DownloadManager } from './downloads/manager.js';
 import type { SnapshotDownloader } from './downloads/snapshot.js';
-import type { JobManager } from './jobs/manager.js';
-import type { EngineRegistry } from './engines/engine.js';
+import type { JobManager } from './core/jobs/manager.js';
+import type { EngineRegistry } from './core/engines/engine.js';
 import type { ImageService } from './services/image.js';
 import type { UpscaleService } from './services/upscale.js';
 import type { PythonVideoService } from './services/python-video.js';
 import type { CharacterService } from './services/characters.js';
-import type { ResourceMonitor } from './services/resources.js';
-import type { StorageMonitor } from './services/storage.js';
-import type { ActivityTracker } from './services/activity.js';
+import type { ResourceMonitor } from './core/services/resources.js';
+import type { StorageMonitor } from './core/services/storage.js';
+import type { ActivityTracker } from './core/services/activity.js';
 
 /**
  * Services decorated onto the Fastify instance. Constructed once in

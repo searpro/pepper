@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { errors } from '../errors.js';
+import { errors } from '../core/errors.js';
 import { jobSchema } from '../schemas/generate.js';
 import { DESIGNER_PROMPT, PORTRAIT_TEMPLATE, SHEET_TEMPLATE } from '../services/characters.js';
 
