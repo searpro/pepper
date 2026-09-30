@@ -26,6 +26,34 @@ export const SAMPLERS = [
   'tcd',
 ] as const;
 
+/**
+ * sd-cli's second "highres fix" pass: upscale the first result, then denoise it
+ * again at the larger size. This is what turns a distilled model's soft 1 MP
+ * output into a crisp one, and how LTX-2 renders 720p from a cheap 360p pass
+ * through its latent upscaler.
+ */
+export const hiresSchema = z.object({
+  enabled: z.boolean().default(true),
+  /** Output size relative to the first pass; ignored when width/height are set. */
+  scale: z.number().min(1).max(4).optional(),
+  width: z.number().int().min(64).optional(),
+  height: z.number().int().min(64).optional(),
+  /** Steps for the second pass (sd-cli defaults to the first pass's count). */
+  steps: z.number().int().min(1).max(200).optional(),
+  /** How much the second pass may change the upscaled image (sd-cli default 0.7). */
+  denoise: z.number().min(0).max(1).optional(),
+  /** Explicit refine schedule for the second pass (LTX-2's is 0.85, 0.725, 0.421875, 0). */
+  sigmas: z.array(z.number().min(0).max(1000)).min(2).max(201).optional(),
+  /**
+   * `Latent`, `Lanczos`, `Nearest` and the other sd-cli built-ins, or the name
+   * (filename without extension) of an upscaler model: one in the bundle's
+   * `aux/` folder (LTX-2's latent upscaler) or an installed ESRGAN checkpoint.
+   */
+  upscaler: z.string().min(1).optional(),
+});
+
+export type HiresParams = z.infer<typeof hiresSchema>;
+
 export const generateSchema = z.object({
   prompt: z.string().min(1, 'prompt is required'),
   /** Bundle id under `models/image/` or `models/video/`. */
@@ -44,6 +72,20 @@ export const generateSchema = z.object({
   height: z.number().int().min(64).optional(),
   seed: z.number().int().min(-1).optional(),
   sampler: z.enum(SAMPLERS).optional(),
+  /** sd-cli `--scheduler` (karras, exponential, simple, beta, …); default is model-specific. */
+  scheduler: z
+    .string()
+    .regex(/^[a-z_]+$/, 'scheduler must be an sd-cli scheduler name')
+    .optional(),
+  /** Second, higher-resolution denoising pass. Overrides the model's default; `{ enabled: false }` turns it off. */
+  hires: hiresSchema.partial().optional(),
+  /**
+   * `auto` (default) runs a distillation LoRA (turbo, lightning, few-step) on
+   * the schedule it was trained for, whatever steps/CFG were sent — off that
+   * schedule it can only produce overcooked or ghosted images. `off` sends the
+   * request's own values unchanged.
+   */
+  lora_schedule: z.enum(['auto', 'off']).optional(),
 
   // --- img2img / editing. Names refer to files uploaded via POST /v1/inputs. ---
   init_image: z.string().optional(),
@@ -163,6 +205,17 @@ export const audioJobSchema = z
     instructions: z.string().optional(),
   })
   .passthrough();
+
+/** Song or instrumental from an audio.cpp music model (ACE-Step, HeartMuLa, Stable Audio). */
+export const musicJobSchema = z.object({
+  model: z.string().min(1, 'model is required'),
+  prompt: z.string().min(1, 'prompt is required').describe('Style: genre, instruments, mood, vocal type, tempo.'),
+  lyrics: z.string().max(20000).optional().describe('Lyrics with [Verse]/[Chorus] markers; omit for instrumental.'),
+  duration_seconds: z.number().min(1).max(600).optional(),
+  steps: z.number().int().min(1).max(200).optional(),
+  seed: z.number().int().min(-1).optional(),
+  task_route: z.string().regex(/^[a-z0-9-]+$/).optional(),
+});
 
 export const textJobSchema = z
   .object({

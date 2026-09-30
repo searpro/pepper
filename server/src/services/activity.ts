@@ -9,6 +9,11 @@
  * is doing something — any successful non-GET request (generating, installing,
  * an MCP tool call) — and work still in progress: a queued or running job, or
  * an active download, keeps the server busy however long ago it was asked for.
+ *
+ * MCP traffic is judged by its JSON-RPC method, not its HTTP verb: every MCP
+ * message is a POST, and a client connecting, listing tools or pinging is
+ * housekeeping. An idle claude.ai chat with the connector enabled does that
+ * on its own, and must not keep a GPU billing.
  */
 export class ActivityTracker {
   private last = Date.now();
@@ -28,9 +33,16 @@ export class ActivityTracker {
   }
 }
 
-/** Whether a finished request counts as someone using Pepper. */
-export function isActivity(method: string, url: string, statusCode: number): boolean {
+/** Whether a finished request counts as someone using Pepper. `body` is the parsed request body. */
+export function isActivity(method: string, url: string, statusCode: number, body?: unknown): boolean {
   if (statusCode >= 400) return false; // rejected callers (bots, a wrong token) keep nothing alive
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false;
-  return url.split('?')[0] !== '/v1/session';
+  const path = url.split('?')[0];
+  if (path === '/v1/session') return false;
+  if (path === '/mcp' || path.startsWith('/mcp/')) {
+    // A JSON-RPC batch counts if any message in it is a tool call.
+    const messages = Array.isArray(body) ? body : [body];
+    return messages.some((m) => (m as { method?: unknown } | null)?.method === 'tools/call');
+  }
+  return true;
 }

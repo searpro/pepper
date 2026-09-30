@@ -328,8 +328,9 @@ On RunPod a pod bills per second, so the container entrypoint
 period, using `activity` from `/v1/system/status` (`services/activity.ts`).
 Reads never count: the web app polls status every few seconds for as long as
 a tab is open, and a forgotten tab must not keep a GPU billing. Activity is a
-successful non-GET request (401s from scanners do not count) or work in
-progress — a queued or running job, an active download — which counts for as
+successful non-GET request (401s from scanners do not count; on `/mcp` only a
+`tools/call`, since connecting and listing tools is client housekeeping) or
+work in progress — a queued or running job, an active download — which counts for as
 long as it lasts, so a 20-minute video never looks idle.
 
 ## Gotchas worth keeping

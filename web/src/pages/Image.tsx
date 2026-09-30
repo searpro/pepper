@@ -146,6 +146,10 @@ interface FormState {
   loras: LoraChoice[];
   /** A custom denoising schedule, from a LoRA's preset or a reused image. */
   schedule: Schedule | null;
+  /** Second, higher-resolution "hires fix" pass. */
+  detail: Detail;
+  /** Denoise for that pass; `null` is the model's default. */
+  detailDenoise: number | null;
 }
 
 interface Schedule {
@@ -185,6 +189,8 @@ const DEFAULTS: FormState = {
   characterRef: false,
   loras: [],
   schedule: null,
+  detail: 'default',
+  detailDenoise: null,
 };
 
 const STORE_KEY = 'pepper-image-form';
@@ -198,12 +204,15 @@ function loadForm(): FormState {
   }
 }
 
-/** Width × height with roughly `res²` pixels at the given aspect, in multiples of 16. */
+/**
+ * Width × height with roughly `res²` pixels at the given aspect, in multiples
+ * of 32: Qwen-Image 2.1 requires it and Z-Image is visibly sharper on it.
+ */
 function fit(aw: number, ah: number, res: number): [number, number] {
   const ratio = aw / ah;
   const h = Math.sqrt((res * res) / ratio);
   const w = h * ratio;
-  return [Math.max(256, Math.round(w / 16) * 16), Math.max(256, Math.round(h / 16) * 16)];
+  return [Math.max(256, Math.round(w / 32) * 32), Math.max(256, Math.round(h / 32) * 32)];
 }
 
 interface ModelDefaults {
@@ -212,6 +221,16 @@ interface ModelDefaults {
   sampler?: string;
   width?: number;
   height?: number;
+  hires?: { enabled?: boolean; scale?: number; denoise?: number; steps?: number; upscaler?: string };
+}
+
+/** Detail-pass choices: the model's recommendation, off, or an explicit scale. */
+const DETAIL_OPTIONS = ['default', 'off', '1.5', '2'] as const;
+type Detail = (typeof DETAIL_OPTIONS)[number];
+
+function describeHires(hires: ModelDefaults['hires']): string {
+  if (!hires || hires.enabled === false) return 'off';
+  return `${hires.scale ?? 2}×${hires.denoise !== undefined ? `, denoise ${hires.denoise}` : ''}`;
 }
 
 function modelDefaults(model: BundleInfo | undefined): ModelDefaults {
@@ -465,6 +484,15 @@ export function ImagePage() {
     };
     if (form.cfg_scale !== null) body.cfg_scale = form.cfg_scale;
     if (form.sampler) body.sampler = form.sampler;
+    if (form.detail === 'off') {
+      body.hires = { enabled: false };
+    } else if (form.detail !== 'default' || form.detailDenoise !== null) {
+      body.hires = {
+        enabled: true,
+        ...(form.detail !== 'default' ? { scale: Number(form.detail) } : {}),
+        ...(form.detailDenoise !== null ? { denoise: form.detailDenoise } : {}),
+      };
+    }
     if (form.negative_prompt.trim()) body.negative_prompt = form.negative_prompt.trim();
     if (form.seed >= 0) body.seed = form.seed;
     if (character) body.character_id = character.id;
@@ -1077,6 +1105,36 @@ export function ImagePage() {
                   ]}
                 />
               </Field>
+
+              <Field
+                label="Detail pass"
+                hint="Upscales the first result and refines it at the larger size (hires fix). Sharper, at roughly twice the time."
+              >
+                <Select
+                  value={form.detail}
+                  onValueChange={(value) => update('detail', value as Detail)}
+                  options={[
+                    { value: 'default', label: `Model default (${describeHires(defaults.hires)})` },
+                    { value: 'off', label: 'Off' },
+                    { value: '1.5', label: '1.5× larger' },
+                    { value: '2', label: '2× larger' },
+                  ]}
+                />
+              </Field>
+              {form.detail !== 'off' && (form.detail !== 'default' || defaults.hires?.enabled) ? (
+                <Field
+                  label={`Detail strength · ${form.detailDenoise ?? defaults.hires?.denoise ?? 0.7}`}
+                  hint="How much the detail pass may change the image. 0.25–0.4 sharpens; higher reinvents detail."
+                >
+                  <Slider
+                    value={form.detailDenoise ?? defaults.hires?.denoise ?? 0.7}
+                    onValueChange={(value) => update('detailDenoise', value)}
+                    min={0.1}
+                    max={0.9}
+                    step={0.05}
+                  />
+                </Field>
+              ) : null}
 
               <Field label="Negative prompt">
                 <Textarea

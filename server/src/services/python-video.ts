@@ -56,7 +56,7 @@ interface RunnerSpec {
   components: Record<string, string>;
   package_dir: string | null;
   params: Record<string, unknown>;
-  inputs: { image: string | null; audio: string | null };
+  inputs: { image: string | null; audio: string | null; video?: string | null };
 }
 
 interface RunnerMessage {
@@ -311,7 +311,9 @@ export class PythonVideoService {
     runner: string;
     output: string;
     params: Record<string, unknown>;
-    inputs: { image?: string | null; audio?: string | null };
+    inputs: { image?: string | null; audio?: string | null; video?: string | null };
+    /** Upstream code the runner drives, as a git URL pinned with `#<commit>`. */
+    package?: string;
     onProgress?: (progress: StepProgress) => void;
     onLog?: (line: string) => void;
     signal?: AbortSignal;
@@ -321,15 +323,31 @@ export class PythonVideoService {
       this.logs.push({ level: 'info', source: 'python', msg: line });
     };
     const runtime = await this.prepare(log, options.signal);
+    let packageDir: string | null = null;
+    if (options.package) {
+      packageDir = this.config.pythonExecutable
+        ? this.backends.python.packageDir(options.package)
+        : await this.backends.python.installPackage(
+            runtime,
+            { source: options.package },
+            options.signal,
+            // Its dependencies are pinned in pepper_runner's requirements.txt.
+            { requirements: false },
+          );
+    }
     const { type: _type, ...result } = await this.runSpec(
       runtime.pythonPath,
       {
         runner: options.runner,
         output: options.output,
         components: {},
-        package_dir: null,
+        package_dir: packageDir,
         params: options.params,
-        inputs: { image: options.inputs.image ?? null, audio: options.inputs.audio ?? null },
+        inputs: {
+          image: options.inputs.image ?? null,
+          audio: options.inputs.audio ?? null,
+          video: options.inputs.video ?? null,
+        },
       },
       { onProgress: options.onProgress, onLog: log, signal: options.signal },
     );

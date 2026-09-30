@@ -257,8 +257,8 @@ function CatalogueTab({ installedIds }: { installedIds: Set<string> }) {
 
 /**
  * The component/quantization picker. One selection per component, defaulting
- * to the smallest file — which for a quantized model is the one most likely to
- * fit, and the safest thing to pre-select on hardware we know nothing about.
+ * to the catalogue's recommended file (the quality pick for a 24 GB GPU), else
+ * the smallest — the one most likely to fit on hardware we know nothing about.
  *
  * An `allFiles` component (a tokenizer, a config + weights pair) is not a
  * choice between files but a set: it offers "all N files" or, when optional,
@@ -279,7 +279,7 @@ function InstallDialog({ modelId, onClose }: { modelId: string; onClose: () => v
     if (!files.data) return;
     const defaults: Record<string, string> = {};
     for (const component of files.data.components) {
-      const first = component.files?.[0];
+      const first = component.files?.find((file) => file.recommended) ?? component.files?.[0];
       if (!first || !component.required) continue;
       defaults[component.slot + component.label] = component.source?.allFiles ? ALL_FILES : first.url;
     }
@@ -361,7 +361,7 @@ function InstallDialog({ modelId, onClose }: { modelId: string; onClose: () => v
                           ...(component.files ?? []).map((file) => ({
                             value: file.url,
                             label: `${file.quant ? `${file.quant} · ` : ''}${file.filename}`,
-                            description: formatBytes(file.size),
+                            description: `${formatBytes(file.size)}${file.recommended ? ' · recommended' : ''}`,
                           })),
                         ]
                   }

@@ -87,9 +87,11 @@ Ctrl-C during `up` only detaches; the pod keeps running (and billing).
 
 A pod bills whether or not anyone uses it, so the entrypoint terminates it
 after `--idle-minutes`. **Idle** means: no job queued or running, no download
-in progress, and no successful non-GET request (a generation, an install, any
+in progress, and no successful non-GET request (a generation, an install, an
 MCP tool call) in that time. Reads don't count, so a forgotten browser tab
-polling status does not keep it alive. The pod log says when termination is
+polling status does not keep it alive; nor does MCP housekeeping (a client
+connecting, listing tools or pinging), which an open claude.ai chat with the
+connector enabled does on its own. Only `tools/call` counts. The pod log says when termination is
 five minutes away. Pods with a network volume can only be terminated, not
 stopped, which loses nothing: everything worth keeping is on the volume.
 

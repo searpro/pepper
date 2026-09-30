@@ -1,5 +1,7 @@
-import type { GenerateParams } from '../schemas/generate.js';
+import { extname } from 'node:path';
+import type { GenerateParams, HiresParams } from '../schemas/generate.js';
 import type { ResolvedImageBundle, ClipRole } from '../models/bundle.js';
+import { presetSigmas, type LoraPreset } from '../models/lora-presets.js';
 
 /**
  * Maps API parameters to stable-diffusion.cpp flags.
@@ -35,6 +37,88 @@ export const WEIGHT_FLAG: Record<ClipRole | 'vae' | 'audio_vae', string> = {
   llm_vision: '--llm_vision',
 };
 
+/** sd-cli's built-in hires upscalers; anything else names a model file. */
+export const BUILTIN_HIRES_UPSCALERS = [
+  'Latent',
+  'Latent (nearest)',
+  'Latent (nearest-exact)',
+  'Latent (antialiased)',
+  'Latent (bicubic)',
+  'Latent (bicubic antialiased)',
+  'Lanczos',
+  'Nearest',
+];
+
+/** A hires pass resolved against the model's defaults, with where its upscaler lives. */
+export interface ResolvedHires extends Omit<HiresParams, 'enabled'> {
+  /** Directory holding the upscaler model, when `upscaler` names one. */
+  upscalersDir?: string;
+}
+
+/**
+ * The model's recommended hires pass with the request's fields laid over it.
+ * `undefined` when neither asks for one or the request turns it off.
+ */
+export function mergeHires(
+  defaults: Partial<HiresParams> | undefined,
+  request: Partial<HiresParams> | undefined,
+): Omit<HiresParams, 'enabled'> | undefined {
+  if (!defaults && !request) return undefined;
+  const merged = { ...defaults, ...request };
+  if (merged.enabled === false) return undefined;
+  // A request that only says { enabled: true } on a model without defaults
+  // still gets sd-cli's own defaults (2x, Latent, 0.7).
+  const { enabled: _enabled, ...rest } = merged;
+  return rest;
+}
+
+/**
+ * Where sd-cli should look for a named hires upscaler: the bundle's `aux/`
+ * folder first (a model-specific latent upscaler such as LTX-2's), then the
+ * shared ESRGAN folder. Built-in names need no directory.
+ */
+export function resolveHiresUpscaler(
+  name: string | undefined,
+  bundle: Pick<ResolvedImageBundle, 'auxDir' | 'auxFiles'>,
+  upscaleDir: string,
+  upscaleFiles: string[],
+): { upscaler?: string; upscalersDir?: string } {
+  if (!name || BUILTIN_HIRES_UPSCALERS.includes(name)) return { upscaler: name };
+  const stem = (file: string) => file.slice(0, file.length - extname(file).length);
+  if (bundle.auxDir && bundle.auxFiles.some((file) => stem(file) === name)) {
+    return { upscaler: name, upscalersDir: bundle.auxDir };
+  }
+  if (upscaleFiles.some((file) => stem(file) === name)) return { upscaler: name, upscalersDir: upscaleDir };
+  throw new Error(
+    `Hires upscaler "${name}" is neither built in (${BUILTIN_HIRES_UPSCALERS.join(', ')}) ` +
+      "nor installed in this model's aux folder or the upscalers folder.",
+  );
+}
+
+/**
+ * The schedule a distillation LoRA was trained for, when one in the request
+ * has a preset with a step count. Only the first such LoRA counts: two
+ * distillation LoRAs at once is not a combination any preset describes.
+ */
+export function loraSchedule(
+  loras: GenerateParams['loras'],
+  presets: Record<string, LoraPreset>,
+  width: number,
+  height: number,
+): { lora: string; steps?: number; cfg_scale?: number; sigmas?: number[] } | undefined {
+  for (const lora of loras ?? []) {
+    const preset = presets[lora.name];
+    if (!preset?.steps) continue;
+    return {
+      lora: lora.name,
+      steps: preset.steps,
+      cfg_scale: preset.cfg_scale,
+      sigmas: presetSigmas(preset, width, height),
+    };
+  }
+  return undefined;
+}
+
 export interface InputImages {
   init?: string;
   /** Flag `init` is passed under. Defaults to `-i`. */
@@ -58,6 +142,8 @@ export interface BuildArgsInput {
   images?: InputImages;
   /** Speech conditioning, for a single speech-to-video chunk. */
   audio?: AudioConditioning;
+  /** Second, higher-resolution pass, already merged and resolved. */
+  hires?: ResolvedHires;
   /**
    * Process-wide flags from the user's backend settings (threads, VAE tiling,
    * flash attention). Appended before the manifest's own extras so a
@@ -72,15 +158,31 @@ export interface BuildArgsInput {
  * checked against the bundle before this is reached; the character filter is
  * a second line of defence against a name closing the tag early.
  */
-export function withLoraTags(prompt: string, loras: GenerateParams['loras']): string {
+export function withLoraTags(
+  prompt: string,
+  loras: GenerateParams['loras'],
+  highNoiseExpert = false,
+): string {
   const tags = (loras ?? [])
-    .filter((lora) => /^[^<>:]+$/.test(lora.name))
-    .map((lora) => `<lora:${lora.name}:${lora.weight ?? 1}>`);
+    .filter((lora) => /^[^<>:|]+$/.test(lora.name))
+    .map((lora) =>
+      // On a two-expert model (Wan 2.2 A14B), LoRAs are published in pairs and
+      // the high-noise half must load into the high-noise expert, which sd-cli
+      // spells <lora:|high_noise|name:w>.
+      highNoiseExpert && isHighNoiseLora(lora.name)
+        ? `<lora:|high_noise|${lora.name}:${lora.weight ?? 1}>`
+        : `<lora:${lora.name}:${lora.weight ?? 1}>`,
+    );
   return tags.length ? `${prompt} ${tags.join(' ')}` : prompt;
 }
 
+/** Does a LoRA filename mark it as the high-noise half of a Wan 2.2 pair? */
+export function isHighNoiseLora(name: string): boolean {
+  return /high[_-]?noise/i.test(name);
+}
+
 export function buildImageArgs(input: BuildArgsInput): string[] {
-  const { params, bundle, outputPath, images, audio, backendArgs = [] } = input;
+  const { params, bundle, outputPath, images, audio, hires, backendArgs = [] } = input;
   const args: string[] = [];
 
   // Switches sd-cli into video generation. Must come before the model flags.
@@ -136,7 +238,7 @@ export function buildImageArgs(input: BuildArgsInput): string[] {
   if (bundle.loraDir) args.push('--lora-model-dir', bundle.loraDir);
 
   args.push('-o', outputPath);
-  args.push(FLAG_MAP.prompt, withLoraTags(params.prompt, params.loras));
+  args.push(FLAG_MAP.prompt, withLoraTags(params.prompt, params.loras, Boolean(bundle.highNoisePath)));
 
   if (params.negative_prompt) args.push(FLAG_MAP.negative_prompt, params.negative_prompt);
   if (params.steps !== undefined) args.push(FLAG_MAP.steps, String(params.steps));
@@ -145,7 +247,38 @@ export function buildImageArgs(input: BuildArgsInput): string[] {
   if (params.height !== undefined) args.push(FLAG_MAP.height, String(params.height));
   if (params.seed !== undefined) args.push(FLAG_MAP.seed, String(params.seed));
   if (params.sampler) args.push(FLAG_MAP.sampler, params.sampler);
+  if (params.scheduler) args.push('--scheduler', params.scheduler);
   if (params.sigmas?.length) args.push('--sigmas', params.sigmas.join(','));
+
+  // Wan 2.2's high-noise expert has its own step count, CFG and sampler. They
+  // follow the main ones unless the model says otherwise, so a Lightning
+  // preset's 4 steps at CFG 1 applies to both experts.
+  if (bundle.highNoisePath) {
+    const highNoise = bundle.defaults.high_noise ?? {};
+    // A high-noise LoRA (the Lightning pair) brings its own schedule, which
+    // the main steps/CFG already carry.
+    const pairedLora = params.loras?.some((lora) => isHighNoiseLora(lora.name)) ?? false;
+    const steps = pairedLora ? params.steps : (highNoise.steps ?? params.steps);
+    const cfg = pairedLora ? params.cfg_scale : (highNoise.cfg_scale ?? params.cfg_scale);
+    const sampler = highNoise.sampler ?? params.sampler;
+    if (steps !== undefined) args.push('--high-noise-steps', String(steps));
+    if (cfg !== undefined) args.push('--high-noise-cfg-scale', String(cfg));
+    if (sampler) args.push('--high-noise-sampling-method', sampler);
+  }
+
+  if (hires) {
+    args.push('--hires');
+    if (hires.upscalersDir) args.push('--hires-upscalers-dir', hires.upscalersDir);
+    if (hires.upscaler) args.push('--hires-upscaler', hires.upscaler);
+    if (hires.width !== undefined && hires.height !== undefined) {
+      args.push('--hires-width', String(hires.width), '--hires-height', String(hires.height));
+    } else if (hires.scale !== undefined) {
+      args.push('--hires-scale', String(hires.scale));
+    }
+    if (hires.steps !== undefined) args.push('--hires-steps', String(hires.steps));
+    if (hires.denoise !== undefined) args.push('--hires-denoising-strength', String(hires.denoise));
+    if (hires.sigmas?.length) args.push('--hires-sigmas', hires.sigmas.join(','));
+  }
 
   // Video parameters. I2V's conditioning image reuses -i above.
   if (params.video_frames !== undefined) {

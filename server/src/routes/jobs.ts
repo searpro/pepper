@@ -4,6 +4,7 @@ import { z } from 'zod';
 import {
   audioJobSchema,
   errorResponseSchema,
+  musicJobSchema,
   generateSchema,
   jobSchema,
   textJobSchema,
@@ -22,6 +23,11 @@ import type { JobKind } from '../jobs/manager.js';
  * the generator — that separation is what let sd-api's synchronous route spawn
  * as many model loads as it received requests and get the server OOM-killed.
  */
+/** Whether an output/upload name is a video, which upscales through SeedVR2. */
+function isVideoName(name: string): boolean {
+  return /\.(webm|mp4|mov|mkv|avi)$/i.test(name);
+}
+
 export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -99,6 +105,31 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
   );
 
   app.post(
+    '/v1/jobs/music',
+    {
+      schema: {
+        tags: ['jobs'],
+        summary: 'Enqueue a music generation job',
+        description:
+          'Songs or instrumentals from an installed music model (audio.cpp task "gen": ACE-Step 1.5, ' +
+          'HeartMuLa, Stable Audio 3). Runs on the audio queue.',
+        body: musicJobSchema,
+        response: { 202: jobSchema, 400: errorResponseSchema },
+      },
+    },
+    async (req, reply) => {
+      const bundle = await app.models.find(req.body.model, ['audio']);
+      if (!bundle) throw errors.modelNotFound(req.body.model);
+      if (bundle.manifest?.task !== 'gen') {
+        throw errors.validation(
+          `Model "${req.body.model}" is not a music model (its task is "${bundle.manifest?.task ?? 'unset'}", not "gen").`,
+        );
+      }
+      return reply.code(202).send(app.jobs.create('audio', { task: 'music', ...req.body }));
+    },
+  );
+
+  app.post(
     '/v1/jobs/text',
     {
       schema: {
@@ -127,17 +158,24 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
     {
       schema: {
         tags: ['jobs'],
-        summary: 'Enqueue an ESRGAN upscale of a generated or uploaded image',
+        summary: 'Enqueue an upscale of a generated or uploaded image or video',
         description:
           'Runs on the image queue and produces a new output. `source` says whether `image` ' +
-          'names a generated output (default) or an upload. The source image\'s generation ' +
-          'settings are carried into the result metadata.',
+          'names a generated output (default) or an upload. Images go through an ESRGAN ' +
+          'checkpoint at `scale`; videos through SeedVR2 to `resolution` (short side), keeping ' +
+          "their soundtrack. The source's generation settings are carried into the result metadata.",
         body: z.object({
+          /** Output or upload name — an image or a video. */
           image: z.string().min(1),
           source: z.enum(['output', 'upload']).default('output'),
-          scale: z.union([z.literal(2), z.literal(4)]),
+          /** Images: 2x or 4x. */
+          scale: z.union([z.literal(2), z.literal(4)]).optional(),
           /** Checkpoint file name in the upscaler directory; the configured default if omitted. */
           upscaler: z.string().min(1).optional(),
+          /** Videos: target short side in pixels. */
+          resolution: z.number().int().min(360).max(2160).optional(),
+          /** Videos: SeedVR2 7B (best, sharp) or 3B (fast). */
+          quality: z.enum(['best', 'sharp', 'fast']).optional(),
         }),
         response: { 202: jobSchema, 400: errorResponseSchema },
       },
@@ -146,6 +184,17 @@ export async function jobRoutes(fastify: FastifyInstance): Promise<void> {
       // Fail fast on a missing file or no usable model rather than queueing a
       // job that can only fail.
       await app.upscaler.resolveSource(req.body.image, req.body.source);
+      if (isVideoName(req.body.image)) {
+        return reply.code(202).send(
+          app.jobs.create('image', {
+            task: 'upscale',
+            ...req.body,
+            resolution: req.body.resolution ?? 1080,
+            quality: req.body.quality ?? 'best',
+          }),
+        );
+      }
+      if (req.body.scale === undefined) throw errors.validation('Image upscales need a scale (2 or 4)');
       const scales = await app.upscaler.availableScales();
       if (!scales.includes(req.body.scale)) {
         throw errors.validation(

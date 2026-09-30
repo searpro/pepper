@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AudioLines, Mic, Play, Upload, Volume2 } from 'lucide-react';
+import { AudioLines, Mic, Music, Play, Upload, Volume2 } from 'lucide-react';
 import { api, useResource, waitForJob, type BundleInfo } from '@/lib/api';
 import {
   Button,
@@ -43,18 +43,24 @@ export function AudioPage() {
   const voiceRefs = useResource<{ voiceRefs: VoiceRef[] }>('/v1/audio/voice-refs');
 
   const ready = (models.data?.models ?? []).filter((model) => model.ready);
-  const ttsModels = ready.filter((model) => (model.manifest?.task as string) !== 'asr');
-  const asrModels = ready.filter((model) => (model.manifest?.task as string) === 'asr');
+  const task = (model: BundleInfo) => model.manifest?.task as string | undefined;
+  // audio.cpp's task "gen" is music generation (ACE-Step, HeartMuLa, Stable Audio).
+  const ttsModels = ready.filter((model) => task(model) !== 'asr' && task(model) !== 'gen');
+  const asrModels = ready.filter((model) => task(model) === 'asr');
+  const musicModels = ready.filter((model) => task(model) === 'gen');
 
   return (
     <Page
       title="Audio"
-      description="Speech generation, voice design and transcription through audio.cpp."
+      description="Speech, voice design, music and transcription through audio.cpp."
     >
       <Tabs defaultValue="speech">
         <TabsList>
           <TabsTrigger value="speech">
             <Volume2 className="size-3.5" /> Speech
+          </TabsTrigger>
+          <TabsTrigger value="music">
+            <Music className="size-3.5" /> Music
           </TabsTrigger>
           <TabsTrigger value="transcribe">
             <Mic className="size-3.5" /> Transcription
@@ -70,6 +76,10 @@ export function AudioPage() {
             voiceRefs={voiceRefs.data?.voiceRefs ?? []}
             loading={models.loading}
           />
+        </TabsContent>
+
+        <TabsContent value="music" className="mt-4">
+          <MusicPanel models={musicModels} loading={models.loading} />
         </TabsContent>
 
         <TabsContent value="transcribe" className="mt-4">
@@ -319,6 +329,160 @@ function SpeechPanel({
             icon={Volume2}
             title="Nothing generated yet"
             description="Generated speech plays here as soon as it is ready."
+          />
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/**
+ * Songs and instrumentals. The style prompt is ACE-Step's caption and
+ * HeartMuLa's tags; lyrics carry section markers, and leaving them empty asks
+ * for an instrumental. A few minutes of music takes about a minute on a 4090.
+ */
+function MusicPanel({ models, loading }: { models: BundleInfo[]; loading: boolean }) {
+  const [model, setModel] = React.useState('');
+  const [prompt, setPrompt] = React.useState('');
+  const [lyrics, setLyrics] = React.useState('');
+  const [duration, setDuration] = React.useState<number | null>(null);
+  const [seed, setSeed] = React.useState(-1);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string>();
+  const [result, setResult] = React.useState<{ url: string; seed?: number }>();
+
+  React.useEffect(() => {
+    if (!models.some((entry) => entry.id === model)) setModel(models[0]?.id ?? '');
+  }, [models, model]);
+
+  const generate = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      const job = await api.post<{ id: string }>('/v1/jobs/music', {
+        model,
+        prompt: prompt.trim(),
+        ...(lyrics.trim() ? { lyrics: lyrics.trim() } : {}),
+        ...(duration ? { duration_seconds: duration } : {}),
+        ...(seed >= 0 ? { seed } : {}),
+      });
+      const finished = await waitForJob(job.id);
+      if (finished.status === 'failed') {
+        throw new Error(finished.error?.message ?? 'Music generation failed');
+      }
+      const url = finished.result?.audio_url as string | undefined;
+      const metadata = finished.result?.metadata as { seed?: number } | undefined;
+      if (url) setResult({ url, seed: metadata?.seed });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Spinner className="size-3" /> Loading audio models…
+      </div>
+    );
+  }
+
+  if (models.length === 0) {
+    return (
+      <EmptyState
+        icon={Music}
+        title="No music models installed"
+        description="Open Models in the top bar and install ACE-Step 1.5 or HeartMuLa from the catalogue."
+      />
+    );
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(320px,420px)_1fr]">
+      <Card className="flex flex-col gap-4 p-4">
+        <Field label="Model">
+          <Select
+            value={model}
+            onValueChange={setModel}
+            options={models.map((entry) => ({
+              value: entry.id,
+              label: entry.name,
+              description: (entry.manifest?.family as string) ?? undefined,
+            }))}
+          />
+        </Field>
+
+        <Field label="Style" hint="Genre, instruments, mood, vocal type, tempo.">
+          <Textarea
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            rows={3}
+            placeholder="Upbeat city pop, groovy bass, bright synths, female vocal, 118 bpm"
+          />
+        </Field>
+
+        <Field label="Lyrics" hint="Use [Verse], [Chorus] and [Bridge] markers. Leave empty for an instrumental.">
+          <Textarea
+            value={lyrics}
+            onChange={(event) => setLyrics(event.target.value)}
+            rows={8}
+            placeholder={'[Verse]\nStreetlights hum a quiet tune\n\n[Chorus]\nTonight we never sleep'}
+          />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Length (seconds)" hint="Empty lets the model decide.">
+            <Input
+              type="number"
+              min={5}
+              max={600}
+              value={duration ?? ''}
+              placeholder="auto"
+              onChange={(event) => setDuration(event.target.value ? Number(event.target.value) : null)}
+            />
+          </Field>
+          <Field label="Seed" hint="-1 for random.">
+            <Input
+              type="number"
+              value={seed}
+              onChange={(event) => setSeed(Number(event.target.value || -1))}
+            />
+          </Field>
+        </div>
+
+        {error ? <ErrorNote>{error}</ErrorNote> : null}
+
+        <Button onClick={() => void generate()} disabled={!prompt.trim() || !model || busy}>
+          {busy ? <Spinner className="size-4" /> : <Music />}
+          Generate music
+        </Button>
+      </Card>
+
+      <Card className="flex min-h-[240px] flex-col items-center justify-center gap-4 p-6">
+        {result ? (
+          <div className="flex w-full max-w-lg flex-col gap-3">
+            <audio src={result.url} controls className="w-full" autoPlay />
+            <div className="flex items-center justify-center gap-4 text-xs">
+              <a href={result.url} download="music.wav" className="text-primary hover:underline">
+                Download track
+              </a>
+              {result.seed !== undefined ? (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => setSeed(result.seed!)}
+                >
+                  Reuse seed {result.seed}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <EmptyState
+            icon={Music}
+            title="Nothing generated yet"
+            description="The track plays here when it is ready. It also lands in Media."
           />
         )}
       </Card>

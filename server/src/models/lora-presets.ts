@@ -71,3 +71,25 @@ export const KNOWN_LORA_PRESETS: Record<string, LoraPreset> = {
     note: 'Use one Pruna adapter at a time.',
   },
 };
+
+/**
+ * A preset's schedule for an image of this size, ending in the terminal 0.
+ * Applies the resolution-dependent shift the way diffusers' flow-match
+ * scheduler does: the latent is 1/8 of the image and patchified 2x2, so the
+ * token count is (width/16)*(height/16). The web app used to do this itself;
+ * it lives here so the server can apply a preset on its own.
+ */
+export function presetSigmas(preset: LoraPreset, width: number, height: number): number[] | undefined {
+  if (!preset.sigmas?.length) return undefined;
+  const shift = preset.sigma_shift;
+  if (!shift) return [...preset.sigmas, 0];
+  const tokens = (width / 16) * (height / 16);
+  const slope = (shift.max_shift - shift.base_shift) / (shift.max_seq_len - shift.base_seq_len);
+  const mu = shift.base_shift + slope * (tokens - shift.base_seq_len);
+  return [
+    ...preset.sigmas.map((sigma) =>
+      sigma <= 0 ? 0 : Number((Math.exp(mu) / (Math.exp(mu) + (1 / sigma - 1))).toFixed(5)),
+    ),
+    0,
+  ];
+}

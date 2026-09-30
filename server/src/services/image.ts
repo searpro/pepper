@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomInt } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, mkdir, stat } from 'node:fs/promises';
+import { access, mkdir, readdir, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../config.js';
@@ -13,7 +13,7 @@ import { uniqueOutputName } from '../util/files.js';
 import type { ModelManager } from '../models/manager.js';
 import type { BackendManager } from '../backends/manager.js';
 import { loaderEnv } from '../backends/process.js';
-import { buildImageArgs } from './image-args.js';
+import { buildImageArgs, loraSchedule, mergeHires, resolveHiresUpscaler, type ResolvedHires } from './image-args.js';
 import { generateSpeechVideo } from './s2v.js';
 import type { GenerateParams } from '../schemas/generate.js';
 
@@ -34,6 +34,8 @@ export interface GenerateResult {
   outputName: string;
   kind: 'image' | 'video';
   durationMs: number;
+  /** The hires pass that ran, if any, for the output's metadata. */
+  hires?: ResolvedHires;
   /** Request values merged with the bundle's manifest defaults. */
   params: GenerateParams;
   /** Speech-to-video only: how the run was split. */
@@ -109,13 +111,21 @@ export class ImageService {
       video_frames: params.video_frames ?? bundle.defaults.video_frames,
       flow_shift: params.flow_shift ?? bundle.defaults.flow_shift,
       fps: params.fps ?? bundle.defaults.fps,
+      scheduler: params.scheduler ?? bundle.defaults.scheduler,
+      sigmas: params.sigmas ?? bundle.defaults.sigmas,
+      // The model's default LoRAs (Wan 2.2's Lightning pair) apply unless the
+      // request names its own; `loras: []` opts out. Defaults that are not
+      // installed are skipped rather than failing every request.
+      loras:
+        params.loras ??
+        bundle.defaults.loras?.filter((lora) => bundle.loras.includes(lora.name)),
       // sd-cli falls back to a fixed seed (42) when none is passed, so an
       // omitted or -1 seed is resolved here instead: every run differs, and the
       // seed that produced an image is recorded so it can be reproduced.
       seed: params.seed !== undefined && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 31 - 1),
     };
 
-    for (const lora of params.loras ?? []) {
+    for (const lora of effective.loras ?? []) {
       if (!bundle.loras.includes(lora.name)) {
         throw errors.validation(
           `LoRA "${lora.name}" is not installed in model "${bundle.id}".` +
@@ -123,6 +133,31 @@ export class ImageService {
         );
       }
     }
+
+    // A distillation LoRA only works on the schedule it was trained for: at
+    // the base model's 20 steps and CFG 6 it overcooks into grain and hard
+    // edges. So unless the caller opts out, its preset replaces steps, CFG
+    // and sigmas — and the base model's scheduler, which the preset's sigmas
+    // already encode.
+    if (params.lora_schedule !== 'off') {
+      const schedule = loraSchedule(
+        effective.loras,
+        bundle.loraPresets,
+        effective.width ?? 1024,
+        effective.height ?? 1024,
+      );
+      if (schedule) {
+        effective.steps = schedule.steps ?? effective.steps;
+        effective.cfg_scale = schedule.cfg_scale ?? effective.cfg_scale;
+        if (schedule.sigmas) {
+          effective.sigmas = schedule.sigmas;
+          effective.scheduler = undefined;
+        }
+        this.log.info({ lora: schedule.lora, steps: effective.steps }, 'applied LoRA schedule');
+      }
+    }
+
+    const hires = await this.resolveHires(bundle, params);
 
     const images = {
       init: params.init_image ? await this.resolveUpload(params.init_image) : undefined,
@@ -167,6 +202,7 @@ export class ImageService {
       bundle,
       outputPath,
       images,
+      hires,
       backendArgs: this.backends.argv('sdcpp'),
     });
 
@@ -191,7 +227,33 @@ export class ImageService {
       onLog,
       signal,
     });
-    return { outputPath, outputName, kind: bundle.mode, durationMs, params: effective };
+    return { outputPath, outputName, kind: bundle.mode, durationMs, params: effective, hires };
+  }
+
+  /** The request's hires pass over the model's default, with its upscaler located. */
+  private async resolveHires(
+    bundle: Awaited<ReturnType<ModelManager['resolveImage']>>,
+    params: GenerateParams,
+  ): Promise<ResolvedHires | undefined> {
+    const merged = mergeHires(bundle.defaults.hires, params.hires);
+    if (!merged) return undefined;
+    const upscaleFiles = await readdir(this.config.upscaleModelsDir).catch(() => [] as string[]);
+    try {
+      return {
+        ...merged,
+        ...resolveHiresUpscaler(merged.upscaler, bundle, this.config.upscaleModelsDir, upscaleFiles),
+      };
+    } catch (err) {
+      // An upscaler the caller named must exist. One that only comes from the
+      // model's defaults (4x-UltraSharp, say) may simply not be installed yet,
+      // and that should cost some sharpness, not every generation.
+      if (params.hires?.upscaler) throw errors.validation((err as Error).message);
+      this.log.warn(
+        { upscaler: merged.upscaler, model: bundle.id },
+        'default hires upscaler not installed; using Lanczos',
+      );
+      return { ...merged, upscaler: 'Lanczos' };
+    }
   }
 
   /**

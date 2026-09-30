@@ -208,8 +208,28 @@ export class CatalogueManager {
     component: CatalogueComponent,
     signal?: AbortSignal,
   ): Promise<ComponentFileOption[]> {
-    const { source } = component;
+    const lists = await Promise.all(
+      [component.source, ...(component.alternatives ?? [])].map((source) =>
+        this.sourceFiles(component, source, signal),
+      ),
+    );
+    // The same filename in two sources is the same file mirrored; keep the first.
+    const seen = new Set<string>();
+    const recommended = component.recommended?.toLowerCase();
+    return lists
+      .flat()
+      .filter((file) => (seen.has(file.filename) ? false : (seen.add(file.filename), true)))
+      .map((file) =>
+        recommended && file.filename.toLowerCase().includes(recommended) ? { ...file, recommended: true } : file,
+      )
+      .sort((a, b) => a.size - b.size);
+  }
 
+  private async sourceFiles(
+    component: CatalogueComponent,
+    source: CatalogueComponent['source'],
+    signal?: AbortSignal,
+  ): Promise<ComponentFileOption[]> {
     // A direct URL is a single fixed file with nothing to choose between.
     if (source.url) {
       const filename = decodeURIComponent(new URL(source.url).pathname.split('/').pop() ?? 'weights');
@@ -219,12 +239,12 @@ export class CatalogueManager {
     const files = await listRepoFiles(source.repo, source.path, this.config.hfToken, signal);
     const extensions = source.extensions ?? DEFAULT_EXTENSIONS;
     const match = source.match?.toLowerCase();
+    const include = source.include?.map(globToRegExp);
 
     return files
       .filter((file) => {
         const filename = file.path.split('/').pop() ?? file.path;
         const lower = filename.toLowerCase();
-    const include = source.include?.map(globToRegExp);
         if (include) {
           if (!include.some((re) => re.test(filename))) return false;
         } else if (!extensions.some((ext) => lower.endsWith(ext))) {
@@ -249,10 +269,9 @@ export class CatalogueManager {
           filename,
           size: file.size,
           quant: parseQuant(filename),
-          url: hfResolveUrl(source.repo, file.path),
+          url: hfResolveUrl(source.repo!, file.path),
         };
-      })
-      .sort((a, b) => a.size - b.size);
+      });
   }
 }
 

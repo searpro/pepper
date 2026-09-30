@@ -231,7 +231,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   // First, so the token check covers every route below — /docs included.
   registerAuthHook(app, config.apiToken);
   app.addHook('onResponse', async (request, reply) => {
-    if (isActivity(request.method, request.url, reply.statusCode)) app.activity.touch();
+    if (isActivity(request.method, request.url, reply.statusCode, request.body)) app.activity.touch();
   });
 
   await app.register(fastifyMultipart, {
@@ -435,6 +435,9 @@ function registerExecutors(
         height: result.params.height,
         seed: result.params.seed,
         sampler: result.params.sampler,
+        scheduler: result.params.scheduler,
+        // The upscaler's directory is local detail; the rest reproduces the pass.
+        hires: result.hires ? { ...result.hires, upscalersDir: undefined } : undefined,
         video_frames: result.params.video_frames,
         flow_shift: result.params.flow_shift,
         fps: result.s2v?.fps ?? result.params.fps,
@@ -462,11 +465,44 @@ function registerExecutors(
     const params = context.job.params as {
       image: string;
       source?: 'output' | 'upload';
-      scale: 2 | 4;
+      scale?: 2 | 4;
       upscaler?: string;
+      resolution?: number;
+      quality?: 'best' | 'sharp' | 'fast';
     };
     const source = params.source ?? 'output';
     const inputPath = await upscaler.resolveSource(params.image, source);
+
+    if (/\.(webm|mp4|mov|mkv|avi)$/i.test(params.image)) {
+      const origin =
+        source === 'output'
+          ? ((jobs.findByOutput(params.image)?.result?.metadata as Record<string, unknown> | undefined) ?? {})
+          : {};
+      const video = await upscaler.upscaleVideo({
+        inputPath,
+        resolution: params.resolution ?? 1080,
+        quality: params.quality ?? 'best',
+        onProgress: context.onProgress,
+        onLog: context.onLog,
+        signal: context.signal,
+      });
+      return {
+        video_path: video.outputPath,
+        video_url: `/v1/outputs/${encodeURIComponent(video.outputName)}`,
+        metadata: {
+          ...origin,
+          kind: 'video',
+          task: 'upscale',
+          source_video: params.image,
+          resolution: video.resolution,
+          upscaler: video.model,
+          upscale_engine: 'seedvr2',
+          duration_ms: video.durationMs,
+          output_dir: paths.outputDir,
+        },
+      };
+    }
+    if (params.scale === undefined) throw new Error('Image upscales need a scale (2 or 4)');
     const result = await upscaler.upscale({
       inputPath,
       scale: params.scale,
@@ -510,6 +546,32 @@ function registerExecutors(
   jobs.registerExecutor('video', generate);
 
   jobs.registerExecutor('audio', async (context) => {
+    // Music rides the audio queue: same backend, same memory budget.
+    if (context.job.params.task === 'music') {
+      const result = await speech.generateMusic({
+        params: context.job.params as never,
+        signal: context.signal,
+        onLog: context.onLog,
+      });
+      const params = result.params as Record<string, unknown>;
+      return {
+        audio_path: result.outputPath,
+        audio_url: `/v1/outputs/${encodeURIComponent(result.outputName)}`,
+        metadata: {
+          kind: 'audio',
+          task: 'music',
+          model: params.model,
+          prompt: params.prompt,
+          lyrics: params.lyrics,
+          duration_seconds: params.duration_seconds,
+          steps: params.steps,
+          seed: params.seed,
+          duration_ms: result.durationMs,
+          output_dir: paths.outputDir,
+        },
+      };
+    }
+
     const result = await speech.generate({
       params: context.job.params as never,
       signal: context.signal,

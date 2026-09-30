@@ -335,6 +335,21 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
     .optional()
     .describe("LoRAs from the model bundle's lora/ folder, by file name without extension.");
 
+  const hires = z
+    .object({
+      enabled: z.boolean().optional(),
+      scale: z.number().min(1).max(4).optional(),
+      denoise: z.number().min(0).max(1).optional(),
+      steps: z.number().int().min(1).max(200).optional(),
+      upscaler: z.string().optional(),
+    })
+    .optional()
+    .describe(
+      'Hires "detail" pass: upscale the first result, then refine it. Models ship a recommended one; ' +
+        'pass {enabled:false} to skip it, or scale/denoise (0.25-0.4 sharpens, higher reinvents detail) to tune it.',
+    );
+  const scheduler = z.string().optional().describe('sd-cli scheduler (simple, karras, beta, …); model default if omitted.');
+
   server.registerTool(
     'generate_image',
     {
@@ -358,6 +373,8 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
         strength: z.number().min(0).max(1).optional(),
         ref_images: z.array(z.string()).max(16).optional().describe('Upload names for edit models.'),
         loras,
+        hires,
+        scheduler,
         batch: z.number().int().min(1).max(8).optional(),
         wait_seconds: waitSeconds(MAX_WAIT_S),
       },
@@ -388,6 +405,7 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
         flow_shift: z.number().min(0).optional(),
         seed: z.number().int().min(-1).optional(),
         loras,
+        hires: hires.describe('LTX-2: its latent upscaler renders e.g. 640x360 up to 1280x720; see the model default.'),
         wait_seconds: waitSeconds(0),
       },
     },
@@ -412,6 +430,28 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
       },
     },
     async ({ wait_seconds, ...body }) => submit(ctx, '/v1/jobs/audio', body, wait_seconds),
+  );
+
+  server.registerTool(
+    'generate_music',
+    {
+      title: 'Generate music',
+      description:
+        'A song or instrumental from an installed music model (audio models whose task is "gen": ' +
+        'ACE-Step 1.5, HeartMuLa, Stable Audio 3). `prompt` is the style — genre, instruments, mood, ' +
+        'vocal type, tempo; `lyrics` uses [Verse]/[Chorus]/[Bridge] markers, omit for instrumental. ' +
+        'A few minutes of music takes about a minute; this returns a job id by default.',
+      inputSchema: {
+        model: z.string().describe('Music model id from pepper_status (kind audio).'),
+        prompt: z.string().min(1),
+        lyrics: z.string().optional(),
+        duration_seconds: z.number().min(1).max(600).optional(),
+        steps: z.number().int().min(1).max(200).optional(),
+        seed: z.number().int().min(-1).optional(),
+        wait_seconds: waitSeconds(0),
+      },
+    },
+    async ({ wait_seconds, ...body }) => submit(ctx, '/v1/jobs/music', body, wait_seconds),
   );
 
   server.registerTool(
@@ -440,16 +480,27 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     'upscale_image',
     {
-      title: 'Upscale an image',
-      description: 'ESRGAN 2x or 4x upscale of a generated output (by output_name) or an upload.',
+      title: 'Upscale an image or video',
+      description:
+        'Images: ESRGAN 2x or 4x. Videos: SeedVR2 diffusion super-resolution to `resolution` ' +
+        '(short side, default 1080), keeping the soundtrack — the standard finishing pass for ' +
+        'generated video; minutes per clip, so poll with get_job. Takes an output_name or upload name.',
       inputSchema: {
-        image: z.string().describe('output_name from a finished job, or an upload name.'),
-        scale: z.union([z.literal(2), z.literal(4)]).default(4),
+        image: z.string().describe('output_name from a finished job, or an upload name (image or video).'),
+        scale: z.union([z.literal(2), z.literal(4)]).optional().describe('Images only; default 4.'),
+        resolution: z.number().int().min(360).max(2160).optional().describe('Videos only: target short side.'),
+        quality: z.enum(['best', 'sharp', 'fast']).optional().describe('Videos only: SeedVR2 7B, 7B sharp, or 3B.'),
         source: z.enum(['output', 'upload']).default('output'),
         wait_seconds: waitSeconds(MAX_WAIT_S),
       },
     },
-    async ({ wait_seconds, ...body }) => submit(ctx, '/v1/jobs/upscale', body, wait_seconds),
+    async ({ wait_seconds, ...body }) =>
+      submit(
+        ctx,
+        '/v1/jobs/upscale',
+        /\.(webm|mp4|mov|mkv|avi)$/i.test(body.image) ? body : { ...body, scale: body.scale ?? 4 },
+        wait_seconds,
+      ),
   );
 
   // --- Jobs -----------------------------------------------------------------
@@ -583,7 +634,8 @@ export function registerPepperTools(server: McpServer, ctx: ToolContext): void {
       description:
         'Download a catalogue model onto this Pepper instance. For each required component ' +
         '(and optional ones if include_optional) it picks the file whose name contains `quant` ' +
-        '(e.g. "Q4_K_M", "Q8_0", "fp8"), else the smallest. Returns download ids; follow them ' +
+        '(e.g. "Q4_K_M", "Q8_0", "bf16"), else the catalogue\'s recommended file, else the smallest. ' +
+        'Returns download ids; follow them ' +
         'with list_downloads. Large models take many minutes.',
       inputSchema: {
         id: z.string(),
@@ -710,6 +762,7 @@ export interface CatalogueFile {
   size: number;
   url: string;
   quant?: string | null;
+  recommended?: boolean;
 }
 
 export interface CatalogueComponent {
@@ -724,7 +777,7 @@ export interface CatalogueComponent {
 /**
  * The file choice the install dialog leaves to a person, made by rule: every
  * file of an `allFiles` set, otherwise the file matching `quant`, otherwise the
- * smallest (the most likely to fit a 16 GB GPU, and the quickest to test).
+ * catalogue's recommended file, otherwise the smallest.
  */
 export function selectFiles(
   components: CatalogueComponent[],
@@ -744,6 +797,7 @@ export function selectFiles(
       ? component.files
       : [
           (quant && component.files.find((f) => f.filename.toLowerCase().includes(quant))) ||
+            component.files.find((f) => f.recommended) ||
             [...component.files].sort((a, b) => (a.size || Infinity) - (b.size || Infinity))[0],
         ];
     for (const file of pick) selections.push({ slot: component.slot, url: file.url, name: file.filename });

@@ -24,7 +24,8 @@ import {
 import { Semaphore } from '../src/util/semaphore.js';
 import { readGgufInfo } from '../src/util/gguf.js';
 import { isChatLlm } from '../src/models/text-encoders.js';
-import { buildImageArgs } from '../src/services/image-args.js';
+import { buildImageArgs, loraSchedule, mergeHires, resolveHiresUpscaler, withLoraTags } from '../src/services/image-args.js';
+import { musicRequest } from '../src/services/audio-gen.js';
 import { probeAudio, sliceAudio } from '../src/util/ffmpeg.js';
 import { UpscaleService, upscalerPreferencesKey, type UpscalerPreferences } from '../src/services/upscale.js';
 import { catalogueEntryFor, sdcppCompatible, UPSCALER_CATALOGUE } from '../src/services/upscalers-catalogue.js';
@@ -1593,7 +1594,12 @@ describe('mcp', () => {
 describe('idle tracking', () => {
   it('counts actions, not reads, polling or rejected requests', () => {
     expect(isActivity('POST', '/v1/jobs', 202)).toBe(true);
-    expect(isActivity('POST', '/mcp', 200)).toBe(true);
+    expect(isActivity('POST', '/mcp', 200, { jsonrpc: '2.0', method: 'tools/call' })).toBe(true);
+    expect(isActivity('POST', '/mcp/tok', 200, [{ method: 'ping' }, { method: 'tools/call' }])).toBe(true);
+    // An MCP client connecting, listing tools or pinging is not someone using Pepper.
+    for (const method of ['initialize', 'notifications/initialized', 'tools/list', 'ping']) {
+      expect(isActivity('POST', '/mcp', 200, { jsonrpc: '2.0', method }), method).toBe(false);
+    }
     expect(isActivity('DELETE', '/v1/models/image/x', 204)).toBe(true);
     expect(isActivity('GET', '/v1/system/status', 200)).toBe(false);
     expect(isActivity('POST', '/mcp', 401)).toBe(false);
@@ -1621,17 +1627,161 @@ describe('idle tracking', () => {
       expect((await status()).idleSeconds).toBeGreaterThanOrEqual(599);
       // Reading status is not activity...
       expect((await status()).idleSeconds).toBeGreaterThanOrEqual(599);
-      // ...but an action is, even a cheap one.
-      await app.inject({
-        method: 'POST',
-        url: '/mcp',
-        headers: { accept: 'application/json, text/event-stream' },
-        payload: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
-      });
+      // ...nor is an MCP client listing tools...
+      const mcp = (method: string, params: unknown) =>
+        app.inject({
+          method: 'POST',
+          url: '/mcp',
+          headers: { accept: 'application/json, text/event-stream' },
+          payload: { jsonrpc: '2.0', id: 1, method, params },
+        });
+      await mcp('tools/list', {});
+      expect((await status()).idleSeconds).toBeGreaterThanOrEqual(599);
+      // ...but a tool call is, even a cheap one.
+      await mcp('tools/call', { name: 'list_jobs', arguments: {} });
       expect((await status()).idleSeconds).toBeLessThan(5);
     } finally {
       await app.close();
       closeDb();
     }
+  });
+});
+
+describe('hires and LoRA schedules', () => {
+  const bundle = {
+    id: 'z',
+    mode: 'image',
+    loadMode: 'diffusion-model',
+    checkpointPath: '/m/z.gguf',
+    weights: {},
+    extraArgs: [],
+    defaults: {},
+    capabilities: [],
+    loras: [],
+    loraPresets: {},
+    auxDir: '/m/aux',
+    auxFiles: ['ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors'],
+  };
+
+  it('lays the request over the model default, and lets it turn hires off', () => {
+    const defaults = { enabled: true, scale: 1.5, denoise: 0.35, steps: 4, upscaler: '4x-UltraSharp' };
+    expect(mergeHires(defaults, undefined)).toEqual({ scale: 1.5, denoise: 0.35, steps: 4, upscaler: '4x-UltraSharp' });
+    expect(mergeHires(defaults, { denoise: 0.5 })?.denoise).toBe(0.5);
+    expect(mergeHires(defaults, { enabled: false })).toBeUndefined();
+    expect(mergeHires(undefined, undefined)).toBeUndefined();
+    expect(mergeHires(undefined, { enabled: true })).toEqual({});
+  });
+
+  it('finds a named upscaler in the bundle first, then the shared folder', () => {
+    expect(resolveHiresUpscaler('Latent', bundle, '/up', [])).toEqual({ upscaler: 'Latent' });
+    expect(
+      resolveHiresUpscaler('ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0', bundle, '/up', []).upscalersDir,
+    ).toBe('/m/aux');
+    expect(resolveHiresUpscaler('4x-UltraSharp', bundle, '/up', ['4x-UltraSharp.pth']).upscalersDir).toBe('/up');
+    expect(() => resolveHiresUpscaler('missing', bundle, '/up', [])).toThrow(/missing/);
+  });
+
+  it('emits the hires flags', () => {
+    const args = buildImageArgs({
+      params: { prompt: 'x', model: 'z', scheduler: 'simple' },
+      bundle: bundle as never,
+      outputPath: '/o.png',
+      hires: { scale: 2, steps: 4, denoise: 0.3, upscaler: '4x-UltraSharp', upscalersDir: '/up' },
+    });
+    const at = (flag: string) => args[args.indexOf(flag) + 1];
+    expect(args).toContain('--hires');
+    expect(at('--hires-upscalers-dir')).toBe('/up');
+    expect(at('--hires-upscaler')).toBe('4x-UltraSharp');
+    expect(at('--hires-scale')).toBe('2');
+    expect(at('--hires-steps')).toBe('4');
+    expect(at('--hires-denoising-strength')).toBe('0.3');
+    expect(at('--scheduler')).toBe('simple');
+    // Explicit target size wins over scale.
+    const sized = buildImageArgs({
+      params: { prompt: 'x', model: 'z' },
+      bundle: bundle as never,
+      outputPath: '/o.png',
+      hires: { scale: 2, width: 1920, height: 1088 },
+    });
+    expect(sized).toContain('--hires-width');
+    expect(sized).not.toContain('--hires-scale');
+  });
+
+  it('routes the high-noise half of a Wan 2.2 LoRA pair to the high-noise expert', () => {
+    const loras = [{ name: 'low_noise_model' }, { name: 'high_noise_model', weight: 1 }];
+    expect(withLoraTags('p', loras, true)).toBe('p <lora:low_noise_model:1> <lora:|high_noise|high_noise_model:1>');
+    // A single-expert model gets plain tags.
+    expect(withLoraTags('p', loras, false)).toBe('p <lora:low_noise_model:1> <lora:high_noise_model:1>');
+  });
+
+  it('samples the high-noise expert with the model defaults, or the Lightning schedule when paired', () => {
+    const wan = { ...bundle, highNoisePath: '/m/high.gguf', defaults: { high_noise: { steps: 8, cfg_scale: 3.5 } } };
+    const at = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
+    const base = buildImageArgs({
+      params: { prompt: 'x', model: 'w', steps: 10, cfg_scale: 3.5, sampler: 'euler' },
+      bundle: wan as never,
+      outputPath: '/o.webm',
+    });
+    expect(at(base, '--high-noise-steps')).toBe('8');
+    expect(at(base, '--high-noise-sampling-method')).toBe('euler');
+    const lightning = buildImageArgs({
+      params: { prompt: 'x', model: 'w', steps: 4, cfg_scale: 1, loras: [{ name: 'high_noise_model' }] },
+      bundle: wan as never,
+      outputPath: '/o.webm',
+    });
+    expect(at(lightning, '--high-noise-steps')).toBe('4');
+    expect(at(lightning, '--high-noise-cfg-scale')).toBe('1');
+  });
+
+  it('passes an explicit refine schedule for the hires pass', () => {
+    const args = buildImageArgs({
+      params: { prompt: 'x', model: 'z' },
+      bundle: bundle as never,
+      outputPath: '/o.webm',
+      hires: { sigmas: [0.85, 0.725, 0.421875, 0] },
+    });
+    expect(args[args.indexOf('--hires-sigmas') + 1]).toBe('0.85,0.725,0.421875,0');
+  });
+
+  it("runs a distillation LoRA on its trained schedule, shifted for the image's size", () => {
+    const presets = {
+      turbo: { steps: 6, cfg_scale: 1, sigmas: [1, 0.5], sigma_shift: { base_shift: 0.5, max_shift: 0.9, base_seq_len: 256, max_seq_len: 8192 } },
+      style: { cfg_scale: 3 },
+    };
+    const schedule = loraSchedule([{ name: 'style' }, { name: 'turbo', weight: 1 }], presets, 1024, 1024);
+    expect(schedule?.lora).toBe('turbo');
+    expect(schedule?.steps).toBe(6);
+    expect(schedule?.cfg_scale).toBe(1);
+    // Shifted towards more noise at 1 MP, and ending in the terminal 0.
+    expect(schedule?.sigmas?.[0]).toBe(1);
+    expect(schedule?.sigmas?.[1]).toBeGreaterThan(0.5);
+    expect(schedule?.sigmas?.at(-1)).toBe(0);
+    expect(loraSchedule([{ name: 'style' }], presets, 1024, 1024)).toBeUndefined();
+  });
+});
+
+describe('music', () => {
+  it("maps a request onto audio.cpp's generic task fields", () => {
+    const request = musicRequest({
+      model: 'ace-step-1.5',
+      prompt: 'city pop, female vocal',
+      lyrics: '[Chorus]\nTonight',
+      duration_seconds: 90,
+      steps: 8,
+      seed: 7,
+    });
+    expect(request).toMatchObject({
+      text: 'city pop, female vocal',
+      lyrics: '[Chorus]\nTonight',
+      duration_seconds: 90,
+      num_inference_steps: 8,
+      seed: 7,
+      // HeartMuLa reads its style from the tags option.
+      options: { tags: 'city pop, female vocal', duration_sec: '90' },
+    });
+    // An instrumental sends no lyrics at all; -1 means "pick one".
+    const instrumental = musicRequest({ model: 'm', prompt: 'ambient', seed: -1 });
+    expect(instrumental).not.toHaveProperty('lyrics');
+    expect(instrumental).not.toHaveProperty('seed');
   });
 });
