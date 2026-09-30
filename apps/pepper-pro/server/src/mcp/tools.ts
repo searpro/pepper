@@ -236,7 +236,8 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         '`beats`: tempo and beats of a track (give asset_id of a music asset, then set beatSync on the cut ' +
         'to cut on the beat). `stems`: split a song into vocals and accompaniment assets (lip-sync a ' +
         'performance to the vocals). `check`: a vision model reviews a finished take against its shot and ' +
-        'stores the verdict on it (shown by get_project).',
+        'stores the verdict on it (shown by get_project). `transcribe`: Whisper reads speech (an upload, or a ' +
+        'take, judged against the text it was asked to say); use it on TTS lines before building on them.',
       inputSchema: { ...analyzeSchema.shape, wait_seconds: waitSeconds(30) },
     },
     async ({ wait_seconds, ...body }) => submit(ctx, '/v1/analyze', body, wait_seconds),

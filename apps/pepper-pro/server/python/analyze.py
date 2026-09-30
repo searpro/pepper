@@ -3,6 +3,8 @@
     python analyze.py beats <audio>                -> {"bpm", "beats", "downbeats", "duration"}
     python analyze.py stems <audio> <out_dir> [--device cpu|cuda]
                                                    -> {"vocals": path, "accompaniment": path}
+    python analyze.py transcribe <audio> [--expected TEXT] [--model base]
+                                                   -> {"text", "language", "segments", "match"?}
 
 The one JSON result goes to stdout; progress goes to stderr, one line at a
 time, which the server forwards to the job's log. Both tasks run on the CPU
@@ -56,6 +58,46 @@ def stems(path: str, out_dir: str, device: str) -> dict:
     return {"vocals": str(vocals), "accompaniment": str(rest)}
 
 
+def word_error_rate(expected: str, heard: str) -> float:
+    """Levenshtein distance over words, normalised by the expected length."""
+    import re
+
+    def words(text: str) -> list[str]:
+        return re.findall(r"[\w']+", text.lower())
+
+    a, b = words(expected), words(heard)
+    if not a:
+        return 0.0 if not b else 1.0
+    row = list(range(len(b) + 1))
+    for i, wa in enumerate(a, 1):
+        prev, row[0] = row[0], i
+        for j, wb in enumerate(b, 1):
+            prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (wa != wb))
+    return row[len(b)] / len(a)
+
+
+def transcribe(path: str, expected: str | None, model_name: str, cache: str | None) -> dict:
+    import whisper
+
+    log(f"transcribing with whisper {model_name}")
+    model = whisper.load_model(model_name, download_root=cache)
+    result = model.transcribe(path, fp16=False)
+    out = {
+        "text": result["text"].strip(),
+        "language": result.get("language"),
+        "segments": [
+            {"start": round(s["start"], 2), "end": round(s["end"], 2), "text": s["text"].strip(), "no_speech": round(s["no_speech_prob"], 3)}
+            for s in result["segments"]
+        ],
+    }
+    if expected is not None:
+        wer = word_error_rate(expected, out["text"])
+        # A take that says the line with a word or two misheard passes; one
+        # that says something else, or nothing, does not.
+        out["match"] = {"wer": round(wer, 3), "ok": wer <= 0.25}
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="task", required=True)
@@ -65,8 +107,18 @@ def main() -> None:
     s.add_argument("audio")
     s.add_argument("out_dir")
     s.add_argument("--device", default="cpu")
+    t = sub.add_parser("transcribe")
+    t.add_argument("audio")
+    t.add_argument("--expected")
+    t.add_argument("--model", default="base")
+    t.add_argument("--cache")
     args = parser.parse_args()
-    result = beats(args.audio) if args.task == "beats" else stems(args.audio, args.out_dir, args.device)
+    if args.task == "beats":
+        result = beats(args.audio)
+    elif args.task == "stems":
+        result = stems(args.audio, args.out_dir, args.device)
+    else:
+        result = transcribe(args.audio, args.expected, args.model, args.cache)
     print(json.dumps(result))
 
 

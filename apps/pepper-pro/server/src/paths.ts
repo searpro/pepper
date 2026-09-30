@@ -43,6 +43,9 @@ export const COMFY_FOLDERS = [
   'controlnet',
   'style_models',
   'seedvr2',
+  // Node packs' own folders: Qwen3-TTS checkpoints, LongCat-Avatar's.
+  'qwen-tts',
+  'longcat',
 ] as const;
 export type ComfyFolder = (typeof COMFY_FOLDERS)[number];
 

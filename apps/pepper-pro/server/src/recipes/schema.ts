@@ -31,6 +31,15 @@ const fileVariantSchema = z
     url: z.string().url().optional(),
     /** File name on disk; defaults to the last segment of `path` or `url`. */
     name: z.string().regex(/^[^/\\]+$/).optional(),
+    /**
+     * A sub-directory of the folder, for models a node pack loads as a
+     * directory (a Hugging Face checkpoint: config, shards, tokenizer).
+     */
+    dir: z
+      .string()
+      .regex(/^[\w.-]+(\/[\w.-]+)*$/)
+      .refine((d) => !d.split('/').includes('..'), 'no ".." in dir')
+      .optional(),
     bytes: z.number().int().positive().optional(),
     sha256: z
       .string()
@@ -129,6 +138,11 @@ const workflowSchema = z.object({
   bypass: z
     .array(z.object({ node: z.string(), requires: z.array(z.string()).min(1), through: z.record(z.string()) }))
     .default([]),
+  /**
+   * Files this workflow needs that no input names: a node pack that finds its
+   * checkpoint by convention (Qwen3-TTS picks a directory by model type).
+   */
+  requires_files: z.array(z.string()).default([]),
 });
 export type WorkflowSpec = z.infer<typeof workflowSchema>;
 
@@ -179,7 +193,17 @@ export const recipeSchema = z
     licence: licenceSchema,
     /** Custom node packs, by directory name, each pinned to a commit in the image. */
     nodes: z
-      .array(z.object({ name: z.string(), repo: z.string().url(), commit: z.string().regex(/^[0-9a-f]{7,40}$/) }))
+      .array(
+        z.object({
+          name: z.string().regex(/^[\w.-]+$/),
+          repo: z.string().url(),
+          commit: z.string().regex(/^[0-9a-f]{7,40}$/),
+          /** Lines of the pack's requirements.txt not to install (a package that would shadow another). */
+          skip_requirements: z.array(z.string()).default([]),
+          /** Packages the pack imports but does not list. */
+          pip: z.array(z.string()).default([]),
+        }),
+      )
       .default([]),
     /** Which ComfyUI instance runs it (a second instance isolates conflicting packs). */
     instance: z.string().default('main'),
@@ -211,6 +235,9 @@ export const recipeSchema = z
       }
     }
     for (const [name, workflow] of Object.entries(recipe.workflows)) {
+      for (const id of workflow.requires_files) {
+        if (!files.has(id)) ctx.addIssue({ code: 'custom', message: `workflow "${name}" requires unknown file "${id}"` });
+      }
       for (const binding of workflow.bindings) {
         if ('file' in binding && !files.has(binding.file)) {
           ctx.addIssue({ code: 'custom', message: `workflow "${name}" binds unknown file "${binding.file}"` });

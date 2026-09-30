@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "id": "infinitetalk",
+  "id": "infinitetalk-duo",
   "version": 1,
   "kind": "video",
-  "name": "InfiniteTalk — a photo that talks",
-  "description": "One portrait and a voice recording become a talking, gesturing video, lip-synced to the audio: talking-head posts, explainers, a character delivering a monologue. Up to 12 s per take.",
+  "name": "InfiniteTalk — two people talking",
+  "description": "One frame with two people and their two lines become a conversation: each lip-syncs to their own voice while the other listens. Speaker 1 is on the left of the frame. Up to 12 s per take.",
   "family": "wan-2.1-i2v",
   "capabilities": [
-    "talking",
+    "dialogue",
     "lip-sync",
     "audio-driven",
-    "first-frame"
+    "two-person"
   ],
   "licence": {
     "id": "apache-2.0",
@@ -61,13 +61,13 @@
     {
       "id": "patch",
       "folder": "model_patches",
-      "label": "InfiniteTalk (single speaker)",
+      "label": "InfiniteTalk (two speakers)",
       "variants": [
         {
           "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
-          "path": "split_files/model_patches/wan2.1_infiniteTalk_single_fp16.safetensors",
-          "bytes": 5125258232,
-          "sha256": "bf212c5c647eaf1c019b2158d2edf4a360d97e38b746c4bac994fee485e09fc3"
+          "path": "split_files/model_patches/wan2.1_infiniteTalk_multi_fp16.safetensors",
+          "bytes": 5124439112,
+          "sha256": "4c2486cdfb6ff9a9f27408e98e11e20619136933b20411e0c365b1e84075d195"
         }
       ]
     },
@@ -109,15 +109,23 @@
     {
       "name": "image",
       "type": "image",
-      "label": "Portrait",
-      "required": true
+      "label": "Both people",
+      "required": true,
+      "description": "One frame with both speakers: speaker 1 on the left, speaker 2 on the right."
     },
     {
       "name": "audio",
       "type": "audio",
-      "label": "Voice",
+      "label": "Speaker 1",
       "required": true,
-      "description": "Trimmed to the take length."
+      "description": "Speaker 1's line, played first."
+    },
+    {
+      "name": "audio_2",
+      "type": "audio",
+      "label": "Speaker 2",
+      "required": true,
+      "description": "Speaker 2's line, played after speaker 1's."
     },
     {
       "name": "width",
@@ -213,6 +221,15 @@
           "file": "distill_lora",
           "node": "188:179",
           "input": "lora_name"
+        },
+        {
+          "param": "audio_2",
+          "nodes": [
+            {
+              "node": "90",
+              "input": "audio"
+            }
+          ]
         }
       ],
       "outputs": [
@@ -295,6 +312,15 @@
           "file": "distill_lora",
           "node": "188:179",
           "input": "lora_name"
+        },
+        {
+          "param": "audio_2",
+          "nodes": [
+            {
+              "node": "90",
+              "input": "audio"
+            }
+          ]
         }
       ],
       "outputs": [
@@ -378,6 +404,15 @@
           "file": "distill_lora",
           "node": "188:179",
           "input": "lora_name"
+        },
+        {
+          "param": "audio_2",
+          "nodes": [
+            {
+              "node": "90",
+              "input": "audio"
+            }
+          ]
         }
       ],
       "outputs": [
@@ -409,12 +444,12 @@
       "workflow": "long"
     }
   },
-  "default_mode": "draft",
+  "default_mode": "final",
   "tiers": [
     "24gb-64ram",
     "32gb",
     "48gb",
     "96gb"
   ],
-  "notes": "Takes are 3.2, 6.1 or 11.9 s at 25 fps (81 frames, then 72 more per window); audio longer than the take is cut. For two people in one frame, use infinitetalk-duo."
+  "notes": "Takes are 3.2, 6.1 or 11.9 s at 25 fps (81 frames, then 72 more per window); audio longer than the take is cut. Speaker masks are the left and right halves of the frame. Qwen3-TTS makes each line in a cloned voice."
 }

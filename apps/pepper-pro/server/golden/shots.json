@@ -1,40 +1,447 @@
 {
-  "about": "Golden shots (docs/PEPPER-PRO.md §9.4): a fixed set across the four targets, rendered with fixed seeds whenever a recipe changes, so versions are compared on the same inputs. A shot runs on a recipe of its kind that has one of its capabilities. Inputs named in `inputs` are generated once by an installed recipe (see `generate`) and kept, except those marked `supply`, which you put in DATA_DIR/golden/inputs/.",
+  "about": "Golden shots (docs/PEPPER-PRO.md §9.4): a fixed set across the four targets, rendered with fixed seeds whenever a recipe changes, so versions are compared on the same inputs. A shot runs on a recipe of its kind that has one of its capabilities. Inputs named in `inputs` are generated once by an installed recipe (see `generate`) and kept, so every version sees the same ones.",
   "inputs": {
-    "mei": { "kind": "image", "generate": { "capability": "text-to-image", "prompt": "Photo of a young East Asian woman in a yellow raincoat, wet hair, neon-lit street at night, 50mm, shallow depth of field, natural skin texture", "seed": 101 } },
-    "jun": { "kind": "image", "generate": { "capability": "text-to-image", "prompt": "Photo of a weathered man in his sixties behind a steaming noodle stall, warm tungsten light, rain beyond the awning, 50mm", "seed": 102 } },
-    "host": { "kind": "image", "generate": { "capability": "text-to-image", "prompt": "Vertical selfie-style photo of a friendly woman in her thirties in a bright kitchen, looking into the lens, soft window light, phone camera look", "seed": 103 } },
-    "guest": { "kind": "image", "generate": { "capability": "text-to-image", "prompt": "Photo of a bearded man in a denim shirt at a podcast microphone, warm studio light, bokeh background", "seed": 104 } },
-    "sneaker": { "kind": "image", "generate": { "capability": "text-to-image", "prompt": "Studio product photo of a white and orange running sneaker on a pale grey seamless backdrop, soft shadow, high detail", "seed": 105 } },
-    "model": { "kind": "image", "generate": { "capability": "text-to-image", "prompt": "Full-body fashion photo of a woman in a plain white t-shirt and black trousers standing on a white studio cyclorama, even light", "seed": 106 } },
-    "jacket": { "kind": "image", "generate": { "capability": "text-to-image", "prompt": "Flat-lay product photo of a cropped olive green bomber jacket on white, no model", "seed": 107 } },
-    "singer": { "kind": "image", "generate": { "capability": "text-to-image", "prompt": "Photo of a young female pop singer with silver hair holding a microphone on a dark stage, magenta and blue stage lights, medium close-up", "seed": 108 } },
-    "dancer": { "kind": "image", "generate": { "capability": "text-to-image", "prompt": "Full-body photo of a young man in a red tracksuit and white sneakers standing in an empty parking garage, even light, facing camera", "seed": 109 } },
-    "song": { "kind": "audio", "generate": { "capability": "music", "prompt": "upbeat synth-pop, 120 bpm, bright female vocals, punchy drums", "params": { "lyrics": "[Verse]\nCity lights are calling out my name\nEvery step I take is not the same\n[Chorus]\nWe run, we run, into the night\nHearts on fire, burning bright", "duration": 30 }, "seed": 110 } },
-    "dance-drive": { "kind": "video", "generate": { "capability": "text-to-video", "prompt": "A dancer performs an energetic hip-hop routine in an empty studio, full body in frame, static camera, even light", "params": { "duration": 5 }, "seed": 111 } },
-    "voice": { "kind": "audio", "supply": "voice.wav", "note": "10-15 s of one person speaking clearly, e.g. a phone recording" }
+    "mei": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Photo of a young East Asian woman in a yellow raincoat, wet hair, neon-lit street at night, 50mm, shallow depth of field, natural skin texture",
+        "seed": 101
+      }
+    },
+    "jun": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Photo of a weathered man in his sixties behind a steaming noodle stall, warm tungsten light, rain beyond the awning, 50mm",
+        "seed": 102
+      }
+    },
+    "host": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Vertical selfie-style photo of a friendly woman in her thirties in a bright kitchen, looking into the lens, soft window light, phone camera look",
+        "seed": 103
+      }
+    },
+    "guest": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Photo of a bearded man in a denim shirt at a podcast microphone, warm studio light, bokeh background",
+        "seed": 104
+      }
+    },
+    "sneaker": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Studio product photo of a white and orange running sneaker on a pale grey seamless backdrop, soft shadow, high detail",
+        "seed": 105
+      }
+    },
+    "model": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Full-body fashion photo of a woman in a plain white t-shirt and black trousers standing on a white studio cyclorama, even light",
+        "seed": 106
+      }
+    },
+    "jacket": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Flat-lay product photo of a cropped olive green bomber jacket on white, no model",
+        "seed": 107
+      }
+    },
+    "singer": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Photo of a young female pop singer with silver hair holding a microphone on a dark stage, magenta and blue stage lights, medium close-up",
+        "seed": 108
+      }
+    },
+    "dancer": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Full-body photo of a young man in a red tracksuit and white sneakers standing in an empty parking garage, even light, facing camera",
+        "seed": 109
+      }
+    },
+    "song": {
+      "kind": "audio",
+      "generate": {
+        "capability": "music",
+        "prompt": "upbeat synth-pop, 120 bpm, bright female vocals, punchy drums",
+        "params": {
+          "lyrics": "[Verse]\nCity lights are calling out my name\nEvery step I take is not the same\n[Chorus]\nWe run, we run, into the night\nHearts on fire, burning bright",
+          "duration": 30
+        },
+        "seed": 110
+      }
+    },
+    "dance-drive": {
+      "kind": "video",
+      "generate": {
+        "capability": "text-to-video",
+        "prompt": "A dancer performs an energetic hip-hop routine in an empty studio, full body in frame, static camera, even light",
+        "params": {
+          "duration": 5
+        },
+        "seed": 111
+      }
+    },
+    "voice": {
+      "kind": "audio",
+      "generate": {
+        "capability": "speech",
+        "mode": "preset",
+        "prompt": "",
+        "params": {
+          "text": "Hi everyone, welcome back. Today I want to show you three things I wish I had known sooner.",
+          "speaker": "Serena",
+          "language": "English"
+        },
+        "seed": 112
+      }
+    },
+    "line-1": {
+      "kind": "audio",
+      "generate": {
+        "capability": "speech",
+        "mode": "preset",
+        "prompt": "",
+        "params": {
+          "text": "So what changed your mind?",
+          "speaker": "Vivian",
+          "language": "English"
+        },
+        "seed": 113
+      }
+    },
+    "line-2": {
+      "kind": "audio",
+      "generate": {
+        "capability": "speech",
+        "mode": "preset",
+        "prompt": "",
+        "params": {
+          "text": "Honestly? Trying it once.",
+          "speaker": "Ryan",
+          "language": "English"
+        },
+        "seed": 114
+      }
+    },
+    "two-people": {
+      "kind": "image",
+      "generate": {
+        "capability": "text-to-image",
+        "prompt": "Photo of a woman on the left and a bearded man on the right sitting at a podcast table facing each other, microphones, warm studio light, both faces visible, 16:9",
+        "seed": 115
+      }
+    }
   },
   "shots": [
-    { "id": "drama-dialogue", "target": "short drama", "kind": "video", "capabilities": ["dialogue", "subject-tags"], "seed": 2001, "inputs": { "refs": ["mei", "jun"] }, "prompt": "<Subject 1> is the woman in the yellow raincoat (<Picture 1>). <Subject 2> is the noodle vendor (<Picture 2>).\nMedium two-shot at the noodle stall in the rain, slow push-in.\n<Subject 1> says exactly this: \"Have you seen a man in a grey coat?\"\n<Subject 2> says exactly this: \"Not tonight. Eat something, you look cold.\"\nSound: rain on the awning, a boiling pot." },
-    { "id": "drama-closeup", "target": "short drama", "kind": "video", "capabilities": ["first-frame"], "seed": 2002, "inputs": { "image": "mei" }, "prompt": "Close-up. She looks down, then up at the camera as tears form; neon light flickers across her face. Sound: distant traffic, rain." },
-    { "id": "drama-action", "target": "short drama", "kind": "video", "capabilities": ["text-to-video"], "seed": 2003, "prompt": "Handheld tracking shot of a woman in a yellow raincoat sprinting across a wet rooftop at night, city lights behind, she vaults a low wall. Sound: footsteps splashing, heavy breathing, wind." },
-    { "id": "drama-establishing", "target": "short drama", "kind": "video", "capabilities": ["text-to-video", "broll"], "seed": 2004, "prompt": "Aerial establishing shot slowly descending over a neon-lit street market in the rain at night, steam rising from stalls. Sound: rain, murmur of a crowd." },
-    { "id": "drama-bridge", "target": "short drama", "kind": "video", "capabilities": ["last-frame"], "seed": 2005, "inputs": { "image": "mei", "last": "jun" }, "prompt": "The camera pans from the woman across the rainy street to the noodle vendor. Sound: rain." },
-    { "id": "talk-selfie", "target": "talking", "kind": "video", "capabilities": ["lip-sync", "talking"], "seed": 2101, "inputs": { "image": "host", "audio": "voice" }, "prompt": "A woman talks to her phone camera in her kitchen, animated and warm, natural hand gestures." },
-    { "id": "talk-explainer", "target": "talking", "kind": "video", "capabilities": ["talking"], "seed": 2102, "inputs": { "image": "guest", "audio": "voice" }, "prompt": "A podcast host explains something to the camera, leaning in, gesturing with one hand." },
-    { "id": "talk-duo", "target": "talking", "kind": "video", "capabilities": ["dialogue"], "seed": 2103, "inputs": { "refs": ["host", "guest"] }, "prompt": "<Subject 1> is the woman (<Picture 1>). <Subject 2> is the bearded man (<Picture 2>).\nTwo-shot at a podcast table.\n<Subject 1> says exactly this: \"So what changed your mind?\"\n<Subject 2> says exactly this: \"Honestly? Trying it once.\"\nSound: quiet studio room tone." },
-    { "id": "product-orbit", "target": "product", "kind": "video", "capabilities": ["product", "first-frame"], "seed": 2201, "inputs": { "image": "sneaker" }, "prompt": "The camera orbits the sneaker slowly through 180 degrees, studio light glinting on the sole. Sound: soft electronic pulse." },
-    { "id": "product-hero", "target": "product", "kind": "video", "capabilities": ["text-to-video"], "seed": 2202, "prompt": "Macro hero shot of a glass perfume bottle as golden liquid swirls inside, droplets on the glass, slow motion, black background. Sound: a single resonant chime." },
-    { "id": "fashion-turn", "target": "fashion", "kind": "video", "capabilities": ["first-frame"], "seed": 2301, "inputs": { "image": "model" }, "prompt": "Lookbook: the model turns slowly on the spot to show the outfit from the side and back, then faces the camera again. Studio, even light." },
-    { "id": "music-sing", "target": "music", "kind": "video", "capabilities": ["lip-sync", "audio-driven"], "seed": 2401, "inputs": { "image": "singer", "audio": "song" }, "prompt": "The singer performs the song into the microphone with feeling, stage lights sweeping behind her." },
-    { "id": "music-dance", "target": "music", "kind": "video", "capabilities": ["dance"], "seed": 2402, "inputs": { "image": "dancer", "audio": "song", "video": "dance-drive" }, "prompt": "A young man in a red tracksuit dances in an empty parking garage, fluorescent lights, static camera.", "motion": "An energetic hip-hop routine." },
-    { "id": "music-stage", "target": "music", "kind": "video", "capabilities": ["text-to-video"], "seed": 2403, "prompt": "Wide shot of a pop singer with silver hair on a large stage, crowd silhouettes and light beams, the camera cranes up. Sound: crowd cheering, music." },
-    { "id": "still-portrait", "target": "short drama", "kind": "image", "capabilities": ["text-to-image"], "seed": 2501, "prompt": "Cinematic portrait of an elderly fisherman mending a net at dawn, weathered hands, fog over the harbour, 85mm, film grain." },
-    { "id": "still-packshot", "target": "product", "kind": "image", "capabilities": ["text-to-image"], "seed": 2502, "prompt": "Premium packshot of a matte black wireless earbud case, open, on travertine stone with a sprig of eucalyptus, soft daylight, product photography." },
-    { "id": "still-editorial", "target": "fashion", "kind": "image", "capabilities": ["text-to-image"], "seed": 2503, "prompt": "Fashion editorial photo of a model in an oversized camel coat walking through a Paris street in autumn, candid, 35mm, Kodak Portra look." },
-    { "id": "still-text", "target": "product", "kind": "image", "capabilities": ["text-to-image"], "seed": 2504, "prompt": "A coffee shop chalkboard menu that reads exactly \"FLAT WHITE 4.50\" and \"OAT LATTE 5.00\", hand-lettered, warm light." },
-    { "id": "edit-tryon", "target": "fashion", "kind": "image", "capabilities": ["try-on"], "seed": 2601, "inputs": { "image": "model", "reference": "jacket", "refs": ["model", "jacket"] }, "prompt": "Put the olive bomber jacket from image 2 on the woman in image 1, over her t-shirt. Keep her pose, face and the studio." },
-    { "id": "song-pop", "target": "music", "kind": "audio", "capabilities": ["music"], "seed": 2701, "prompt": "dreamy indie pop, 100 bpm, airy male vocals, jangly guitars, warm analog synths", "params": { "lyrics": "[Verse]\nSummer on the window sill\nTime is moving, standing still\n[Chorus]\nStay a little longer here\nEverything is crystal clear", "duration": 30 } },
-    { "id": "song-rap", "target": "music", "kind": "audio", "capabilities": ["music"], "seed": 2702, "prompt": "boom bap hip hop, 90 bpm, confident female rap vocals, dusty piano loop, heavy kick", "params": { "lyrics": "[Verse]\nWoke up early, city still asleep\nPromises I made, promises I keep\nEvery single bar is a brick I lay\nBuilding up tomorrow out of yesterday", "duration": 30 } }
+    {
+      "id": "drama-dialogue",
+      "target": "short drama",
+      "kind": "video",
+      "capabilities": [
+        "dialogue",
+        "subject-tags"
+      ],
+      "seed": 2001,
+      "inputs": {
+        "refs": [
+          "mei",
+          "jun"
+        ]
+      },
+      "prompt": "<Subject 1> is the woman in the yellow raincoat (<Picture 1>). <Subject 2> is the noodle vendor (<Picture 2>).\nMedium two-shot at the noodle stall in the rain, slow push-in.\n<Subject 1> says exactly this: \"Have you seen a man in a grey coat?\"\n<Subject 2> says exactly this: \"Not tonight. Eat something, you look cold.\"\nSound: rain on the awning, a boiling pot."
+    },
+    {
+      "id": "drama-closeup",
+      "target": "short drama",
+      "kind": "video",
+      "capabilities": [
+        "first-frame"
+      ],
+      "seed": 2002,
+      "inputs": {
+        "image": "mei"
+      },
+      "prompt": "Close-up. She looks down, then up at the camera as tears form; neon light flickers across her face. Sound: distant traffic, rain."
+    },
+    {
+      "id": "drama-action",
+      "target": "short drama",
+      "kind": "video",
+      "capabilities": [
+        "text-to-video"
+      ],
+      "seed": 2003,
+      "prompt": "Handheld tracking shot of a woman in a yellow raincoat sprinting across a wet rooftop at night, city lights behind, she vaults a low wall. Sound: footsteps splashing, heavy breathing, wind."
+    },
+    {
+      "id": "drama-establishing",
+      "target": "short drama",
+      "kind": "video",
+      "capabilities": [
+        "text-to-video",
+        "broll"
+      ],
+      "seed": 2004,
+      "prompt": "Aerial establishing shot slowly descending over a neon-lit street market in the rain at night, steam rising from stalls. Sound: rain, murmur of a crowd."
+    },
+    {
+      "id": "drama-bridge",
+      "target": "short drama",
+      "kind": "video",
+      "capabilities": [
+        "last-frame"
+      ],
+      "seed": 2005,
+      "inputs": {
+        "image": "mei",
+        "last": "jun"
+      },
+      "prompt": "The camera pans from the woman across the rainy street to the noodle vendor. Sound: rain."
+    },
+    {
+      "id": "talk-selfie",
+      "target": "talking",
+      "kind": "video",
+      "capabilities": [
+        "lip-sync",
+        "talking"
+      ],
+      "seed": 2101,
+      "inputs": {
+        "image": "host",
+        "audio": "voice"
+      },
+      "prompt": "A woman talks to her phone camera in her kitchen, animated and warm, natural hand gestures."
+    },
+    {
+      "id": "talk-explainer",
+      "target": "talking",
+      "kind": "video",
+      "capabilities": [
+        "talking"
+      ],
+      "seed": 2102,
+      "inputs": {
+        "image": "guest",
+        "audio": "voice"
+      },
+      "prompt": "A podcast host explains something to the camera, leaning in, gesturing with one hand."
+    },
+    {
+      "id": "talk-duo",
+      "target": "talking",
+      "kind": "video",
+      "capabilities": [
+        "dialogue"
+      ],
+      "seed": 2103,
+      "inputs": {
+        "refs": [
+          "host",
+          "guest"
+        ],
+        "image": "two-people",
+        "audio": "line-1",
+        "audio_2": "line-2"
+      },
+      "prompt": "<Subject 1> is the woman (<Picture 1>). <Subject 2> is the bearded man (<Picture 2>).\nTwo-shot at a podcast table.\n<Subject 1> says exactly this: \"So what changed your mind?\"\n<Subject 2> says exactly this: \"Honestly? Trying it once.\"\nSound: quiet studio room tone."
+    },
+    {
+      "id": "product-orbit",
+      "target": "product",
+      "kind": "video",
+      "capabilities": [
+        "product",
+        "first-frame"
+      ],
+      "seed": 2201,
+      "inputs": {
+        "image": "sneaker"
+      },
+      "prompt": "The camera orbits the sneaker slowly through 180 degrees, studio light glinting on the sole. Sound: soft electronic pulse."
+    },
+    {
+      "id": "product-hero",
+      "target": "product",
+      "kind": "video",
+      "capabilities": [
+        "text-to-video"
+      ],
+      "seed": 2202,
+      "prompt": "Macro hero shot of a glass perfume bottle as golden liquid swirls inside, droplets on the glass, slow motion, black background. Sound: a single resonant chime."
+    },
+    {
+      "id": "fashion-turn",
+      "target": "fashion",
+      "kind": "video",
+      "capabilities": [
+        "first-frame"
+      ],
+      "seed": 2301,
+      "inputs": {
+        "image": "model"
+      },
+      "prompt": "Lookbook: the model turns slowly on the spot to show the outfit from the side and back, then faces the camera again. Studio, even light."
+    },
+    {
+      "id": "music-sing",
+      "target": "music",
+      "kind": "video",
+      "capabilities": [
+        "lip-sync",
+        "audio-driven"
+      ],
+      "seed": 2401,
+      "inputs": {
+        "image": "singer",
+        "audio": "song"
+      },
+      "prompt": "The singer performs the song into the microphone with feeling, stage lights sweeping behind her."
+    },
+    {
+      "id": "music-dance",
+      "target": "music",
+      "kind": "video",
+      "capabilities": [
+        "dance"
+      ],
+      "seed": 2402,
+      "inputs": {
+        "image": "dancer",
+        "audio": "song",
+        "video": "dance-drive"
+      },
+      "prompt": "A young man in a red tracksuit dances in an empty parking garage, fluorescent lights, static camera.",
+      "motion": "An energetic hip-hop routine."
+    },
+    {
+      "id": "music-stage",
+      "target": "music",
+      "kind": "video",
+      "capabilities": [
+        "text-to-video"
+      ],
+      "seed": 2403,
+      "prompt": "Wide shot of a pop singer with silver hair on a large stage, crowd silhouettes and light beams, the camera cranes up. Sound: crowd cheering, music."
+    },
+    {
+      "id": "still-portrait",
+      "target": "short drama",
+      "kind": "image",
+      "capabilities": [
+        "text-to-image"
+      ],
+      "seed": 2501,
+      "prompt": "Cinematic portrait of an elderly fisherman mending a net at dawn, weathered hands, fog over the harbour, 85mm, film grain."
+    },
+    {
+      "id": "still-packshot",
+      "target": "product",
+      "kind": "image",
+      "capabilities": [
+        "text-to-image"
+      ],
+      "seed": 2502,
+      "prompt": "Premium packshot of a matte black wireless earbud case, open, on travertine stone with a sprig of eucalyptus, soft daylight, product photography."
+    },
+    {
+      "id": "still-editorial",
+      "target": "fashion",
+      "kind": "image",
+      "capabilities": [
+        "text-to-image"
+      ],
+      "seed": 2503,
+      "prompt": "Fashion editorial photo of a model in an oversized camel coat walking through a Paris street in autumn, candid, 35mm, Kodak Portra look."
+    },
+    {
+      "id": "still-text",
+      "target": "product",
+      "kind": "image",
+      "capabilities": [
+        "text-to-image"
+      ],
+      "seed": 2504,
+      "prompt": "A coffee shop chalkboard menu that reads exactly \"FLAT WHITE 4.50\" and \"OAT LATTE 5.00\", hand-lettered, warm light."
+    },
+    {
+      "id": "edit-tryon",
+      "target": "fashion",
+      "kind": "image",
+      "capabilities": [
+        "try-on"
+      ],
+      "seed": 2601,
+      "inputs": {
+        "image": "model",
+        "reference": "jacket",
+        "refs": [
+          "model",
+          "jacket"
+        ]
+      },
+      "prompt": "Put the olive bomber jacket from image 2 on the woman in image 1, over her t-shirt. Keep her pose, face and the studio."
+    },
+    {
+      "id": "song-pop",
+      "target": "music",
+      "kind": "audio",
+      "capabilities": [
+        "music"
+      ],
+      "seed": 2701,
+      "prompt": "dreamy indie pop, 100 bpm, airy male vocals, jangly guitars, warm analog synths",
+      "params": {
+        "lyrics": "[Verse]\nSummer on the window sill\nTime is moving, standing still\n[Chorus]\nStay a little longer here\nEverything is crystal clear",
+        "duration": 30
+      }
+    },
+    {
+      "id": "song-rap",
+      "target": "music",
+      "kind": "audio",
+      "capabilities": [
+        "music"
+      ],
+      "seed": 2702,
+      "prompt": "boom bap hip hop, 90 bpm, confident female rap vocals, dusty piano loop, heavy kick",
+      "params": {
+        "lyrics": "[Verse]\nWoke up early, city still asleep\nPromises I made, promises I keep\nEvery single bar is a brick I lay\nBuilding up tomorrow out of yesterday",
+        "duration": 30
+      }
+    },
+    {
+      "id": "speech-clone",
+      "target": "talking",
+      "kind": "audio",
+      "capabilities": [
+        "voice-clone"
+      ],
+      "seed": 2801,
+      "prompt": "",
+      "inputs": {
+        "voice": "voice"
+      },
+      "params": {
+        "text": "The rain stopped just before midnight, and the whole street went quiet.",
+        "voice_text": "Hi everyone, welcome back. Today I want to show you three things I wish I had known sooner.",
+        "language": "English"
+      }
+    }
   ]
 }

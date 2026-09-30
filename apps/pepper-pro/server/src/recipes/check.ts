@@ -37,7 +37,9 @@ function sample(param: RecipeParam, inputs: 'required' | 'all'): unknown {
   if (param.type === 'images') return Array.from({ length: count }, (_, i) => `sample-${i}.png`);
   if (param.type === 'audios') return Array.from({ length: count }, (_, i) => `sample-${i}.wav`);
   if (param.type === 'enum') return param.options?.[0];
-  if (param.type === 'int' || param.type === 'float' || param.type === 'seed') return param.min ?? 1;
+  // A seed is sampled at its largest, so a node with a narrower range fails here.
+  if (param.type === 'seed') return param.max ?? 2 ** 47 - 1;
+  if (param.type === 'int' || param.type === 'float') return param.min ?? 1;
   return SAMPLE[param.type];
 }
 
@@ -46,7 +48,8 @@ export function sampleValues(recipe: Recipe, mode: string, inputs: 'required' | 
   const given: ParamValues = {};
   for (const param of recipe.params) {
     const media = ['image', 'images', 'audio', 'audios', 'video'].includes(param.type);
-    if (param.required || (inputs === 'all' && media && param.default === undefined)) given[param.name] = sample(param, inputs);
+    const probe = param.required || param.type === 'seed' || (inputs === 'all' && media && param.default === undefined);
+    if (probe) given[param.name] = sample(param, inputs);
   }
   return resolveParams(recipe, recipe.modes[mode], given);
 }
@@ -55,7 +58,9 @@ export function sampleValues(recipe: Recipe, mode: string, inputs: 'required' | 
 export function plannedFiles(recipe: Recipe, tier: Tier): ResolvedFile[] {
   return recipe.files.map((file) => {
     const variant = variantFor(file, tier);
-    return { file, variant, name: variantName(variant), path: '', url: variantUrl(variant), installed: false };
+    const bundle = [file.folder, ...(variant.dir ? [variant.dir] : [])].join('/');
+    const name = variantName(variant);
+    return { file, variant, name, bundle, relPath: `${bundle}/${name}`, path: '', url: variantUrl(variant), installed: false };
   });
 }
 

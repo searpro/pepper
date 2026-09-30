@@ -1,0 +1,34 @@
+{
+  "1": {
+    "class_type": "FB_Qwen3TTSCustomVoice",
+    "inputs": {
+      "model_choice": "1.7B",
+      "device": "auto",
+      "precision": "bf16",
+      "language": "Auto",
+      "seed": 1,
+      "max_new_tokens": 2048,
+      "top_p": 1.0,
+      "top_k": 50,
+      "temperature": 0.9,
+      "repetition_penalty": 1.05,
+      "attention": "sdpa",
+      "unload_model_after_generate": true,
+      "text": "",
+      "speaker": "Ryan",
+      "instruct": "",
+      "custom_model_path": "",
+      "custom_speaker_name": ""
+    }
+  },
+  "9": {
+    "class_type": "SaveAudio",
+    "inputs": {
+      "filename_prefix": "pepper-pro",
+      "audio": [
+        "1",
+        0
+      ]
+    }
+  }
+}

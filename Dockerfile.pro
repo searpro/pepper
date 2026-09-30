@@ -48,10 +48,11 @@ WORKDIR /app
 
 # ffmpeg: cut rendering and media probes. git: node packs. tini: reaps
 # ComfyUI and llama.cpp. libgl1/libglib2.0-0: opencv, which several packs import.
+# sox: Qwen3-TTS's audio front end shells out to it.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs ffmpeg git tini libgl1 libglib2.0-0 python3 \
+    && apt-get install -y --no-install-recommends nodejs ffmpeg git tini libgl1 libglib2.0-0 python3 sox \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL -o /usr/local/bin/cloudflared \

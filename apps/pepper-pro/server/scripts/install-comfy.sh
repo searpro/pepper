@@ -53,9 +53,10 @@ if [[ "${1:-}" != "--packs-only" ]]; then
   # default build for a different CUDA.
   uv pip install -q --python "$PY" --index-url "$TORCH_INDEX" torch torchvision torchaudio
   uv pip install -q --python "$PY" -r "$COMFY_DIR/requirements.txt"
-  # analyze jobs (python/analyze.py): beat tracking and vocal separation.
-  # Checked when added: neither changes the torch or numpy ComfyUI runs on.
-  uv pip install -q --python "$PY" librosa demucs soundfile
+  # analyze jobs (python/analyze.py): beat tracking, vocal separation and
+  # speech transcription. Checked when added: none changes the torch or
+  # numpy ComfyUI runs on.
+  uv pip install -q --python "$PY" librosa demucs soundfile openai-whisper
 fi
 
 # Every pack any recipe names, once: "name repo commit" per line.
@@ -69,20 +70,34 @@ for file in sorted(Path(sys.argv[1]).glob('*/recipe.json')):
         if (previous['repo'], previous['commit']) != (pack['repo'], pack['commit']):
             sys.exit(f"{file.parent.name} pins {pack['name']} at {pack['commit']}, another recipe at {previous['commit']}")
 for pack in seen.values():
-    print(pack['name'], pack['repo'], pack['commit'])
+    # Fields are space-separated, lists comma-joined ("-" for none).
+    print(pack['name'], pack['repo'], pack['commit'],
+          ','.join(pack.get('skip_requirements', [])) or '-', ','.join(pack.get('pip', [])) or '-')
 EOF
 )"
 
 if [[ -z "$packs" ]]; then
   say "no recipe uses a custom node pack"
 else
-  while read -r name repo commit; do
+  while read -r name repo commit skip extra; do
     dir="$COMFY_DIR/custom_nodes/$name"
     say "node pack $name @ ${commit:0:12}"
     [[ -d "$dir/.git" ]] || git clone -q "$repo" "$dir"
     git -C "$dir" fetch -q --depth 1 origin "$commit" 2>/dev/null || git -C "$dir" fetch -q origin
     git -C "$dir" checkout -q "$commit"
-    [[ -f "$dir/requirements.txt" ]] && uv pip install -q --python "$PY" -r "$dir/requirements.txt"
+    if [[ -f "$dir/requirements.txt" ]]; then
+      # A recipe can drop a requirement that would break the shared
+      # environment (docs/PEPPER-PRO.md §5.4), matched by package name.
+      reqs="$(mktemp)"
+      if [[ "$skip" != "-" ]]; then
+        grep -viE "^($(echo "$skip" | sed 's/,/|/g'))([<>=!~ ;\[]|$)" "$dir/requirements.txt" >"$reqs" || true
+      else
+        cp "$dir/requirements.txt" "$reqs"
+      fi
+      uv pip install -q --python "$PY" -r "$reqs"
+      rm -f "$reqs"
+    fi
+    if [[ "$extra" != "-" ]]; then uv pip install -q --python "$PY" ${extra//,/ }; fi
   done <<<"$packs"
 fi
 

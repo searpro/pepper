@@ -126,13 +126,13 @@ export class ComfyEngine implements Engine {
     await checkUploads(recipe, values, this.deps.paths.uploadsDir);
     const files = await this.deps.recipes.resolveFiles(recipe, this.deps.config.tier);
     const needed = this.filesNeeded(recipe, recipe.workflows[mode.workflow]);
-    const missing = files.filter((f) => needed.has(f.file.id) && !f.installed).map((f) => `${f.file.folder}/${f.name}`);
+    const missing = files.filter((f) => needed.has(f.file.id) && !f.installed).map((f) => f.relPath);
     if (missing.length > 0) throw proErrors.recipeNotInstalled(recipe.id, missing);
     return { recipe, mode: modeName, values };
   }
 
   private filesNeeded(recipe: Recipe, workflow: WorkflowSpec): Set<string> {
-    const bound = new Set(workflow.bindings.flatMap((b) => ('file' in b ? [b.file] : [])));
+    const bound = new Set([...workflow.bindings.flatMap((b) => ('file' in b ? [b.file] : [])), ...workflow.requires_files]);
     return new Set(recipe.files.filter((f) => bound.has(f.id) || !f.optional).map((f) => f.id));
   }
 

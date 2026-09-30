@@ -92,9 +92,9 @@ export interface ValidateOptions {
 
 /**
  * Inputs whose choices are lists of files on disk (`unet_name`, `lora_name`,
- * `clip_name2`, `text_encoder`, ModelPatchLoader's `name`, LoadImage's `image`…). `sampler_name` is a real choice list.
+ * `clip_name2`, `text_encoder`, ModelPatchLoader's `name`, LongCat's `vae` and `lora`, LoadImage's `image`…). `sampler_name` is a real choice list.
  */
-const FILE_INPUT = /^(?!sampler_name$)(.+_name\d*|name|text_encoder\d*|image|audio|video|file)$/;
+const FILE_INPUT = /^(?!sampler_name$)(.+_name\d*|name|vae|lora|text_encoder\d*|image|audio|video|file)$/;
 
 /**
  * Check a prompt against the node types a ComfyUI knows: every class exists,
@@ -138,6 +138,12 @@ export function validatePrompt(prompt: Prompt, info: ObjectInfo, options: Valida
       // Inputs not declared are allowed: dynamic inputs (`values.a`,
       // `format.codec`) are how several core nodes take variable arguments.
       if (!decl) continue;
+      if (typeof value === 'number' && (decl[0] === 'INT' || decl[0] === 'FLOAT')) {
+        const bounds = (decl[1] ?? {}) as { min?: number; max?: number };
+        if (bounds.min !== undefined && value < bounds.min) issues.push({ node: id, message: `${node.class_type}.${input} is ${value}, below its minimum ${bounds.min}` });
+        if (bounds.max !== undefined && value > bounds.max) issues.push({ node: id, message: `${node.class_type}.${input} is ${value}, above its maximum ${bounds.max}` });
+        continue;
+      }
       const choices = choiceList(decl);
       // An empty list is one the node fills at run time (CustomCombo's options
       // are its own inputs); only ComfyUI can check those.

@@ -1,0 +1,354 @@
+{
+  "schema": 1,
+  "id": "longcat-avatar",
+  "version": 1,
+  "kind": "video",
+  "name": "LongCat-Avatar 1.5 — long talking and singing takes",
+  "description": "A portrait speaks or sings a recording with natural head, body and hand motion, for as long as the audio runs (minutes, not seconds, without drift). The pick for long talking-head posts and full song performances.",
+  "family": "longcat-avatar",
+  "capabilities": [
+    "talking",
+    "lip-sync",
+    "audio-driven",
+    "performance",
+    "first-frame",
+    "long-take"
+  ],
+  "licence": {
+    "id": "mit",
+    "name": "MIT (LongCat-Video-Avatar)",
+    "url": "https://huggingface.co/meituan-longcat/LongCat-Video-Avatar-1.5",
+    "commercial": "yes"
+  },
+  "nodes": [
+    {
+      "name": "ComfyUI-LongCat-Avatar",
+      "repo": "https://github.com/rookiestar28/ComfyUI-LongCat-Avatar",
+      "commit": "08b4daedfaed69abaf467097f8665615b2137331"
+    }
+  ],
+  "files": [
+    {
+      "id": "dit-base-model-int8-config-json",
+      "folder": "longcat",
+      "label": "Avatar 1.5 DiT (int8): base_model_int8/config.json",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "base_model_int8/config.json",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "dir": "LongCat-Video-Avatar-1.5/base_model_int8",
+          "bytes": 853
+        }
+      ]
+    },
+    {
+      "id": "dit-base-model-int8-quantization-config-json",
+      "folder": "longcat",
+      "label": "Avatar 1.5 DiT (int8): base_model_int8/quantization_config.json",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "base_model_int8/quantization_config.json",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "dir": "LongCat-Video-Avatar-1.5/base_model_int8",
+          "bytes": 193
+        }
+      ]
+    },
+    {
+      "id": "dit-base-model-int8-quantized-model-00001-of-00004-safetensors",
+      "folder": "longcat",
+      "label": "Avatar 1.5 DiT (int8): base_model_int8/quantized_model-00001-of-00004.safetensors",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "base_model_int8/quantized_model-00001-of-00004.safetensors",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "dir": "LongCat-Video-Avatar-1.5/base_model_int8",
+          "bytes": 4264635792,
+          "sha256": "ccf575d8cdf8e762272e2d4e52ae1a7c0b5d1fa81e26dfa4592867de4dd9a4fd"
+        }
+      ]
+    },
+    {
+      "id": "dit-base-model-int8-quantized-model-00002-of-00004-safetensors",
+      "folder": "longcat",
+      "label": "Avatar 1.5 DiT (int8): base_model_int8/quantized_model-00002-of-00004.safetensors",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "base_model_int8/quantized_model-00002-of-00004.safetensors",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "dir": "LongCat-Video-Avatar-1.5/base_model_int8",
+          "bytes": 4275232472,
+          "sha256": "af6ddb737ad66d12fd5892adee568c14314143ebd4388d3ab9cc6065754b3688"
+        }
+      ]
+    },
+    {
+      "id": "dit-base-model-int8-quantized-model-00003-of-00004-safetensors",
+      "folder": "longcat",
+      "label": "Avatar 1.5 DiT (int8): base_model_int8/quantized_model-00003-of-00004.safetensors",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "base_model_int8/quantized_model-00003-of-00004.safetensors",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "dir": "LongCat-Video-Avatar-1.5/base_model_int8",
+          "bytes": 4275232472,
+          "sha256": "6a349b76592b4752c2967235af457824d8938e3514bad8e78cfa86009e8a9bf5"
+        }
+      ]
+    },
+    {
+      "id": "dit-base-model-int8-quantized-model-00004-of-00004-safetensors",
+      "folder": "longcat",
+      "label": "Avatar 1.5 DiT (int8): base_model_int8/quantized_model-00004-of-00004.safetensors",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "base_model_int8/quantized_model-00004-of-00004.safetensors",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "dir": "LongCat-Video-Avatar-1.5/base_model_int8",
+          "bytes": 3065282200,
+          "sha256": "ab54b648a3f6a53946f07dd0a21441e2a8cb1aa8da17996b5f3f7f2e1370705b"
+        }
+      ]
+    },
+    {
+      "id": "dit-base-model-int8-quantized-model-safetensors-index-json",
+      "folder": "longcat",
+      "label": "Avatar 1.5 DiT (int8): base_model_int8/quantized_model.safetensors.index.json",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "base_model_int8/quantized_model.safetensors.index.json",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "dir": "LongCat-Video-Avatar-1.5/base_model_int8",
+          "bytes": 201884
+        }
+      ]
+    },
+    {
+      "id": "sched-scheduler-scheduler-config-json",
+      "folder": "longcat",
+      "label": "Avatar 1.5 scheduler: scheduler/scheduler_config.json",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "scheduler/scheduler_config.json",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "dir": "LongCat-Video-Avatar-1.5/scheduler",
+          "bytes": 213
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "LongCat-Video VAE",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video",
+          "path": "vae/diffusion_pytorch_model.safetensors",
+          "revision": "03b55529b1d1d4045f5fbe14d65c8c6e8116b278",
+          "name": "LongCat-Video-Avatar-vae.safetensors",
+          "bytes": 507591892,
+          "sha256": "d6e524b3fffede1787a74e81b30976dce5400c4439ba64222168e607ed19e793"
+        }
+      ]
+    },
+    {
+      "id": "whisper",
+      "folder": "audio_encoders",
+      "label": "Whisper large-v3",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "whisper-large-v3/model.safetensors",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "name": "whisper-large-v3.safetensors",
+          "bytes": 3087130976,
+          "sha256": "a8e94b85976e5864ba3e9525c7e6c83b2a1eca42d4b797a0c7c24d778e40fd95"
+        }
+      ]
+    },
+    {
+      "id": "distill_lora",
+      "folder": "loras",
+      "label": "Avatar 1.5 distill LoRA",
+      "variants": [
+        {
+          "repo": "meituan-longcat/LongCat-Video-Avatar-1.5",
+          "path": "lora/dmd_lora.safetensors",
+          "revision": "92016c71d5d318d0f5d84e4db30015a571484ab6",
+          "name": "longcat-avatar-dmd_lora.safetensors",
+          "bytes": 2523077984,
+          "sha256": "d969115a7f3fbc212a277ed4399f77a1a065d170148c6d4bc272e980cd3e907a"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "umT5 XXL (fp8)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+          "path": "split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "bytes": 6735906897,
+          "sha256": "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Prompt",
+      "required": true,
+      "description": "Who, where, and how they move while speaking or singing."
+    },
+    {
+      "name": "image",
+      "type": "image",
+      "label": "Portrait",
+      "required": true
+    },
+    {
+      "name": "audio",
+      "type": "audio",
+      "label": "Voice or song",
+      "required": true
+    },
+    {
+      "name": "duration",
+      "type": "float",
+      "label": "Seconds",
+      "default": 10,
+      "min": 1,
+      "max": 300,
+      "description": "The audio is trimmed to this; the video is as long as the audio."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it.",
+      "max": 2147483647
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "5",
+          "input": "prompt"
+        },
+        {
+          "param": "duration",
+          "node": "16",
+          "input": "duration"
+        },
+        {
+          "param": "seed",
+          "node": "2",
+          "input": "seed"
+        },
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "7",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "audio",
+          "nodes": [
+            {
+              "node": "15",
+              "input": "audio"
+            }
+          ]
+        },
+        {
+          "file": "vae",
+          "node": "1",
+          "input": "vae"
+        },
+        {
+          "file": "distill_lora",
+          "node": "1",
+          "input": "lora"
+        },
+        {
+          "file": "whisper",
+          "node": "27",
+          "input": "audio_encoder"
+        },
+        {
+          "file": "text_encoder",
+          "node": "10",
+          "input": "clip_name"
+        }
+      ],
+      "requires_files": [
+        "dit-base-model-int8-config-json",
+        "dit-base-model-int8-quantization-config-json",
+        "dit-base-model-int8-quantized-model-00001-of-00004-safetensors",
+        "dit-base-model-int8-quantized-model-00002-of-00004-safetensors",
+        "dit-base-model-int8-quantized-model-00003-of-00004-safetensors",
+        "dit-base-model-int8-quantized-model-00004-of-00004-safetensors",
+        "dit-base-model-int8-quantized-model-safetensors-index-json",
+        "sched-scheduler-scheduler-config-json"
+      ],
+      "outputs": [
+        {
+          "node": "4",
+          "kind": "video"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "draft": {
+      "label": "Draft (480p)",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "2",
+          "input": "resolution",
+          "value": "480p"
+        }
+      ],
+      "defaults": {
+        "duration": 5
+      }
+    },
+    "final": {
+      "label": "Final (720p)",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "2",
+          "input": "resolution",
+          "value": "720p"
+        }
+      ]
+    }
+  },
+  "default_mode": "draft",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Uses the official INT8 checkpoint on every tier, streamed block by block so it fits 24 GB. The aspect follows the portrait."
+}

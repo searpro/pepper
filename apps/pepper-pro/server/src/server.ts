@@ -124,7 +124,9 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
       }),
     )
     .register(new RenderEngine({ paths, projects, log: app.log }))
-    .register(new AnalyzeEngine({ config, paths, projects, recipes, text, log: app.log }));
+    .register(
+      new AnalyzeEngine({ config, paths, projects, recipes, text, jobs, log: app.log, goldenPath: (file) => golden.resultPath(file) }),
+    );
   engines.attach(jobs);
 
   const resources = new ResourceMonitor();

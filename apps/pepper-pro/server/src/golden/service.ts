@@ -36,6 +36,8 @@ const inputSchema = z.object({
       prompt: z.string(),
       params: z.record(z.unknown()).default({}),
       seed: z.number().int(),
+      /** The recipe mode to make it in; its final mode, else its default. */
+      mode: z.string().optional(),
     })
     .optional(),
   /** A file the user puts in DATA_DIR/golden/inputs/. */
@@ -57,6 +59,10 @@ const shotSchema = z.object({
       last: z.string().optional(),
       refs: z.array(z.string()).optional(),
       audio: z.string().optional(),
+      /** A second speaker's line (two-person talking recipes). */
+      audio_2: z.string().optional(),
+      /** A voice to clone (speech recipes). */
+      voice: z.string().optional(),
       video: z.string().optional(),
       reference: z.string().optional(),
     })
@@ -68,7 +74,7 @@ export const goldenFileSchema = z
   .object({ about: z.string().optional(), inputs: z.record(inputSchema), shots: z.array(shotSchema) })
   .superRefine((file, ctx) => {
     for (const shot of file.shots) {
-      const named = [shot.inputs.image, shot.inputs.last, shot.inputs.audio, shot.inputs.video, shot.inputs.reference, ...(shot.inputs.refs ?? [])];
+      const named = [shot.inputs.image, shot.inputs.last, shot.inputs.audio, shot.inputs.audio_2, shot.inputs.voice, shot.inputs.video, shot.inputs.reference, ...(shot.inputs.refs ?? [])];
       for (const name of named) {
         if (name && !file.inputs[name]) ctx.addIssue({ code: 'custom', message: `shot ${shot.id} uses unknown input "${name}"` });
       }
@@ -109,6 +115,8 @@ export function goldenParams(recipe: Recipe, shot: GoldenShot, uploads: Record<s
   put(['last_frame'], one(shot.inputs.last));
   put(['refs', 'reference_images', 'images'], shot.inputs.refs?.map((r) => uploads[r]));
   put(['audio'], one(shot.inputs.audio));
+  put(['audio_2'], one(shot.inputs.audio_2));
+  put(['voice_ref'], one(shot.inputs.voice));
   put(['video'], one(shot.inputs.video));
   put(['reference'], one(shot.inputs.reference));
   for (const [key, value] of Object.entries(shot.params)) put([key], value);
@@ -195,7 +203,10 @@ export class GoldenService {
     };
     this.deps.db.insert(goldenRuns).values(run).run();
     for (const shot of shots) {
-      this.deps.db.insert(goldenResults).values({ id: newId('gre'), runId: run.id, shotId: shot.id, jobId: null, status: 'queued', file: null, error: null }).run();
+      this.deps.db
+        .insert(goldenResults)
+        .values({ id: newId('gre'), runId: run.id, shotId: shot.id, jobId: null, status: 'queued', file: null, error: null, review: null })
+        .run();
     }
     void this.orchestrate(run, recipe, shots).catch((err: Error) => {
       this.deps.log.error({ err: err.message, run: run.id }, 'golden run failed');
@@ -215,7 +226,7 @@ export class GoldenService {
         this.deps.db.update(goldenResults).set({ status: 'skipped', error: why }).where(eq(goldenResults.id, result.id)).run();
       try {
         const uploads: Record<string, string> = {};
-        const names = [shot.inputs.image, shot.inputs.last, shot.inputs.audio, shot.inputs.video, shot.inputs.reference, ...(shot.inputs.refs ?? [])];
+        const names = [shot.inputs.image, shot.inputs.last, shot.inputs.audio, shot.inputs.audio_2, shot.inputs.voice, shot.inputs.video, shot.inputs.reference, ...(shot.inputs.refs ?? [])];
         for (const name of names) if (name && !uploads[name]) uploads[name] = await this.input(name);
         const mapped = goldenParams(recipe, shot, uploads);
         if ('skip' in mapped) {
@@ -286,7 +297,7 @@ export class GoldenService {
     // Permissively licensed first, so inputs made on one server are usable anywhere.
     const recipe = candidates.sort((a, b) => Number(b.licence.commercial === 'yes') - Number(a.licence.commercial === 'yes'))[0];
     if (!recipe) throw new Error(`input "${name}" needs an installed ${kind} recipe with ${spec.capability}`);
-    const mode = recipe.modes.final ? 'final' : recipe.default_mode;
+    const mode = spec.mode && recipe.modes[spec.mode] ? spec.mode : recipe.modes.final ? 'final' : recipe.default_mode;
     const params: Record<string, unknown> = { ...spec.params, prompt: spec.prompt, seed: spec.seed };
     for (const key of Object.keys(params)) if (!recipe.params.some((p) => p.name === key)) delete params[key];
     const prepared = await this.deps.comfy.prepareRequest({ recipe: recipe.id, mode, params });
@@ -317,7 +328,16 @@ export class GoldenService {
   }
 
   private async onJobSettled(job: Job): Promise<void> {
-    const params = job.params as { golden_run?: string; golden_shot?: string; recipe?: string; mode?: string };
+    const check = job.params as { task?: string; golden_result?: string };
+    if (job.kind === 'analyze' && check.golden_result) {
+      const match = (job.result as { match?: { wer: number; ok: boolean }; text?: string } | undefined) ?? {};
+      const review = match.match
+        ? { ok: match.match.ok, wer: match.match.wer, heard: match.text, by: 'whisper-base' }
+        : { ok: false, error: job.error?.message ?? job.status, by: 'whisper-base' };
+      this.deps.db.update(goldenResults).set({ review }).where(eq(goldenResults.id, check.golden_result)).run();
+      return;
+    }
+    const params = job.params as { golden_run?: string; golden_shot?: string; recipe?: string; mode?: string; params?: { text?: string } };
     if (!params.golden_run || !params.golden_shot) return;
     const run = this.deps.db.select().from(goldenRuns).where(eq(goldenRuns.id, params.golden_run)).get();
     const result = this.deps.db.select().from(goldenResults).where(eq(goldenResults.jobId, job.id)).get();
@@ -328,6 +348,13 @@ export class GoldenService {
       await mkdir(join(this.dir, run.recipeId, `v${run.recipeVersion}`, run.mode), { recursive: true });
       await copyFile(path, join(this.dir, file));
       this.deps.db.update(goldenResults).set({ status: 'completed', file }).where(eq(goldenResults.id, result.id)).run();
+      // Speech is checked by ear, automatically: a speech model now and then
+      // returns noise for a seed that worked before, and a blind vote should
+      // not be spent on a take that says nothing.
+      const text = params.params?.text;
+      if (job.kind === 'audio' && typeof text === 'string' && text.trim()) {
+        this.deps.jobs.create('analyze', { task: 'transcribe', golden_file: file, expected: text, golden_result: result.id });
+      }
     } else {
       this.deps.db
         .update(goldenResults)

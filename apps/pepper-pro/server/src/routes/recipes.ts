@@ -39,7 +39,7 @@ export function recipeSummary(recipe: Recipe, status: RecipeStatus) {
     files: status.files.map((f) => ({
       id: f.file.id,
       label: f.file.label,
-      folder: f.file.folder,
+      folder: f.bundle,
       name: f.name,
       optional: f.file.optional,
       installed: f.installed,
@@ -108,7 +108,7 @@ export async function recipeRoutes(fastify: FastifyInstance, options: RecipeRout
       for (const file of files) {
         if (file.installed || (file.file.optional && !req.body.optional)) continue;
         tasks.push(
-          await downloads.enqueue({ kind: 'comfy', bundle: file.file.folder, slot: 'file', url: file.url, name: file.name }),
+          await downloads.enqueue({ kind: 'comfy', bundle: file.bundle, slot: 'file', url: file.url, name: file.name }),
         );
       }
       return reply.code(202).send({ recipe: recipe.id, downloads: tasks });
@@ -134,12 +134,12 @@ export async function recipeRoutes(fastify: FastifyInstance, options: RecipeRout
         if (other.id === recipe.id) continue;
         const files = await recipes.resolveFiles(other, config.tier);
         if (!files.some((f) => f.installed)) continue;
-        for (const f of files) kept.add(`${f.file.folder}/${f.name}`);
+        for (const f of files) kept.add(f.relPath);
       }
       const deleted: string[] = [];
       const shared: string[] = [];
       for (const file of mine) {
-        const key = `${file.file.folder}/${file.name}`;
+        const key = file.relPath;
         if (!file.installed) continue;
         if (kept.has(key)) {
           shared.push(key);

@@ -1,0 +1,856 @@
+{
+  "schema": 1,
+  "id": "qwen3-tts",
+  "version": 1,
+  "kind": "audio",
+  "name": "Qwen3-TTS — speech, voice cloning and dialogue",
+  "description": "Speech from text in a cloned voice (a few seconds of someone speaking), a voice described in words, one of nine preset voices, or a whole exchange between up to four cloned voices as one track. For dialogue, narration and the driving audio of talking shots.",
+  "family": "qwen3-tts",
+  "capabilities": [
+    "speech",
+    "tts",
+    "voice-clone",
+    "voice-design",
+    "dialogue-audio"
+  ],
+  "licence": {
+    "id": "apache-2.0",
+    "name": "Apache 2.0",
+    "url": "https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+    "commercial": "yes"
+  },
+  "nodes": [
+    {
+      "name": "ComfyUI-Qwen-TTS",
+      "repo": "https://github.com/flybirdxx/ComfyUI-Qwen-TTS",
+      "commit": "a1328c8a731eff82cf4c205b31bdfb7f29d817f4",
+      "skip_requirements": [
+        "onnxruntime-openvino"
+      ]
+    }
+  ],
+  "files": [
+    {
+      "id": "base-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "config.json",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base",
+          "bytes": 4494
+        }
+      ]
+    },
+    {
+      "id": "base-generation-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: generation_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "generation_config.json",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base",
+          "bytes": 245
+        }
+      ]
+    },
+    {
+      "id": "base-merges-txt",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: merges.txt",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "merges.txt",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base",
+          "bytes": 1671839
+        }
+      ]
+    },
+    {
+      "id": "base-model-safetensors",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: model.safetensors",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "model.safetensors",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base",
+          "bytes": 3857413744,
+          "sha256": "38fc7fc51c5e776e840414b6fd443962e9411b9654888fd7913e4da643cb857c"
+        }
+      ]
+    },
+    {
+      "id": "base-preprocessor-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: preprocessor_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "preprocessor_config.json",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base",
+          "bytes": 127
+        }
+      ]
+    },
+    {
+      "id": "base-speech-tokenizer-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: speech_tokenizer/config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "speech_tokenizer/config.json",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base/speech_tokenizer",
+          "bytes": 2336
+        }
+      ]
+    },
+    {
+      "id": "base-speech-tokenizer-configuration-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: speech_tokenizer/configuration.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "speech_tokenizer/configuration.json",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base/speech_tokenizer",
+          "bytes": 76
+        }
+      ]
+    },
+    {
+      "id": "base-speech-tokenizer-model-safetensors",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: speech_tokenizer/model.safetensors",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "speech_tokenizer/model.safetensors",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base/speech_tokenizer",
+          "bytes": 682293092,
+          "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+        }
+      ]
+    },
+    {
+      "id": "base-speech-tokenizer-preprocessor-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: speech_tokenizer/preprocessor_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "speech_tokenizer/preprocessor_config.json",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base/speech_tokenizer",
+          "bytes": 234
+        }
+      ]
+    },
+    {
+      "id": "base-tokenizer-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: tokenizer_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "tokenizer_config.json",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base",
+          "bytes": 7344
+        }
+      ]
+    },
+    {
+      "id": "base-vocab-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B Base: vocab.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-Base",
+          "path": "vocab.json",
+          "revision": "fd4b254389122332181a7c3db7f27e918eec64e3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-Base",
+          "bytes": 2776833
+        }
+      ]
+    },
+    {
+      "id": "design-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "config.json",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "bytes": 4421
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-generation-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: generation_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "generation_config.json",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "bytes": 245
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-merges-txt",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: merges.txt",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "merges.txt",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "bytes": 1671839
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-model-safetensors",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: model.safetensors",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "model.safetensors",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "bytes": 3833402552,
+          "sha256": "391e8db219f292c515297cdceeb43e4eae67cdde35fa57e79a6a8a532fca0522"
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-preprocessor-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: preprocessor_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "preprocessor_config.json",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "bytes": 127
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-speech-tokenizer-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: speech_tokenizer/config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "speech_tokenizer/config.json",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign/speech_tokenizer",
+          "bytes": 2336
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-speech-tokenizer-configuration-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: speech_tokenizer/configuration.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "speech_tokenizer/configuration.json",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign/speech_tokenizer",
+          "bytes": 76
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-speech-tokenizer-model-safetensors",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: speech_tokenizer/model.safetensors",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "speech_tokenizer/model.safetensors",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign/speech_tokenizer",
+          "bytes": 682293092,
+          "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-speech-tokenizer-preprocessor-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: speech_tokenizer/preprocessor_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "speech_tokenizer/preprocessor_config.json",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign/speech_tokenizer",
+          "bytes": 234
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-tokenizer-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: tokenizer_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "tokenizer_config.json",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "bytes": 7344
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "design-vocab-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B VoiceDesign: vocab.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "path": "vocab.json",
+          "revision": "5ecdb67327fd37bb2e042aab12ff7391903235d3",
+          "dir": "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+          "bytes": 2776833
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "config.json",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "bytes": 4908
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-generation-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: generation_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "generation_config.json",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "bytes": 245
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-merges-txt",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: merges.txt",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "merges.txt",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "bytes": 1671839
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-model-safetensors",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: model.safetensors",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "model.safetensors",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "bytes": 3833402552,
+          "sha256": "38b1d5971bdbd982b561cccec982669a53b0537c3cf5e9bd4778ed07bb2f5137"
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-preprocessor-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: preprocessor_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "preprocessor_config.json",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "bytes": 127
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-speech-tokenizer-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: speech_tokenizer/config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "speech_tokenizer/config.json",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice/speech_tokenizer",
+          "bytes": 2336
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-speech-tokenizer-configuration-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: speech_tokenizer/configuration.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "speech_tokenizer/configuration.json",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice/speech_tokenizer",
+          "bytes": 76
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-speech-tokenizer-model-safetensors",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: speech_tokenizer/model.safetensors",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "speech_tokenizer/model.safetensors",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice/speech_tokenizer",
+          "bytes": 682293092,
+          "sha256": "836b7b357f5ea43e889936a3709af68dfe3751881acefe4ecf0dbd30ba571258"
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-speech-tokenizer-preprocessor-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: speech_tokenizer/preprocessor_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "speech_tokenizer/preprocessor_config.json",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice/speech_tokenizer",
+          "bytes": 234
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-tokenizer-config-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: tokenizer_config.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "tokenizer_config.json",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "bytes": 7344
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "preset-vocab-json",
+      "folder": "qwen-tts",
+      "label": "Qwen3-TTS 1.7B CustomVoice: vocab.json",
+      "variants": [
+        {
+          "repo": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "path": "vocab.json",
+          "revision": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
+          "dir": "Qwen3-TTS-12Hz-1.7B-CustomVoice",
+          "bytes": 2776833
+        }
+      ],
+      "optional": true
+    }
+  ],
+  "params": [
+    {
+      "name": "text",
+      "type": "text",
+      "label": "Text",
+      "required": true,
+      "description": "What is said, exactly as written. In dialogue mode: one \"Role1: line\" per line."
+    },
+    {
+      "name": "voice_ref",
+      "type": "audio",
+      "label": "Voice to clone",
+      "description": "3-15 s of the speaker (clone modes)."
+    },
+    {
+      "name": "voice_text",
+      "type": "text",
+      "label": "Its transcript",
+      "description": "What the reference says: better cloning than without it."
+    },
+    {
+      "name": "voice_refs",
+      "type": "audios",
+      "label": "Voices (dialogue)",
+      "max_items": 4,
+      "description": "A clip of each speaker, as Role1, Role2…"
+    },
+    {
+      "name": "voice",
+      "type": "text",
+      "label": "Voice description",
+      "description": "e.g. \"a warm, low male voice, slow and calm\" (design mode)."
+    },
+    {
+      "name": "speaker",
+      "type": "enum",
+      "label": "Preset voice",
+      "default": "Ryan",
+      "options": [
+        "Aiden",
+        "Dylan",
+        "Eric",
+        "Ono_anna",
+        "Ryan",
+        "Serena",
+        "Sohee",
+        "Uncle_fu",
+        "Vivian"
+      ]
+    },
+    {
+      "name": "style",
+      "type": "text",
+      "label": "Delivery",
+      "description": "e.g. \"whispering, nervous\" (clone and preset modes)."
+    },
+    {
+      "name": "language",
+      "type": "enum",
+      "label": "Language",
+      "default": "Auto",
+      "options": [
+        "Auto",
+        "English",
+        "Chinese",
+        "Japanese",
+        "Korean",
+        "French",
+        "German",
+        "Spanish",
+        "Portuguese",
+        "Russian",
+        "Italian"
+      ]
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "clone": {
+      "file": "clone.json",
+      "outputs": [
+        {
+          "node": "9",
+          "kind": "audio"
+        }
+      ],
+      "requires_files": [
+        "base-config-json",
+        "base-generation-config-json",
+        "base-merges-txt",
+        "base-model-safetensors",
+        "base-preprocessor-config-json",
+        "base-speech-tokenizer-config-json",
+        "base-speech-tokenizer-configuration-json",
+        "base-speech-tokenizer-model-safetensors",
+        "base-speech-tokenizer-preprocessor-config-json",
+        "base-tokenizer-config-json",
+        "base-vocab-json"
+      ],
+      "bindings": [
+        {
+          "param": "text",
+          "node": "1",
+          "input": "target_text"
+        },
+        {
+          "param": "language",
+          "node": "1",
+          "input": "language"
+        },
+        {
+          "param": "seed",
+          "node": "1",
+          "input": "seed"
+        },
+        {
+          "param": "voice_ref",
+          "nodes": [
+            {
+              "node": "2",
+              "input": "audio"
+            }
+          ]
+        },
+        {
+          "param": "voice_text",
+          "node": "1",
+          "input": "ref_text"
+        },
+        {
+          "param": "style",
+          "node": "1",
+          "input": "instruct"
+        }
+      ]
+    },
+    "design": {
+      "file": "design.json",
+      "outputs": [
+        {
+          "node": "9",
+          "kind": "audio"
+        }
+      ],
+      "requires_files": [
+        "design-config-json",
+        "design-generation-config-json",
+        "design-merges-txt",
+        "design-model-safetensors",
+        "design-preprocessor-config-json",
+        "design-speech-tokenizer-config-json",
+        "design-speech-tokenizer-configuration-json",
+        "design-speech-tokenizer-model-safetensors",
+        "design-speech-tokenizer-preprocessor-config-json",
+        "design-tokenizer-config-json",
+        "design-vocab-json"
+      ],
+      "bindings": [
+        {
+          "param": "text",
+          "node": "1",
+          "input": "text"
+        },
+        {
+          "param": "language",
+          "node": "1",
+          "input": "language"
+        },
+        {
+          "param": "seed",
+          "node": "1",
+          "input": "seed"
+        },
+        {
+          "param": "voice",
+          "node": "1",
+          "input": "instruct"
+        }
+      ]
+    },
+    "preset": {
+      "file": "preset.json",
+      "outputs": [
+        {
+          "node": "9",
+          "kind": "audio"
+        }
+      ],
+      "requires_files": [
+        "preset-config-json",
+        "preset-generation-config-json",
+        "preset-merges-txt",
+        "preset-model-safetensors",
+        "preset-preprocessor-config-json",
+        "preset-speech-tokenizer-config-json",
+        "preset-speech-tokenizer-configuration-json",
+        "preset-speech-tokenizer-model-safetensors",
+        "preset-speech-tokenizer-preprocessor-config-json",
+        "preset-tokenizer-config-json",
+        "preset-vocab-json"
+      ],
+      "bindings": [
+        {
+          "param": "text",
+          "node": "1",
+          "input": "text"
+        },
+        {
+          "param": "language",
+          "node": "1",
+          "input": "language"
+        },
+        {
+          "param": "seed",
+          "node": "1",
+          "input": "seed"
+        },
+        {
+          "param": "speaker",
+          "node": "1",
+          "input": "speaker"
+        },
+        {
+          "param": "style",
+          "node": "1",
+          "input": "instruct"
+        }
+      ]
+    },
+    "dialogue": {
+      "file": "dialogue.json",
+      "outputs": [
+        {
+          "node": "9",
+          "kind": "audio"
+        }
+      ],
+      "requires_files": [
+        "base-config-json",
+        "base-generation-config-json",
+        "base-merges-txt",
+        "base-model-safetensors",
+        "base-preprocessor-config-json",
+        "base-speech-tokenizer-config-json",
+        "base-speech-tokenizer-configuration-json",
+        "base-speech-tokenizer-model-safetensors",
+        "base-speech-tokenizer-preprocessor-config-json",
+        "base-tokenizer-config-json",
+        "base-vocab-json"
+      ],
+      "bindings": [
+        {
+          "param": "text",
+          "node": "1",
+          "input": "script"
+        },
+        {
+          "param": "language",
+          "node": "1",
+          "input": "language"
+        },
+        {
+          "param": "seed",
+          "node": "1",
+          "input": "seed"
+        },
+        {
+          "param": "voice_refs",
+          "nodes": [
+            {
+              "node": "20",
+              "input": "audio"
+            },
+            {
+              "node": "21",
+              "input": "audio"
+            },
+            {
+              "node": "22",
+              "input": "audio"
+            },
+            {
+              "node": "23",
+              "input": "audio"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "modes": {
+    "final": {
+      "label": "Clone a voice",
+      "workflow": "clone"
+    },
+    "clone-quick": {
+      "label": "Clone a voice (no transcript)",
+      "workflow": "clone",
+      "set": [
+        {
+          "node": "1",
+          "input": "x_vector_only",
+          "value": true
+        }
+      ]
+    },
+    "design": {
+      "label": "Describe a voice",
+      "workflow": "design"
+    },
+    "preset": {
+      "label": "Preset voice",
+      "workflow": "preset"
+    },
+    "dialogue": {
+      "label": "Dialogue (up to four voices)",
+      "workflow": "dialogue"
+    }
+  },
+  "default_mode": "final",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Text is required in every mode; a voice clip is required to clone. The Base checkpoint (cloning, dialogue) is always installed, VoiceDesign and CustomVoice only for their modes. The node pack is Apache-2.0 (its pyproject and README; it has no LICENSE file). Its requirement onnxruntime-openvino is skipped: Intel-only, unused by its code, and it would shadow the onnxruntime LongCat-Avatar needs."
+}

@@ -26,7 +26,10 @@ import type { RecipeStore } from '../recipes/store.js';
  *   performance can be lip-synced to the isolated voice;
  * - `check`: a vision model looks at a take next to its shot and says what is
  *   wrong (a missing subject, the wrong garment colour, garbled text) before
- *   a person has to.
+ *   a person has to;
+ * - `transcribe`: Whisper's reading of speech, scored against the words it
+ *   should say, because a speech model now and then returns noise or the
+ *   wrong line for the same seed that worked before.
  *
  * Beats and stems run python/analyze.py with ComfyUI's interpreter, on the
  * CPU: they are small next to a video model, and keeping them off the GPU
@@ -34,12 +37,16 @@ import type { RecipeStore } from '../recipes/store.js';
  */
 
 export interface AnalyzeParams {
-  task: 'beats' | 'stems' | 'check';
-  /** An upload name (beats, stems). */
+  task: 'beats' | 'stems' | 'check' | 'transcribe';
+  /** An upload name (beats, stems, transcribe). */
   audio?: string;
+  /** transcribe: the words the audio should say; the result says how well it does. */
+  expected?: string;
+  /** transcribe: a kept golden result, by its path under DATA_DIR/golden (set by golden runs). */
+  golden_file?: string;
   /** An asset whose audio to analyse; results are stored on it. */
   asset_id?: string;
-  /** The take to check. */
+  /** The take to check or transcribe; the verdict is kept on it. */
   take_id?: string;
   /** Override the configured check model. */
   model?: string;
@@ -51,6 +58,9 @@ export interface AnalyzeEngineDeps {
   projects: ProjectService;
   recipes: RecipeStore;
   text: TextService;
+  /** Where a kept golden result lives (golden/service.ts). */
+  goldenPath: (file: string) => string;
+  jobs?: { get(id: string): { params: unknown } | null | undefined };
   log: FastifyBaseLogger;
 }
 
@@ -84,6 +94,7 @@ export class AnalyzeEngine implements Engine {
   private async run(context: JobContext): Promise<Record<string, unknown>> {
     const params = context.job.params as unknown as AnalyzeParams;
     if (params.task === 'check') return this.check(params, context);
+    if (params.task === 'transcribe') return this.transcribe(params, context);
     const { path, asset } = this.audioFor(params);
     if (params.task === 'beats') {
       const result = (await this.python(['beats', path], context)) as { bpm: number; beats: number[]; downbeats: number[]; duration: number };
@@ -124,6 +135,43 @@ export class AnalyzeEngine implements Engine {
       }
     }
     throw errors.validation(`Unknown analyze task "${String(params.task)}"`);
+  }
+
+  private async transcribe(params: AnalyzeParams, context: JobContext): Promise<Record<string, unknown>> {
+    const { projects, paths } = this.deps;
+    let path: string;
+    let take: ReturnType<ProjectService['requireTake']> | undefined;
+    let expected = params.expected;
+    if (params.golden_file) {
+      path = this.deps.goldenPath(params.golden_file);
+    } else if (params.take_id) {
+      take = projects.requireTake(params.take_id);
+      if (!take.file) throw errors.validation(`Take ${take.id} has no finished file yet`);
+      path = projects.takeFile(take.projectId, take.file);
+      // A speech take is judged against what its recipe was asked to say.
+      const job = this.deps.jobs?.get(take.jobId);
+      expected ??= ((job?.params as { params?: { text?: string } } | undefined)?.params?.text as string | undefined) ?? undefined;
+    } else {
+      path = this.audioFor(params).path;
+    }
+    const args = ['transcribe', path, '--cache', join(paths.cacheDir, 'whisper')];
+    if (expected) args.push('--expected', expected);
+    const result = (await this.python(args, context)) as {
+      text: string;
+      language: string;
+      segments: unknown[];
+      match?: { wer: number; ok: boolean };
+    };
+    if (take && result.match) {
+      projects.setTakeReview(take.id, {
+        ok: result.match.ok,
+        score: Math.max(0, Math.round(5 * (1 - Math.min(1, result.match.wer)))),
+        issues: result.match.ok ? [] : [`Heard: "${result.text.slice(0, 160)}"`],
+        model: 'whisper-base',
+        at: Date.now(),
+      });
+    }
+    return { task: 'transcribe', take_id: take?.id, golden_file: params.golden_file, expected, ...result };
   }
 
   private audioFor(params: AnalyzeParams) {

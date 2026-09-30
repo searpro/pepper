@@ -267,4 +267,5 @@ CREATE INDEX IF NOT EXISTS cuts_project_idx ON cuts (project_id);
 export const PRO_MIGRATIONS: string[] = [
   'ALTER TABLE takes ADD COLUMN review TEXT',
   'ALTER TABLE cuts ADD COLUMN beat_sync INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE golden_results ADD COLUMN review TEXT',
 ];

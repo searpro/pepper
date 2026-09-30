@@ -25,7 +25,14 @@ interface GoldenRun {
   status: 'preparing' | 'rendering' | 'done' | 'failed';
   error: string | null;
   createdAt: number;
-  results: { id: string; shotId: string; status: string; file: string | null; error: string | null }[];
+  results: {
+    id: string;
+    shotId: string;
+    status: string;
+    file: string | null;
+    error: string | null;
+    review: { ok: boolean; wer?: number; heard?: string; error?: string } | null;
+  }[];
 }
 
 type Pair =
@@ -134,6 +141,12 @@ function Runs({ recipe }: { recipe: Recipe }) {
                 {result.file ? <GoldenMedia file={result.file} kind={recipe.kind} /> : null}
                 {result.status === 'running' || result.status === 'queued' ? <Spinner /> : null}
                 {result.error ? <span className="text-muted-foreground">{result.status}: {result.error}</span> : null}
+                {result.review ? (
+                  <Badge variant={result.review.ok ? 'success' : 'destructive'} className="self-start" title={result.review.heard ?? result.review.error}>
+                    {result.review.ok ? 'Says the line' : 'Does not say the line'}
+                    {result.review.wer !== undefined ? ` · WER ${Math.round(result.review.wer * 100)}%` : ''}
+                  </Badge>
+                ) : null}
               </div>
             ))}
           </div>

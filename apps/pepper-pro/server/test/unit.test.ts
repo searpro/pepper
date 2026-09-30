@@ -135,6 +135,55 @@ describe('recipes', () => {
     await expect(layout.componentPaths('comfy', 'etc', 'file', 'x')).rejects.toThrow(/not a ComfyUI model folder/);
     expect(() => layout.fileNameFor('https://x/y/../a.bin', '../a.bin')).toThrow();
     expect(modelPathsYaml('/data/models')).toMatch(/base_path: "\/data\/models"\n  is_default: true\n  checkpoints: checkpoints/);
+    // A checkpoint a node pack loads as a directory lands in its sub-directory.
+    const nested = await layout.componentPaths('comfy', 'qwen-tts/Qwen3-TTS-12Hz-1.7B-Base/speech_tokenizer', 'file', 'model.safetensors');
+    expect(nested.finalPath).toBe(join(config.dataDir, 'models', 'qwen-tts', 'Qwen3-TTS-12Hz-1.7B-Base', 'speech_tokenizer', 'model.safetensors'));
+    await expect(layout.componentPaths('comfy', 'qwen-tts/../../etc', 'file', 'x')).rejects.toThrow();
+  });
+
+  it('checks the files a workflow requires and places sub-directory variants', async () => {
+    const recipe = {
+      schema: 1,
+      id: 'dirs',
+      version: 1,
+      kind: 'audio',
+      name: 'Dirs',
+      description: '',
+      family: 'x',
+      licence: { id: 'x', name: 'X', commercial: 'yes' },
+      files: [{ id: 'cfg', folder: 'qwen-tts', label: 'Config', variants: [{ repo: 'Org/M', path: 'config.json', dir: 'M/sub', bytes: 1 }] }],
+      params: [{ name: 'style', type: 'enum', label: 'Style', options: ['A', 'B'] }],
+      workflows: {
+        main: {
+          file: 'w.json',
+          bindings: [{ param: 'style', node: '1', input: 'index', map: { A: 0, B: 1 } }],
+          requires_files: ['cfg', 'ghost'],
+          outputs: [{ node: '1', kind: 'audio' }],
+        },
+      },
+      modes: { final: { label: 'F', workflow: 'main' } },
+      default_mode: 'final',
+      tiers: ['32gb'],
+    };
+    const bad = recipeSchema.safeParse(recipe);
+    expect(bad.success ? '' : bad.error.issues.map((i) => i.message).join()).toMatch(/requires unknown file "ghost"/);
+    recipe.workflows.main.requires_files = ['cfg'];
+    const parsed = recipeSchema.parse(recipe);
+    expect(recipeSchema.safeParse({ ...recipe, files: [{ ...recipe.files[0], variants: [{ ...recipe.files[0].variants[0], dir: '../up' }] }] }).success).toBe(false);
+    const store = new RecipeStore(FIXTURES, buildPaths(await tempConfig()), log);
+    const [resolved] = await store.resolveFiles(parsed, '32gb');
+    expect(resolved.relPath).toBe('qwen-tts/M/sub/config.json');
+    expect(resolved.path.endsWith(join('models', 'qwen-tts', 'M', 'sub', 'config.json'))).toBe(true);
+    // An enum reaches the graph through its map.
+    const prompt = buildPrompt({
+      recipe: parsed,
+      mode: parsed.modes.final,
+      workflow: parsed.workflows.main,
+      template: { 1: { class_type: 'X', inputs: { index: 9 } } },
+      values: { style: 'B' },
+      files: [],
+    });
+    expect(prompt[1].inputs.index).toBe(1);
   });
 });
 
@@ -218,6 +267,15 @@ describe('graph building', () => {
     const lenient = validatePrompt({ 5: { class_type: 'LoadImage', inputs: { image: 'missing.png' } } }, OBJECT_INFO, { ignoreFileChoices: true });
     expect(lenient).toEqual([]);
   });
+  it('checks numbers against their bounds, and draws seeds within a seed parameter\'s max', () => {
+    const info: ObjectInfo = { Sampler: { input: { required: { seed: ['INT', { min: 0, max: 2147483647 }] } }, output: [] } };
+    expect(validatePrompt({ 1: { class_type: 'Sampler', inputs: { seed: 2 ** 40 } } }, info).map((i) => i.message)).toEqual([
+      'Sampler.seed is 1099511627776, above its maximum 2147483647',
+    ]);
+    const recipe = { id: 'r', params: [{ name: 'seed', type: 'seed', label: 'Seed', required: false, max: 1000 }] } as unknown as Recipe;
+    for (let i = 0; i < 50; i++) expect(resolveParams(recipe, { label: '', workflow: 'm', set: [], defaults: {} }, {}).seed).toBeLessThanOrEqual(1000);
+  });
+
   it('checks link types and treats growable group members as optional', () => {
     const info: ObjectInfo = {
       ...OBJECT_INFO,
@@ -750,6 +808,20 @@ describe.skipIf(!haveComfy)('comfyui end to end', () => {
     expect(new Set([vote.left, vote.right])).toEqual(new Set([1, 2]));
     const tally = server.golden.tally('test-video');
     expect(tally.find((t) => t.version === vote.winner)).toMatchObject({ wins: 1 });
+  }, 300_000);
+
+  it('transcribes a take and keeps the verdict on it', async () => {
+    const project = server.projects.createProject({ name: 'Words' });
+    const scene = server.projects.createScene(project.id);
+    const shot = server.projects.createShot(scene.id, { prompt: 'x', recipeId: 'test-video', durationS: 1 });
+    const [take] = await server.projects.renderShots([shot.id], { count: 1 });
+    await settle(take.jobId);
+    await new Promise((r) => setTimeout(r, 300));
+    // The fixture take is silent, so Whisper hears nothing of the expected line.
+    const job = await settle(server.jobs.create('analyze', { task: 'transcribe', take_id: take.id, expected: 'Hello there' }).id);
+    expect(job.error).toBeUndefined();
+    expect(job.result!.match).toMatchObject({ ok: false });
+    expect(server.projects.requireTake(take.id).review).toMatchObject({ ok: false, model: 'whisper-base' });
   }, 300_000);
 
   it('cancels a running prompt through ComfyUI', async () => {

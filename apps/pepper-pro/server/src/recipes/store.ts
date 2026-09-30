@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { proErrors } from '../errors.js';
-import { safeResolve } from '@pepper/core/paths.js';
+import { safeResolve, safeResolveNested } from '@pepper/core/paths.js';
 import type { Prompt } from '../comfy/client.js';
 import type { LicenceMode, Tier } from '../config.js';
 import type { ProPaths } from '../paths.js';
@@ -24,6 +24,10 @@ export interface ResolvedFile {
   variant: FileVariant;
   /** Name on disk inside its ComfyUI folder. */
   name: string;
+  /** The folder, plus the variant's `dir` when it has one: the download bundle. */
+  bundle: string;
+  /** `bundle/name`, which is how a file is named in messages and sharing checks. */
+  relPath: string;
   path: string;
   url: string;
   installed: boolean;
@@ -143,14 +147,16 @@ export class RecipeStore {
       recipe.files.map(async (file) => {
         const variant = variantFor(file, tier);
         const name = variantName(variant);
-        const path = safeResolve(this.folderPath(file.folder), name);
+        const dir = variant.dir ? variant.dir.split('/') : [];
+        const path = safeResolveNested(this.folderPath(file.folder), ...dir, name);
+        const bundle = [file.folder, ...dir].join('/');
         let size: number | undefined;
         try {
           size = (await stat(path)).size;
         } catch {
           size = undefined;
         }
-        return { file, variant, name, path, url: variantUrl(variant), installed: size !== undefined, size };
+        return { file, variant, name, bundle, relPath: `${bundle}/${name}`, path, url: variantUrl(variant), installed: size !== undefined, size };
       }),
     );
   }

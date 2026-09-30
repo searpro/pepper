@@ -31,6 +31,8 @@ export const goldenResults = sqliteTable(
     /** Relative to DATA_DIR/golden. */
     file: text('file'),
     error: text('error'),
+    /** An automatic check of the result (speech: Whisper against its text). */
+    review: text('review', { mode: 'json' }),
   },
   (t) => ({ runIdx: index('golden_results_run_idx').on(t.runId), jobIdx: index('golden_results_job_idx').on(t.jobId) }),
 );

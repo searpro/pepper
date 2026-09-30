@@ -78,7 +78,9 @@ export function resolveParams(recipe: Recipe, mode: ModeSpec, input: ParamValues
       value = mode.defaults[param.name] ?? param.default;
     }
     if (param.type === 'seed' && (value === undefined || (typeof value === 'number' && value < 0))) {
-      value = randomInt(0, 2 ** 47);
+      // Within the seed's own `max` when a node takes less than 47 bits
+      // (LongCat-Avatar's sampler stops at 2^31-1).
+      value = randomInt(0, Math.min(2 ** 47, (param.max ?? 2 ** 47 - 1) + 1));
     }
     if (value === undefined || value === null) {
       if (param.required) throw errors.validation(`${param.name} is required by recipe "${recipe.id}"`);
