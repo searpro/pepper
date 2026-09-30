@@ -65,6 +65,7 @@ export async function systemRoutes(fastify: FastifyInstance): Promise<void> {
       accel: app.config.accel,
       platform: `${process.platform}/${process.arch}`,
       backends: app.backends.statusAll(),
+      engines: app.engines.status(),
       // Sampled here rather than on its own poll, so the header meters and the
       // backend pills refresh together from the one request the UI already makes.
       resources: await app.resources.sample(),

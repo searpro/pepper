@@ -1369,7 +1369,8 @@ describe('Python runner protocol', () => {
 
     const log = { info: () => {}, warn: () => {}, error: () => {} } as unknown as import('fastify').FastifyBaseLogger;
     const backends = { get: () => undefined } as unknown as import('../src/backends/manager.js').BackendManager;
-    const service = new PythonVideoService(config, paths, backends, log, new LogBuffer(100));
+    const memory = { exclusive: async () => {}, release: async () => {} };
+    const service = new PythonVideoService(config, paths, backends, memory, log, new LogBuffer(100));
 
     await expect(
       service.generate({
@@ -2022,5 +2023,54 @@ describe('storage budget', () => {
     const unlimited = new StorageMonitor(dir, null);
     await expect(unlimited.assertRoom(1e15)).resolves.toBeUndefined();
     expect(unlimited.snapshot()).toBeNull();
+  });
+});
+
+describe('engines', () => {
+  const log = { info: () => {}, warn: () => {}, error: () => {} } as unknown as import('fastify').FastifyBaseLogger;
+
+  it('refuses two engines claiming one job kind', async () => {
+    const { EngineRegistry } = await import('../src/engines/engine.js');
+    const run = async () => ({});
+    const registry = new EngineRegistry(log).register({ id: 'a', label: 'A', executors: () => ({ image: run }) });
+    expect(() => registry.register({ id: 'b', label: 'B', executors: () => ({ image: run }) })).toThrow(/claimed by both/);
+  });
+
+  it('releases every other resident engine for exclusive work', async () => {
+    const { EngineRegistry } = await import('../src/engines/engine.js');
+    const released: string[] = [];
+    const engine = (id: string, resident: boolean) => ({
+      id,
+      label: id,
+      executors: () => ({}),
+      resident: () => resident,
+      release: async () => {
+        released.push(id);
+      },
+    });
+    const registry = new EngineRegistry(log)
+      .register(engine('video', true))
+      .register(engine('llm', true))
+      .register(engine('audio', false));
+    const lines: string[] = [];
+    await registry.exclusive('video', (line) => lines.push(line));
+    expect(released).toEqual(['llm']);
+    expect(lines).toHaveLength(1);
+    await registry.release('audio', 'pressure');
+    expect(released).toEqual(['llm']);
+  });
+
+  it('attaches executors to the job system and reports which engine owns a kind', async () => {
+    const { EngineRegistry } = await import('../src/engines/engine.js');
+    const registered: string[] = [];
+    const jobs = { registerExecutor: (kind: string) => registered.push(kind) } as unknown as import('../src/jobs/manager.js').JobManager;
+    const run = async () => ({});
+    const registry = new EngineRegistry(log)
+      .register({ id: 'gen', label: 'Gen', executors: () => ({ image: run, video: run }) })
+      .register({ id: 'txt', label: 'Txt', executors: () => ({ text: run }) });
+    registry.attach(jobs);
+    expect(registered.sort()).toEqual(['image', 'text', 'video']);
+    expect(registry.ownerOf('video')?.id).toBe('gen');
+    expect(registry.status().find((s) => s.id === 'txt')?.kinds).toEqual(['text']);
   });
 });

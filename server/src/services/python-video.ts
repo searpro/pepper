@@ -9,6 +9,7 @@ import { AppError, errors } from '../errors.js';
 import type { LogBuffer } from '../logs/buffer.js';
 import type { StepProgress } from '../logs/parse.js';
 import type { BackendManager } from '../backends/manager.js';
+import type { MemoryArbiter } from '../engines/engine.js';
 import { runnerSourceDir, type PythonRuntime } from '../backends/python.js';
 import {
   resolveS2vConfig,
@@ -36,8 +37,6 @@ import { generateSpeechVideo } from './s2v.js';
  */
 
 const MARKER = '@@pepper ';
-/** Backends that hold model memory while idle, stopped before a job when configured. */
-const RESIDENT_BACKENDS = ['llamacpp', 'audiocpp', 'vllm'] as const;
 
 export interface PythonVideoResult {
   outputPath: string;
@@ -77,6 +76,7 @@ export class PythonVideoService {
     private readonly config: Config,
     private readonly paths: Paths,
     private readonly backends: BackendManager,
+    private readonly memory: MemoryArbiter,
     private readonly log: FastifyBaseLogger,
     private readonly logs: LogBuffer,
   ) {}
@@ -166,7 +166,7 @@ export class PythonVideoService {
       });
     }
 
-    if (this.config.pythonExclusiveMemory) await this.freeResidentBackends(log);
+    if (this.config.pythonExclusiveMemory) await this.memory.exclusive('sdcpp', log);
 
     await mkdir(this.paths.outputDir, { recursive: true });
     // Speech-driven output is stitched by the S2V orchestrator, which encodes
@@ -403,24 +403,6 @@ export class PythonVideoService {
       throw errors.inputNotFound(name);
     }
     return path;
-  }
-
-  /**
-   * Stop the backends that keep a model resident. They are started lazily by
-   * the next request that needs them, so this costs a reload later rather than
-   * risking the machine now: on the 24 GB Mac this was built on, a video
-   * decode alongside a resident LLM once exhausted memory and swap and took
-   * the whole machine down.
-   */
-  private async freeResidentBackends(log: (line: string) => void): Promise<void> {
-    for (const backend of RESIDENT_BACKENDS) {
-      const proc = this.backends.get(backend);
-      if (!proc || proc.status === 'stopped' || proc.status === 'failed') continue;
-      log(
-        `Stopping ${backend} to free memory for the video model (it restarts on its next request)`,
-      );
-      await proc.stop().catch((err) => this.log.warn({ backend, err }, 'could not stop backend'));
-    }
   }
 
   private run(

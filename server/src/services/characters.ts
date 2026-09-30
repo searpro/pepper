@@ -3,7 +3,7 @@ import { copyFile, stat } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { desc, eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
-import type { BackendManager } from '../backends/manager.js';
+import type { MemoryArbiter } from '../engines/engine.js';
 import type { Config } from '../config.js';
 import type { Db } from '../db/client.js';
 import { characters, type CharacterRow } from '../db/schema.js';
@@ -145,7 +145,7 @@ export class CharacterService {
     private readonly jobs: JobManager,
     private readonly models: ModelManager,
     private readonly text: TextService,
-    private readonly backends: BackendManager,
+    private readonly memory: MemoryArbiter,
     private readonly config: Config,
     private readonly log: FastifyBaseLogger,
   ) {
@@ -296,9 +296,7 @@ export class CharacterService {
    */
   private releaseLlm(): void {
     if (!this.config.pythonExclusiveMemory) return;
-    const llm = this.backends.get('llamacpp');
-    if (!llm || llm.status === 'stopped' || llm.status === 'failed') return;
-    void llm.stop().catch((err) => this.log.warn({ err }, 'could not stop llamacpp after a design'));
+    void this.memory.release('llamacpp', 'pressure');
   }
 
   private async pickLlm(requested?: string): Promise<string | null> {

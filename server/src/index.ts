@@ -53,8 +53,7 @@ async function main(): Promise<void> {
     // leaves a request being served by a process that has just been killed.
     try {
       await app.close();
-      app.images.killAll();
-      app.pythonVideo.killAll();
+      await app.engines.shutdown();
       await app.backends.stopAll();
       closeDb();
     } catch (err) {

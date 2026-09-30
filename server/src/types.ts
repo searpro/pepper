@@ -9,6 +9,7 @@ import type { CatalogueManager } from './catalogue/manager.js';
 import type { DownloadManager } from './downloads/manager.js';
 import type { SnapshotDownloader } from './downloads/snapshot.js';
 import type { JobManager } from './jobs/manager.js';
+import type { EngineRegistry } from './engines/engine.js';
 import type { ImageService } from './services/image.js';
 import type { UpscaleService } from './services/upscale.js';
 import type { PythonVideoService } from './services/python-video.js';
@@ -36,6 +37,7 @@ declare module 'fastify' {
     downloads: DownloadManager;
     snapshotDownloads: SnapshotDownloader;
     jobs: JobManager;
+    engines: EngineRegistry;
     images: ImageService;
     upscaler: UpscaleService;
     pythonVideo: PythonVideoService;
