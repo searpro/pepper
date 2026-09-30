@@ -66,10 +66,12 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
 
   // --- Services -------------------------------------------------------------
 
-  const backends = new ProBackendManager(config, paths, settings, app.log, logs);
-  const storage = new StorageMonitor(paths.dataDir, config.dataVolumeGb ? config.dataVolumeGb * 1024 ** 3 : null);
   const recipes = new RecipeStore(config.recipesDir, paths, app.log);
   await recipes.load();
+  const backends = new ProBackendManager(config, paths, settings, app.log, logs, () =>
+    recipes.list().flatMap((recipe) => recipe.nodes.map((pack) => pack.name)),
+  );
+  const storage = new StorageMonitor(paths.dataDir, config.dataVolumeGb ? config.dataVolumeGb * 1024 ** 3 : null);
 
   const downloads = new DownloadManager<DownloadKind, DownloadSlot>(
     config,

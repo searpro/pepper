@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "convert-template": "node scripts/convert-template.mjs",
-    "validate-recipes": "tsx --conditions=pepper-source scripts/validate-recipes.ts"
+    "validate-recipes": "tsx --conditions=pepper-source src/scripts/validate-recipes.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
@@ -21,6 +21,7 @@
     "drizzle-orm": "^0.38.4",
     "fastify": "^5.2.1",
     "fastify-type-provider-zod": "^4.0.2",
+    "pino": "^9.6.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

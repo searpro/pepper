@@ -1,0 +1,33 @@
+# Typecheck and unit tests for both products on every push and pull request.
+# Pepper Pro's recipes are validated here offline, against the node types
+# saved in apps/pepper-pro/server/test/fixtures/object_info.json; the image
+# build validates them against a live ComfyUI.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # The cut renderer's tests run ffmpeg.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test

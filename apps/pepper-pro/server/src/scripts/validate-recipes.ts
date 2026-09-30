@@ -3,7 +3,7 @@
  * its required inputs and with all of them, and validated against the node
  * types that ComfyUI reports. Exits non-zero on any issue.
  *
- *   npm run validate-recipes -w @pepper-pro/server -- [--comfy http://127.0.0.1:8188] [--tier 32gb] [--dir recipes]
+^ *   npm run validate-recipes -w @pepper-pro/server -- [--comfy http://127.0.0.1:8188] [--tier 32gb] [--dir recipes]
  *     [--write-fixture test/fixtures/object_info.json]
  *
  * Model files need not be present (file choices are not checked), but every
@@ -16,12 +16,12 @@
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import pino from 'pino';
-import { ComfyClient, type ObjectInfo } from '../src/comfy/client.js';
-import { classTypes } from '../src/comfy/graph.js';
-import { TIERS, type Tier } from '../src/config.js';
-import { checkRecipe } from '../src/recipes/check.js';
-import { RecipeStore } from '../src/recipes/store.js';
-import type { ProPaths } from '../src/paths.js';
+import { ComfyClient, type ObjectInfo } from '../comfy/client.js';
+import { classTypes } from '../comfy/graph.js';
+import { TIERS, type Tier } from '../config.js';
+import { checkRecipe } from '../recipes/check.js';
+import { RecipeStore } from '../recipes/store.js';
+import type { ProPaths } from '../paths.js';
 
 const args = process.argv.slice(2);
 const option = (name: string) => {
@@ -31,7 +31,7 @@ const option = (name: string) => {
 const comfyUrl = option('comfy') ?? 'http://127.0.0.1:8188';
 const tier = (option('tier') ?? '32gb') as Tier;
 if (!TIERS.includes(tier)) throw new Error(`--tier must be one of ${TIERS.join(', ')}`);
-const dir = option('dir') ?? fileURLToPath(new URL('../recipes', import.meta.url));
+const dir = option('dir') ?? fileURLToPath(new URL('../../recipes', import.meta.url));
 
 const log = pino({ level: 'warn' });
 const store = new RecipeStore(dir, { modelsDir: '/nonexistent' } as ProPaths, log);

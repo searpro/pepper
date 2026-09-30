@@ -159,7 +159,18 @@ export function proBackendDefinitions(config: ProConfig, paths: ProPaths, log: F
 }
 
 export class ProBackendManager extends BackendManager {
-  constructor(config: ProConfig, paths: ProPaths, settings: SettingsStore, log: FastifyBaseLogger, logs: LogBuffer) {
+  /**
+   * `nodePacks` names the packs the loaded recipes use; they are whitelisted
+   * along with COMFY_NODES, so installing a recipe's pack is the only step.
+   */
+  constructor(
+    config: ProConfig,
+    paths: ProPaths,
+    settings: SettingsStore,
+    log: FastifyBaseLogger,
+    logs: LogBuffer,
+    nodePacks: () => string[] = () => [],
+  ) {
     super(
       proBackendDefinitions(config, paths, log),
       {
@@ -177,11 +188,9 @@ export class ProBackendManager extends BackendManager {
     // whitelist takes a list, which the flag table does not model).
     this.setPrepare('comfy', async () => {
       await writeFile(paths.comfyModelPathsFile, modelPathsYaml(paths.modelsDir));
+      const whitelist = [...new Set([...config.comfyNodes, ...nodePacks()])];
       return {
-        argvPrefix: [
-          join(config.comfyDir, 'main.py'),
-          ...(config.comfyNodes.length ? ['--whitelist-custom-nodes', ...config.comfyNodes] : []),
-        ],
+        argvPrefix: [join(config.comfyDir, 'main.py'), ...(whitelist.length ? ['--whitelist-custom-nodes', ...whitelist] : [])],
         env: { PYTHONUNBUFFERED: '1', HF_HUB_OFFLINE: '1' },
       };
     });

@@ -9,6 +9,7 @@
  *   PEPPER_TUNNEL_TOKEN   run `cloudflared tunnel run` with this token
  *   PEPPER_HOSTNAME       the tunnel's hostname, for the log line only
  *   PEPPER_IDLE_MINUTES   terminate the pod after this long idle (0/unset: never)
+ *   PEPPER_APP            the server to run (default Pepper's; the Pro image sets Pepper Pro's)
  *   RUNPOD_POD_ID, RUNPOD_API_KEY   set by RunPod itself; used to terminate
  *
  * Plain Node with no dependencies, so it runs from the image as copied.
@@ -71,7 +72,7 @@ delete pepperEnv.PEPPER_TUNNEL_TOKEN;
 delete pepperEnv.RUNPOD_API_KEY;
 if (!apiToken) delete pepperEnv.PEPPER_API_TOKEN;
 
-const pepper = run('pepper', process.execPath, ['apps/pepper/server/dist/index.js'], pepperEnv);
+const pepper = run('pepper', process.execPath, [env('PEPPER_APP') ?? 'apps/pepper/server/dist/index.js'], pepperEnv);
 pepper.on('exit', (code, signal) => {
   if (stopping) return;
   log(`pepper exited (${signal ?? code}); stopping the container`);

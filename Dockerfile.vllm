@@ -55,6 +55,9 @@ COPY packages/core/package.json ./packages/core/
 COPY packages/ui/package.json ./packages/ui/
 COPY apps/pepper/server/package.json ./apps/pepper/server/
 COPY apps/pepper/web/package.json ./apps/pepper/web/
+# The lockfile covers every workspace, so npm ci needs Pepper Pro's manifests too.
+COPY apps/pepper-pro/server/package.json ./apps/pepper-pro/server/
+COPY apps/pepper-pro/web/package.json ./apps/pepper-pro/web/
 RUN npm ci
 
 COPY packages/core ./packages/core

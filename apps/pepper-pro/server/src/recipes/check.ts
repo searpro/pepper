@@ -12,7 +12,7 @@ import { variantFor, variantName, variantUrl, type ResolvedFile } from './store.
  * prompt is validated. Against a live ComfyUI's `/object_info` this catches
  * a renamed input or a node pack missing from the image; without one it
  * still catches bindings to nodes that do not exist and links left dangling
- * by pruning. `scripts/validate-recipes.ts` runs it in CI and on a pod.
+ * by pruning. `src/scripts/validate-recipes.ts` runs it in the image build and on a pod.
  */
 
 export interface RecipeCheck {
