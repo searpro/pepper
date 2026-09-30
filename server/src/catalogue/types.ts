@@ -72,6 +72,18 @@ export const catalogueComponentSchema = z.object({
   /** Whether the user picks between quantizations. */
   quantizable: z.boolean().default(false),
   source: catalogueSourceSchema,
+  /**
+   * More places the same component is published — full-precision safetensors
+   * in one repo, GGUF quantizations in another — merged into one list to
+   * pick from. Older servers ignore this field and offer `source` alone.
+   */
+  alternatives: z.array(catalogueSourceSchema).optional(),
+  /**
+   * Case-insensitive substring of the filename installs should default to
+   * (e.g. `bf16`, `Q8_0`) instead of the smallest file: the quality pick for
+   * the GPUs this catalogue targets.
+   */
+  recommended: z.string().optional(),
 });
 
 export type CatalogueComponent = z.infer<typeof catalogueComponentSchema>;
@@ -153,6 +165,12 @@ export const catalogueModelSchema = z
     s2v: z.record(z.unknown()).optional(),
     defaults: z.record(z.unknown()).optional(),
     extraArgs: z.array(z.string()).optional(),
+    /**
+     * Trained schedules for the model's LoRAs, by filename without extension.
+     * Needed when a LoRA's filename is too generic for a built-in preset
+     * (Wan 2.2 Lightning ships as `high_noise_model` / `low_noise_model`).
+     */
+    loraPresets: z.record(z.record(z.unknown())).optional(),
 
     // --- llm ---
     /** Total parameter count, which drives download size and memory footprint. */
@@ -192,4 +210,6 @@ export interface ComponentFileOption {
   /** Quantization label, e.g. `Q4_K_M`, when one is detectable. */
   quant?: string;
   url: string;
+  /** Matches the component's `recommended`; the default choice. */
+  recommended?: boolean;
 }

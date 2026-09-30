@@ -56,7 +56,7 @@ interface RunnerSpec {
   components: Record<string, string>;
   package_dir: string | null;
   params: Record<string, unknown>;
-  inputs: { image: string | null; audio: string | null };
+  inputs: { image: string | null; audio: string | null; video?: string | null };
 }
 
 interface RunnerMessage {
@@ -311,7 +311,13 @@ export class PythonVideoService {
     runner: string;
     output: string;
     params: Record<string, unknown>;
-    inputs: { image?: string | null; audio?: string | null };
+    inputs: { image?: string | null; audio?: string | null; video?: string | null };
+    /** Upstream code the runner drives, as a git URL pinned with `#<commit>`. */
+    package?: string;
+    /** Run in an isolated venv with these pip requirements instead of the shared one. */
+    environment?: { name: string; packages: string[] };
+    /** Extra environment variables for the runner process (e.g. HF_HOME). */
+    env?: Record<string, string>;
     onProgress?: (progress: StepProgress) => void;
     onLog?: (line: string) => void;
     signal?: AbortSignal;
@@ -321,17 +327,43 @@ export class PythonVideoService {
       this.logs.push({ level: 'info', source: 'python', msg: line });
     };
     const runtime = await this.prepare(log, options.signal);
+    let python = runtime.pythonPath;
+    if (options.environment && !this.config.pythonExecutable) {
+      log(`Checking the ${options.environment.name} Python environment (first use installs it)…`);
+      python = await this.backends.python.ensureIsolatedEnvironment(
+        runtime,
+        options.environment.name,
+        options.environment.packages,
+        options.signal,
+      );
+    }
+    let packageDir: string | null = null;
+    if (options.package) {
+      packageDir = this.config.pythonExecutable
+        ? this.backends.python.packageDir(options.package)
+        : await this.backends.python.installPackage(
+            runtime,
+            { source: options.package },
+            options.signal,
+            // Its dependencies are pinned in pepper_runner's requirements.txt.
+            { requirements: false },
+          );
+    }
     const { type: _type, ...result } = await this.runSpec(
-      runtime.pythonPath,
+      python,
       {
         runner: options.runner,
         output: options.output,
         components: {},
-        package_dir: null,
+        package_dir: packageDir,
         params: options.params,
-        inputs: { image: options.inputs.image ?? null, audio: options.inputs.audio ?? null },
+        inputs: {
+          image: options.inputs.image ?? null,
+          audio: options.inputs.audio ?? null,
+          video: options.inputs.video ?? null,
+        },
       },
-      { onProgress: options.onProgress, onLog: log, signal: options.signal },
+      { onProgress: options.onProgress, onLog: log, signal: options.signal, env: options.env },
     );
     return result;
   }
@@ -350,6 +382,8 @@ export class PythonVideoService {
       onProgress?: (p: StepProgress) => void;
       onLog: (line: string) => void;
       signal?: AbortSignal;
+      /** Overrides for the runner's environment (e.g. allowing a download). */
+      env?: Record<string, string>;
     },
   ): Promise<RunnerMessage> {
     const specPath = join(this.paths.cacheDir, `python-job-${uniqueOutputName('json')}`);
@@ -397,6 +431,8 @@ export class PythonVideoService {
       onProgress?: (p: StepProgress) => void;
       onLog: (line: string) => void;
       signal?: AbortSignal;
+      /** Overrides for the runner's environment (e.g. allowing a download). */
+      env?: Record<string, string>;
     },
   ): Promise<RunnerMessage> {
     const timeoutMs = this.config.sdcppVideoTimeoutMs;
@@ -412,6 +448,7 @@ export class PythonVideoService {
           PYTHONUNBUFFERED: '1',
           PYTORCH_ENABLE_MPS_FALLBACK: '1',
           HF_HUB_OFFLINE: '1',
+          ...hooks.env,
         },
       });
       this.children.add(child);

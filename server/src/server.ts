@@ -17,7 +17,9 @@ import { ZodError } from 'zod';
 import type { Config } from './config.js';
 import { AppError } from './errors.js';
 import { authRoutes, redactTokenPath, registerAuthHook } from './auth.js';
-import { buildPaths, ensureDirs } from './paths.js';
+import { buildPaths, bundleDir, ensureDirs, safeResolve } from './paths.js';
+import { uniqueOutputName } from './util/files.js';
+import { randomInt } from 'node:crypto';
 import { openDb, type Db } from './db/client.js';
 import { SettingsStore } from './db/settings.js';
 import { LogBuffer } from './logs/buffer.js';
@@ -95,7 +97,9 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     ]),
   );
 
-  const { db, sqlite } = openDb(paths.dbFile);
+  const { db, sqlite } = openDb(paths.dbFile, (movedTo, reason) =>
+    logger.error({ movedTo, reason }, 'the database was corrupt; set it aside and started a new one'),
+  );
 
   const app = Fastify({
     loggerInstance: logger,
@@ -129,7 +133,19 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
     if ((task.kind === 'image' || task.kind === 'video') && task.slot === 'clip') {
       backends.scheduleRestart('llamacpp', 'text encoder downloaded');
     }
-    if (task.kind === 'audio') backends.scheduleRestart('audiocpp', 'audio model downloaded');
+    if (task.kind === 'audio') {
+      // audio.cpp needs a restart to see a new model, which interrupts any
+      // request in flight. A Python-runner model (YuE2) is not audio.cpp's, so
+      // its files arriving must not cost a running song.
+      void models
+        .find(task.bundle, ['audio'])
+        .catch(() => null)
+        .then((bundle) => {
+          if (bundle?.manifest?.backend !== 'python') {
+            backends.scheduleRestart('audiocpp', 'audio model downloaded');
+          }
+        });
+    }
   });
 
   const snapshotDownloads = new SnapshotDownloader(paths, models, config.hfToken, app.log);
@@ -231,7 +247,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
   // First, so the token check covers every route below — /docs included.
   registerAuthHook(app, config.apiToken);
   app.addHook('onResponse', async (request, reply) => {
-    if (isActivity(request.method, request.url, reply.statusCode)) app.activity.touch();
+    if (isActivity(request.method, request.url, reply.statusCode, request.body)) app.activity.touch();
   });
 
   await app.register(fastifyMultipart, {
@@ -435,6 +451,9 @@ function registerExecutors(
         height: result.params.height,
         seed: result.params.seed,
         sampler: result.params.sampler,
+        scheduler: result.params.scheduler,
+        // The upscaler's directory is local detail; the rest reproduces the pass.
+        hires: result.hires ? { ...result.hires, upscalersDir: undefined } : undefined,
         video_frames: result.params.video_frames,
         flow_shift: result.params.flow_shift,
         fps: result.s2v?.fps ?? result.params.fps,
@@ -462,11 +481,44 @@ function registerExecutors(
     const params = context.job.params as {
       image: string;
       source?: 'output' | 'upload';
-      scale: 2 | 4;
+      scale?: 2 | 4;
       upscaler?: string;
+      resolution?: number;
+      quality?: 'best' | 'sharp' | 'fast';
     };
     const source = params.source ?? 'output';
     const inputPath = await upscaler.resolveSource(params.image, source);
+
+    if (/\.(webm|mp4|mov|mkv|avi)$/i.test(params.image)) {
+      const origin =
+        source === 'output'
+          ? ((jobs.findByOutput(params.image)?.result?.metadata as Record<string, unknown> | undefined) ?? {})
+          : {};
+      const video = await upscaler.upscaleVideo({
+        inputPath,
+        resolution: params.resolution ?? 1080,
+        quality: params.quality ?? 'best',
+        onProgress: context.onProgress,
+        onLog: context.onLog,
+        signal: context.signal,
+      });
+      return {
+        video_path: video.outputPath,
+        video_url: `/v1/outputs/${encodeURIComponent(video.outputName)}`,
+        metadata: {
+          ...origin,
+          kind: 'video',
+          task: 'upscale',
+          source_video: params.image,
+          resolution: video.resolution,
+          upscaler: video.model,
+          upscale_engine: 'seedvr2',
+          duration_ms: video.durationMs,
+          output_dir: paths.outputDir,
+        },
+      };
+    }
+    if (params.scale === undefined) throw new Error('Image upscales need a scale (2 or 4)');
     const result = await upscaler.upscale({
       inputPath,
       scale: params.scale,
@@ -510,6 +562,38 @@ function registerExecutors(
   jobs.registerExecutor('video', generate);
 
   jobs.registerExecutor('audio', async (context) => {
+    // Music rides the audio queue: same backend, same memory budget.
+    if (context.job.params.task === 'music') {
+      const musicParams = context.job.params as { model: string };
+      const bundle = await models.find(musicParams.model, ['audio']).catch(() => null);
+      const result =
+        bundle?.manifest?.backend === 'python'
+          ? await pythonMusic(pythonVideo, paths, bundle, context)
+          : await speech.generateMusic({
+              params: context.job.params as never,
+              family: bundle?.manifest?.family,
+              signal: context.signal,
+              onLog: context.onLog,
+            });
+      const params = result.params as Record<string, unknown>;
+      return {
+        audio_path: result.outputPath,
+        audio_url: `/v1/outputs/${encodeURIComponent(result.outputName)}`,
+        metadata: {
+          kind: 'audio',
+          task: 'music',
+          model: params.model,
+          prompt: params.prompt,
+          lyrics: params.lyrics,
+          duration_seconds: params.duration_seconds,
+          steps: params.steps,
+          seed: params.seed,
+          duration_ms: result.durationMs,
+          output_dir: paths.outputDir,
+        },
+      };
+    }
+
     const result = await speech.generate({
       params: context.job.params as never,
       signal: context.signal,
@@ -551,4 +635,50 @@ function registerExecutors(
       },
     };
   });
+}
+
+/**
+ * YuE2 in its own venv (python/pepper_runner/runners/yue2.py). Its package pins
+ * torch 2.10 / transformers 4.57, so it cannot share the runner environment.
+ * The model's weights are the bundle's; its VAE is fetched from HuggingFace on
+ * first use into the models volume, hence the network being allowed.
+ */
+export const YUE2_ENVIRONMENT = {
+  name: 'yue2',
+  packages: ['https://huggingface.co/m-a-p/YuE2-3B/resolve/main/yue2_infer-0.1.5-py3-none-any.whl'],
+};
+
+async function pythonMusic(
+  pythonVideo: PythonVideoService,
+  paths: ReturnType<typeof buildPaths>,
+  bundle: NonNullable<Awaited<ReturnType<ModelManager['find']>>>,
+  context: Parameters<Parameters<JobManager['registerExecutor']>[1]>[0],
+): Promise<{ outputPath: string; outputName: string; durationMs: number; params: Record<string, unknown> }> {
+  const params = context.job.params as {
+    prompt: string;
+    lyrics?: string;
+    seed?: number;
+  };
+  const started = Date.now();
+  const seed = params.seed !== undefined && params.seed >= 0 ? params.seed : randomInt(0, 2 ** 31 - 1);
+  const outputName = uniqueOutputName('wav', 'music');
+  const outputPath = safeResolve(paths.outputDir, outputName);
+  await pythonVideo.runTask({
+    runner: bundle.manifest?.python_runner ?? 'yue2',
+    output: outputPath,
+    environment: YUE2_ENVIRONMENT,
+    env: { HF_HUB_OFFLINE: '0', HF_HOME: join(paths.modelsDir, '.hf-cache') },
+    params: {
+      model_dir: join(bundleDir(paths, 'audio', bundle.id), 'weights'),
+      vae_dir: join(bundleDir(paths, 'audio', bundle.id), 'aux'),
+      style: params.prompt,
+      lyrics: params.lyrics ?? '',
+      seed,
+    },
+    inputs: {},
+    onProgress: context.onProgress,
+    onLog: context.onLog,
+    signal: context.signal,
+  });
+  return { outputPath, outputName, durationMs: Date.now() - started, params: { ...params, seed } };
 }

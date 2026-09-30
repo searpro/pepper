@@ -292,6 +292,41 @@ export class PythonInstaller {
     this.log.info('Python runner environment ready');
   }
 
+  /**
+   * A separate venv for a runner whose pins conflict with the shared runner
+   * environment — YuE2 needs torch 2.10 and transformers 4.x where the shared
+   * one has torch 2.14 and transformers 5.x. Built from the same standalone
+   * interpreter, and rebuilt only when its package list changes. Returns the
+   * venv's interpreter.
+   */
+  async ensureIsolatedEnvironment(
+    runtime: PythonRuntime,
+    name: string,
+    packages: string[],
+    signal?: AbortSignal,
+  ): Promise<string> {
+    if (!/^[a-z0-9_-]+$/.test(name)) throw errors.validation(`Invalid environment name "${name}"`);
+    const dir = resolve(this.installDir, 'envs', name);
+    const python = join(dir, process.platform === 'win32' ? 'Scripts' : 'bin', 'python');
+    const hash = createHash('sha256').update(JSON.stringify(packages)).digest('hex');
+    const receiptPath = join(dir, 'receipt.json');
+    const receipt = await readFile(receiptPath, 'utf8')
+      .then((text) => JSON.parse(text) as { hash?: string })
+      .catch(() => null);
+    if (receipt?.hash === hash) return python;
+
+    const base = await findInterpreter(runtime.runtimeDir);
+    if (!base) throw errors.backendInstallFailed('python', 'standalone interpreter not found');
+    this.log.info({ name, packages }, 'building isolated Python environment');
+    await rm(dir, { recursive: true, force: true });
+    await mkdir(dirname(dir), { recursive: true });
+    await this.run(base, ['-m', 'venv', dir], signal);
+    await this.run(python, ['-m', 'pip', 'install', '--upgrade', 'pip'], signal);
+    await this.run(python, ['-m', 'pip', 'install', ...packages], signal);
+    await writeFile(receiptPath, JSON.stringify({ hash, packages, installedAt: new Date().toISOString() }, null, 2));
+    return python;
+  }
+
   private async run(command: string, args: string[], signal?: AbortSignal): Promise<void> {
     this.log.info({ command, args }, 'python installer step');
     try {

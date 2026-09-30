@@ -14,6 +14,8 @@
  * Plain Node with no dependencies, so it runs from the image as copied.
  */
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 
 const PORT = process.env.PORT || '3000';
 const log = (msg) => console.log(`[entrypoint] ${msg}`);
@@ -37,6 +39,17 @@ if (!apiToken && env('PEPPER_ALLOW_OPEN') !== 'true') {
   log('PEPPER_API_TOKEN is not set (or its RunPod secret does not exist). Refusing to serve an open');
   log('Pepper on a public address; set the token, or PEPPER_ALLOW_OPEN=true to override.');
   process.exit(1);
+}
+
+// The image carries its own Python environment (PYTHON_DIR). One installed
+// onto the data volume by an earlier image is never used again, and at
+// several GB it is worth reclaiming on a volume billed by the gigabyte.
+const stalePython = join(process.env.DATA_DIR || '/data', 'bin', 'python');
+if (env('PYTHON_DIR') && resolve(env('PYTHON_DIR')) !== resolve(stalePython) && existsSync(stalePython)) {
+  // In the background: thousands of small files on a network volume take
+  // minutes to delete, and nothing here depends on them being gone.
+  log(`removing the unused Python environment at ${stalePython} (in the background)`);
+  spawn('rm', ['-rf', stalePython], { stdio: 'ignore', detached: true }).unref();
 }
 
 const children = new Set();

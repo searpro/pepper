@@ -216,6 +216,32 @@ export const manifestSchema = z.object({
       video_frames: z.number().optional(),
       flow_shift: z.number().optional(),
       fps: z.number().optional(),
+      scheduler: z.string().optional(),
+      /** A fixed sampling schedule (a distilled model's, e.g. LTX-2's 8 steps). */
+      sigmas: z.array(z.number()).optional(),
+      /** LoRAs applied when a request does not name its own (`loras: []` opts out). */
+      loras: z.array(z.object({ name: z.string(), weight: z.number().optional() })).optional(),
+      /** Wan 2.2's high-noise expert, sampled separately from the low-noise one. */
+      high_noise: z
+        .object({
+          steps: z.number().optional(),
+          cfg_scale: z.number().optional(),
+          sampler: z.string().optional(),
+        })
+        .optional(),
+      /** The model's recommended hires pass; see `hiresSchema`. */
+      hires: z
+        .object({
+          enabled: z.boolean().optional(),
+          scale: z.number().optional(),
+          width: z.number().optional(),
+          height: z.number().optional(),
+          steps: z.number().optional(),
+          denoise: z.number().optional(),
+          sigmas: z.array(z.number()).optional(),
+          upscaler: z.string().optional(),
+        })
+        .optional(),
     })
     .optional(),
   /** Raw backend flags appended verbatim. */
@@ -341,6 +367,11 @@ export interface ResolvedImageBundle {
   loraDir?: string;
   /** How each installed LoRA is referenced: its filename without extension. */
   loras: string[];
+  /** Trained sampling schedules for installed LoRAs that have one, by reference. */
+  loraPresets: Record<string, LoraPreset>;
+  /** The bundle's `aux/` folder and its files, where model-specific upscalers live. */
+  auxDir?: string;
+  auxFiles: string[];
   capabilities: string[];
   /** A separate speech encoder in `aux/`, for models that need one. */
   audioEncoderPath?: string;
@@ -666,6 +697,14 @@ export async function resolveImageBundle(
     extraArgs: info.manifest?.extra_args ?? [],
     loraDir: loras.length > 0 ? join(bundlePath, 'lora') : undefined,
     loras: loras.map((file) => stripExt(file.name)),
+    loraPresets: Object.fromEntries(
+      loras.flatMap((file) => {
+        const preset = loraPreset(info.manifest, stripExt(file.name));
+        return preset ? [[stripExt(file.name), preset]] : [];
+      }),
+    ),
+    auxDir: bySlot('aux').length > 0 ? join(bundlePath, 'aux') : undefined,
+    auxFiles: bySlot('aux').map((file) => file.name),
     capabilities,
     audioEncoderPath: audioEncoder ? join(bundlePath, 'aux', audioEncoder.name) : undefined,
     s2v: capabilities.includes('s2v') ? resolveS2vConfig(info.manifest) : undefined,

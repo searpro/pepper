@@ -12,6 +12,9 @@ import {
   DialogContent,
   DialogTrigger,
   EmptyState,
+  ErrorNote,
+  Field,
+  Select,
   Tabs,
   TabsContent,
   TabsList,
@@ -189,10 +192,10 @@ function MediaCard({
           onClick={onOpen}
         >
           <MediaThumb item={item} />
-          {item.name.startsWith('upscaled-') ? (
+          {upscaledLabel(item.name) ? (
             <span className="absolute bottom-1 left-1 inline-flex items-center gap-0.5 rounded bg-black/60 px-1 text-[10px] font-semibold text-white">
               <Maximize2 className="size-2.5" />
-              {item.name.slice(9, 11)}
+              {upscaledLabel(item.name)}
             </span>
           ) : null}
         </button>
@@ -211,6 +214,7 @@ function MediaCard({
             <div className="flex items-center justify-center bg-black/5 p-4 dark:bg-black/30">
               <MediaPlayer item={item} />
             </div>
+            {item.kind === 'video' ? <VideoUpscale name={item.name} /> : null}
           </DialogContent>
         </Dialog>
       )}
@@ -266,6 +270,60 @@ function MediaThumb({ item }: { item: MediaItem }) {
       <span className="line-clamp-2 text-center text-[10px] text-muted-foreground">
         {item.name}
       </span>
+    </div>
+  );
+}
+
+/** "2x", "4x" or "1080p" for an upscaled output's badge. */
+function upscaledLabel(name: string): string | undefined {
+  return /^upscaled-(\d+x|\d+p)/.exec(name)?.[1];
+}
+
+/**
+ * SeedVR2 finishing pass for a generated clip: diffusion super-resolution that
+ * adds detail consistently across frames, keeping the soundtrack. Queued like
+ * any job; the result lands here in Media.
+ */
+function VideoUpscale({ name }: { name: string }) {
+  const [resolution, setResolution] = React.useState('1080');
+  const [quality, setQuality] = React.useState('best');
+  const [state, setState] = React.useState<{ busy?: boolean; message?: string; error?: string }>({});
+
+  const start = async () => {
+    setState({ busy: true });
+    try {
+      await api.post('/v1/jobs/upscale', { image: name, resolution: Number(resolution), quality });
+      setState({ message: 'Queued. It takes a few minutes; the result appears here and in Jobs.' });
+    } catch (err) {
+      setState({ error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-end gap-3 border-t border-border p-3">
+      <Field label="Upscale to" className="w-32">
+        <Select
+          value={resolution}
+          onValueChange={setResolution}
+          options={['720', '1080', '1440', '2160'].map((value) => ({ value, label: `${value}p` }))}
+        />
+      </Field>
+      <Field label="Quality" className="w-44">
+        <Select
+          value={quality}
+          onValueChange={setQuality}
+          options={[
+            { value: 'best', label: 'Best (SeedVR2 7B)' },
+            { value: 'sharp', label: 'Sharp (7B sharp)' },
+            { value: 'fast', label: 'Fast (SeedVR2 3B)' },
+          ]}
+        />
+      </Field>
+      <Button size="sm" onClick={() => void start()} disabled={state.busy}>
+        <Maximize2 /> Upscale video
+      </Button>
+      {state.message ? <span className="text-xs text-muted-foreground">{state.message}</span> : null}
+      {state.error ? <ErrorNote>{state.error}</ErrorNote> : null}
     </div>
   );
 }

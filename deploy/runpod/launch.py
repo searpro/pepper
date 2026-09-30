@@ -239,7 +239,8 @@ def cmd_up(rp: RunPod, env: dict, a) -> None:
         body = {
             "name": POD_NAME,
             "image": a.image,
-            "gpu": {"id": gpu, "count": 1, "minCudaVersion": MIN_CUDA},
+            "gpu": {"id": gpu, "count": 1, "minCudaVersion": MIN_CUDA,
+                    **({"minRamPerGpu": a.min_ram} if a.min_ram else {})},
             "cloud": a.cloud,
             "dataCenterIds": [volume["dataCenter"]],
             "disk": a.disk,
@@ -256,7 +257,7 @@ def cmd_up(rp: RunPod, env: dict, a) -> None:
         sys.exit(f"no GPU from {a.gpu} could be allocated in {volume['dataCenter']}; try `gpus` and --gpu")
 
     print(f"pod {pod['id']}: {pod.get('gpu', {}).get('id')} in {pod.get('dataCenterId')}, "
-          f"${pod.get('cost', '?')}/h, image {a.image}", flush=True)
+          f"{pod.get('gpu', {}).get('memory', '?')} GB RAM, ${pod.get('cost', '?')}/h, image {a.image}", flush=True)
     if a.idle_minutes:
         print(f"it terminates itself after {a.idle_minutes} idle minutes; `down` stops it sooner", flush=True)
     (HERE / ".pod").write_text(pod["id"] + "\n")
@@ -338,6 +339,9 @@ def main() -> None:
     u.add_argument("--volume", default=VOLUME_NAME)
     u.add_argument("--cloud", default="SECURE", choices=["SECURE", "COMMUNITY"])
     u.add_argument("--disk", type=int, default=30, help="container disk, GB (outputs live here)")
+    u.add_argument("--min-ram", type=int, metavar="GB",
+                   help="only hosts with at least this much system RAM per GPU (4090 pods are often 46 GB; "
+                        "with CPU offload a model's whole weight set lives there)")
     u.add_argument("--idle-minutes", type=int, default=30, help="terminate after this long idle; 0 = never")
     u.add_argument("--catalogue-branch", metavar="BRANCH", help="serve the catalogue from this pepper-catalogue branch")
     u.add_argument("--wait", type=int, default=25, help="minutes to wait for Pepper to answer")

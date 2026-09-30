@@ -1,6 +1,6 @@
 import { constants, createWriteStream } from 'node:fs';
 import { access, mkdir, open, readdir, rename, rm, stat } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyBaseLogger } from 'fastify';
@@ -14,6 +14,7 @@ import { ffmpegAvailable, runFfmpeg } from '../util/ffmpeg.js';
 import { uniqueOutputName } from '../util/files.js';
 import type { ImageService } from './image.js';
 import type { PythonVideoService } from './python-video.js';
+import { SEEDVR2_PACKAGE } from '../backends/python-packages.js';
 import {
   UPSCALER_CATALOGUE,
   catalogueEntryFor,
@@ -57,6 +58,30 @@ export interface UpscalerModel {
   license?: string;
   /** Whether sd-cli can load it; `undefined` when not known. */
   sdcpp?: boolean;
+}
+
+export { SEEDVR2_PACKAGE };
+
+/**
+ * SeedVR2 checkpoints per quality level, for a 24 GB GPU. The 7B mixed-fp8
+ * build is the quality pick (fp8 blocks with the last ones kept in fp16, which
+ * fixed the 7B fp8 artifacts); the 3B fp16 one is roughly twice as fast.
+ * Downloaded by the CLI on first use.
+ */
+export const SEEDVR2_MODELS = {
+  best: 'seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors',
+  sharp: 'seedvr2_ema_7b_sharp_fp8_e4m3fn_mixed_block35_fp16.safetensors',
+  fast: 'seedvr2_ema_3b_fp16.safetensors',
+} as const;
+
+export type VideoUpscaleQuality = keyof typeof SEEDVR2_MODELS;
+
+export interface VideoUpscaleResult {
+  outputPath: string;
+  outputName: string;
+  resolution: number;
+  model: string;
+  durationMs: number;
 }
 
 export interface UpscaleResult {
@@ -245,6 +270,71 @@ export class UpscaleService {
       models.find((model) => model.scale === 4) ??
       models[0]
     );
+  }
+
+  /**
+   * Video super-resolution through SeedVR2 (python/pepper_runner/runners/seedvr2.py).
+   * The runner writes a silent H.264 MP4; the source's soundtrack, when it has
+   * one (MiniMax-H3 and LTX-2 generate audio), is copied back afterwards.
+   */
+  async upscaleVideo(options: {
+    inputPath: string;
+    /** Target short side in pixels. */
+    resolution: number;
+    quality: VideoUpscaleQuality;
+    seed?: number;
+    onProgress?: (progress: StepProgress) => void;
+    onLog?: (line: string) => void;
+    signal?: AbortSignal;
+  }): Promise<VideoUpscaleResult> {
+    const started = Date.now();
+    await mkdir(this.paths.outputDir, { recursive: true });
+    const outputName = uniqueOutputName('mp4', `upscaled-${options.resolution}p`);
+    const outputPath = safeResolve(this.paths.outputDir, outputName);
+    const silentPath = `${outputPath}.silent.mp4`;
+    const model = SEEDVR2_MODELS[options.quality];
+
+    options.onLog?.(`Upscaling video to ${options.resolution}p with SeedVR2 (${model})`);
+    await this.python.runTask({
+      runner: 'seedvr2',
+      output: silentPath,
+      package: SEEDVR2_PACKAGE,
+      params: {
+        model_dir: join(dirname(this.config.upscaleModelsDir), 'seedvr2'),
+        dit_model: model,
+        resolution: options.resolution,
+        seed: options.seed ?? 42,
+      },
+      inputs: { video: options.inputPath },
+      // The CLI fetches its checkpoint on first use; Python runners are
+      // otherwise kept offline.
+      env: { HF_HUB_OFFLINE: '0' },
+      onProgress: options.onProgress,
+      onLog: options.onLog,
+      signal: options.signal,
+    });
+
+    // `1:a?` maps the source's audio only if it has any; the video stream is
+    // copied, so this costs a remux, not an encode.
+    try {
+      await runFfmpeg(
+        ['-i', silentPath, '-i', options.inputPath, '-map', '0:v', '-map', '1:a?', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', outputPath],
+        300_000,
+      );
+      await rm(silentPath, { force: true });
+    } catch (err) {
+      // A silent result is still the upscaled video; keep it rather than fail.
+      options.onLog?.(`Could not copy the soundtrack back (${(err as Error).message}); keeping the silent video`);
+      await rename(silentPath, outputPath);
+    }
+
+    return {
+      outputPath,
+      outputName,
+      resolution: options.resolution,
+      model,
+      durationMs: Date.now() - started,
+    };
   }
 
   /** Resolve an output or upload name to a readable path. */

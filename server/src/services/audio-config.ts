@@ -62,6 +62,8 @@ export async function writeAudioServerConfig(
 
   for (const bundle of bundles) {
     const { manifest } = bundle;
+    // Audio models served by a Python runner (YuE2) are not audio.cpp's.
+    if (manifest?.backend === 'python') continue;
     if (!manifest?.family || !manifest?.task) {
       log.warn(
         { bundle: bundle.id },
@@ -120,7 +122,11 @@ export async function writeAudioServerConfig(
   }
 
   const path = join(paths.cacheDir, AUDIO_CONFIG_FILE);
-  await writeFile(path, JSON.stringify({ models: entries }, null, 2), 'utf8');
+  // lazy_load: audio.cpp otherwise loads every registered model before it
+  // answers /health. With a 10 GB music model on a network volume that takes
+  // longer than the startup timeout, and it would hold every model's memory
+  // from the first request to any of them.
+  await writeFile(path, JSON.stringify({ lazy_load: true, models: entries }, null, 2), 'utf8');
 
   return { path, modelIds: entries.map((entry) => entry.id) };
 }
