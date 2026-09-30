@@ -1,0 +1,163 @@
+{
+  "schema": 1,
+  "id": "ace-step-music",
+  "version": 1,
+  "kind": "audio",
+  "name": "ACE-Step 1.5 — songs",
+  "description": "Full songs with vocals from style tags and lyrics, up to several minutes, in seconds of compute.",
+  "family": "ace-step-1.5",
+  "capabilities": [
+    "music",
+    "vocals",
+    "song"
+  ],
+  "licence": {
+    "id": "mit",
+    "name": "MIT",
+    "url": "https://opensource.org/license/mit",
+    "commercial": "yes"
+  },
+  "files": [
+    {
+      "id": "checkpoint",
+      "folder": "checkpoints",
+      "label": "ACE-Step 1.5 turbo (all in one)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/ace_step_1.5_ComfyUI_files",
+          "path": "checkpoints/ace_step_1.5_turbo_aio.safetensors",
+          "bytes": 10025478736,
+          "sha256": "67b0f43aa5c51c840bd0228e6a935d8ff416ec87e5df2fc0637da17a561252bc"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Style",
+      "required": true,
+      "description": "Genre, instruments, mood, vocal style."
+    },
+    {
+      "name": "lyrics",
+      "type": "text",
+      "label": "Lyrics",
+      "default": "[Instrumental]",
+      "description": "With [Verse], [Chorus]… section tags."
+    },
+    {
+      "name": "duration",
+      "type": "float",
+      "label": "Seconds",
+      "default": 60,
+      "min": 5,
+      "max": 300
+    },
+    {
+      "name": "bpm",
+      "type": "int",
+      "label": "BPM",
+      "default": 120,
+      "min": 40,
+      "max": 240
+    },
+    {
+      "name": "language",
+      "type": "enum",
+      "label": "Language",
+      "default": "en",
+      "options": [
+        "en",
+        "zh",
+        "ja",
+        "ko",
+        "es",
+        "fr",
+        "de",
+        "it",
+        "pt",
+        "ru",
+        "hi"
+      ]
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "94",
+          "input": "tags"
+        },
+        {
+          "param": "lyrics",
+          "node": "94",
+          "input": "lyrics"
+        },
+        {
+          "param": "duration",
+          "node": "94",
+          "input": "duration"
+        },
+        {
+          "param": "duration",
+          "node": "98",
+          "input": "seconds"
+        },
+        {
+          "param": "bpm",
+          "node": "94",
+          "input": "bpm"
+        },
+        {
+          "param": "language",
+          "node": "94",
+          "input": "language"
+        },
+        {
+          "param": "seed",
+          "node": "94",
+          "input": "seed"
+        },
+        {
+          "param": "seed",
+          "node": "3",
+          "input": "seed"
+        },
+        {
+          "file": "checkpoint",
+          "node": "97",
+          "input": "ckpt_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "106",
+          "kind": "audio"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "final": {
+      "label": "Turbo (8 steps)",
+      "workflow": "main"
+    }
+  },
+  "default_mode": "final",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ]
+}

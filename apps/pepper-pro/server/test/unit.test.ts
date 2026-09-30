@@ -15,6 +15,7 @@ import { resolveParams } from '../src/engines/params.js';
 import { buildCutArgs, buildSrt, frameFor, isSilent, parseLoudness, type Segment } from '../src/engines/render.js';
 import { composePrompt, deriveParams, sizeFor } from '../src/projects/derive.js';
 import type { AssetRow, ProjectRow, ShotRow } from '../src/projects/schema.js';
+import { checkRecipe } from '../src/recipes/check.js';
 import { recipeSchema, type Recipe } from '../src/recipes/schema.js';
 import { RecipeStore, licenceBlock, variantFor, variantName, variantUrl } from '../src/recipes/store.js';
 import { comfyLayout } from '../src/recipes/layout.js';
@@ -216,6 +217,65 @@ describe('graph building', () => {
     const lenient = validatePrompt({ 5: { class_type: 'LoadImage', inputs: { image: 'missing.png' } } }, OBJECT_INFO, { ignoreFileChoices: true });
     expect(lenient).toEqual([]);
   });
+  it('checks link types and treats growable group members as optional', () => {
+    const info: ObjectInfo = {
+      ...OBJECT_INFO,
+      Encode: {
+        input: {
+          required: {
+            images: ['COMFY_AUTOGROW_V3', { template: { input: { required: { image: ['IMAGE'] } } } }],
+            values: ['COMFY_AUTOGROW_V3', { template: { input: { required: { value: ['FLOAT,INT'] } } } }],
+          },
+        },
+        output: ['CONDITIONING'],
+      },
+    };
+    const prompt: Prompt = {
+      1: { class_type: 'LoadImage', inputs: { image: 'a.png' } },
+      2: { class_type: 'LoadImage', inputs: { image: 'b.png' } },
+      3: { class_type: 'Encode', inputs: { 'images.image_1': ['1', 0], 'images.image_2': ['2', 0], 'values.a': ['1', 1] } },
+    };
+    expect(validatePrompt(prompt, info).map((i) => i.message)).toEqual([
+      'input "values.a" takes FLOAT,INT but is linked to MASK from LoadImage',
+    ]);
+    // Leaving one slot of a required group empty drops the slot, not the node.
+    prune(prompt, ['2'], info);
+    expect(prompt[3].inputs).not.toHaveProperty('images.image_2');
+    expect(prompt[3]).toBeDefined();
+  });
+});
+
+describe('shipped recipes', () => {
+  // The node types the shipped recipes use, as the pinned ComfyUI reports
+  // them; refreshed by `npm run validate-recipes -- --write-fixture …`.
+  const RECIPES = fileURLToPath(new URL('../recipes', import.meta.url));
+
+  it('build and validate in every mode, with and without their optional inputs', async () => {
+    const info = JSON.parse(await readFile(fileURLToPath(new URL('./fixtures/object_info.json', import.meta.url)), 'utf8')) as ObjectInfo;
+    const store = new RecipeStore(RECIPES, buildPaths(await tempConfig()), log);
+    await store.load();
+    expect(store.broken).toEqual([]);
+    expect(store.list().length).toBeGreaterThanOrEqual(12);
+    for (const tier of ['24gb-64ram', '96gb'] as const) {
+      for (const recipe of store.list()) {
+        const failures = checkRecipe(recipe, (name) => store.workflow(recipe, name), { tier, objectInfo: info }).filter((c) => c.issues.length > 0);
+        expect(failures).toEqual([]);
+      }
+    }
+  });
+
+  it('pin every file to a size, and every licence that limits use says how', async () => {
+    const store = new RecipeStore(RECIPES, buildPaths(await tempConfig()), log);
+    await store.load();
+    for (const recipe of store.list()) {
+      for (const file of recipe.files) for (const variant of file.variants) expect(variant.bytes, `${recipe.id}/${file.id}`).toBeGreaterThan(0);
+      if (recipe.licence.commercial !== 'yes') expect(recipe.licence.url, recipe.id).toBeTruthy();
+      if (recipe.licence.excluded_territories.length > 0) expect(recipe.licence.ui_notice, recipe.id).toBeTruthy();
+      expect(Object.keys(recipe.modes).length, recipe.id).toBeGreaterThan(0);
+      // Shots draft then finish, so every recipe a shot can render with has both.
+      if (recipe.kind === 'video' && recipe.params.some((p) => p.name === 'prompt')) expect(Object.keys(recipe.modes), recipe.id).toEqual(expect.arrayContaining(['draft', 'final']));
+    }
+  });
 });
 
 describe('engine helpers', () => {
@@ -307,6 +367,14 @@ describe('shots to recipe parameters', () => {
     expect(params).toMatchObject({ refs: ['a1.png'], first_frame: 'k1.png', voice_refs: ['a1.wav', 'a2.wav'], duration: 6, seed: 5 });
     expect(params.width).toBeLessThan(params.height as number);
     expect(sizeFor('9:16', 1344, 768)).toEqual({ width: 768, height: 1344 });
+    const sized = recipe([
+      { name: 'width', type: 'int', label: '', required: false, default: 1344 },
+      { name: 'height', type: 'int', label: '', required: false, default: 768 },
+    ]);
+    sized.modes = { draft: { label: '', workflow: 'main', set: [], defaults: { width: 672, height: 384 } } };
+    sized.default_mode = 'final';
+    // A draft take is sized from the draft mode's pixel count, not the finish's.
+    expect(deriveParams({ project, shot: shot(), assets: [], recipe: sized, mode: 'draft' })).toMatchObject({ width: 384, height: 672 });
     expect(sizeFor('1:1', 1024, 1024)).toEqual({ width: 1024, height: 1024 });
   });
 });

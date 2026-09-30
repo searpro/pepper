@@ -30,9 +30,14 @@ export function setInput(prompt: Prompt, node: string, input: string, value: unk
  * are named after their group, which is what `/object_info` declares.
  */
 function inputOptional(info: NodeInfo | undefined, input: string): boolean {
-  const optional = info?.input.optional;
-  if (!optional) return false;
-  return input in optional || (input.includes('.') && input.split('.')[0] in optional);
+  if (!info) return false;
+  const optional = info.input.optional ?? {};
+  if (input in optional) return true;
+  if (!input.includes('.')) return false;
+  const group = input.split('.')[0];
+  // One member of a growable group can go even when the group itself is
+  // required (Qwen's `images`): ComfyUI checks the group's minimum, not slots.
+  return group in optional || info.input.required?.[group]?.[0] === 'COMFY_AUTOGROW_V3';
 }
 
 /**
@@ -87,9 +92,9 @@ export interface ValidateOptions {
 
 /**
  * Inputs whose choices are lists of files on disk (`unet_name`, `lora_name`,
- * `clip_name2`, LoadImage's `image`…). `sampler_name` is a real choice list.
+ * `clip_name2`, `text_encoder`, LoadImage's `image`…). `sampler_name` is a real choice list.
  */
-const FILE_INPUT = /^(?!sampler_name$)(.+_name\d*|image|audio|video|file)$/;
+const FILE_INPUT = /^(?!sampler_name$)(.+_name\d*|text_encoder\d*|image|audio|video|file)$/;
 
 /**
  * Check a prompt against the node types a ComfyUI knows: every class exists,
@@ -105,7 +110,9 @@ export function validatePrompt(prompt: Prompt, info: ObjectInfo, options: Valida
       continue;
     }
     for (const input of Object.keys(spec.input.required ?? {})) {
-      if (!(input in node.inputs)) issues.push({ node: id, message: `${node.class_type} is missing required input "${input}"` });
+      // A dynamic group (`values`, `images`) is present as its members (`values.a`).
+      const present = input in node.inputs || Object.keys(node.inputs).some((name) => name.startsWith(`${input}.`));
+      if (!present) issues.push({ node: id, message: `${node.class_type} is missing required input "${input}"` });
     }
     const declared = { ...(spec.input.required ?? {}), ...(spec.input.optional ?? {}) };
     for (const [input, value] of Object.entries(node.inputs)) {
@@ -118,6 +125,12 @@ export function validatePrompt(prompt: Prompt, info: ObjectInfo, options: Valida
         const outputs = info[source.class_type]?.output;
         if (outputs && value[1] >= outputs.length) {
           issues.push({ node: id, message: `input "${input}" links to output ${value[1]} of ${source.class_type}, which has ${outputs.length}` });
+          continue;
+        }
+        const wanted = linkType(declared[input] ?? groupDeclaration(spec, input));
+        const given = outputs?.[value[1]];
+        if (wanted && typeof given === 'string' && !typesMatch(given, wanted)) {
+          issues.push({ node: id, message: `input "${input}" takes ${wanted} but is linked to ${given} from ${source.class_type}` });
         }
         continue;
       }
@@ -137,6 +150,38 @@ export function validatePrompt(prompt: Prompt, info: ObjectInfo, options: Valida
     }
   }
   return issues;
+}
+
+/**
+ * The declaration of one member of a growable group (`ref_images.ref_image_0`,
+ * `values.a`): the group's template input. Other dotted inputs (a dynamic
+ * combo's `resize_type.multiplier`) have no single declaration.
+ */
+function groupDeclaration(spec: NodeInfo, input: string): unknown[] | undefined {
+  const [group] = input.split('.');
+  if (group === input) return undefined;
+  const decl = spec.input.required?.[group] ?? spec.input.optional?.[group];
+  if (decl?.[0] !== 'COMFY_AUTOGROW_V3') return undefined;
+  const template = (decl[1] as { template?: { input?: { required?: object; optional?: object } } } | undefined)?.template?.input;
+  return Object.values({ ...template?.required, ...template?.optional })[0] as unknown[] | undefined;
+}
+
+/**
+ * The data type an input accepts, when it is one a link can be checked
+ * against. Wildcards and ComfyUI's V3 meta types (match-type, dynamic combo)
+ * are resolved at run time, so they are not checked here.
+ */
+function linkType(decl: unknown[] | undefined): string | undefined {
+  const type = decl?.[0];
+  if (typeof type !== 'string' || type === '*' || type === 'COMBO' || type.startsWith('COMFY_')) return undefined;
+  return type;
+}
+
+/** Both sides may list several types ("FLOAT,INT,BOOLEAN"); any shared one links. */
+function typesMatch(given: string, wanted: string): boolean {
+  if (given === '*' || given.startsWith('COMFY_')) return true;
+  const accepted = wanted.split(',');
+  return given.split(',').some((type) => accepted.includes(type));
 }
 
 /**

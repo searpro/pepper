@@ -37,7 +37,10 @@ export function buildPrompt(input: BuildInput): Prompt {
         if (!file) throw new Error(`no file "${binding.file}"`);
         setInput(prompt, binding.node, binding.input, file.name);
       } else if ('nodes' in binding) {
-        const items = (values[binding.param] as unknown[] | undefined) ?? [];
+        // A single optional input (a last frame) binds like a one-slot list,
+        // so leaving it out prunes its loader instead of loading a stale name.
+        const raw = values[binding.param];
+        const items = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
         binding.nodes.forEach((target, index) => {
           if (index < items.length) setInput(prompt, target.node, target.input, items[index]);
           else unused.add(target.node);

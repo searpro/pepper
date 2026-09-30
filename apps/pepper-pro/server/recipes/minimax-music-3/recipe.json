@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "id": "minimax-music-3",
+  "version": 1,
+  "kind": "audio",
+  "name": "MiniMax Music 3 — produced songs",
+  "description": "Radio-quality songs with vocals from a caption and lyrics; slower than ACE-Step, better mixes.",
+  "family": "minimax-music-3",
+  "capabilities": [
+    "music",
+    "vocals",
+    "song"
+  ],
+  "licence": {
+    "id": "apache-2.0",
+    "name": "Apache 2.0",
+    "url": "https://huggingface.co/Comfy-Org/MiniMax-Music-3",
+    "commercial": "yes"
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "Music 3 DiT",
+      "variants": [
+        {
+          "repo": "Comfy-Org/MiniMax-Music-3",
+          "path": "diffusion_models/minimax_music3_dit_fp16.safetensors",
+          "bytes": 4914197682,
+          "sha256": "45494a2b6b69af115902ff28eaf54118d19067aa54da01000f3e3efce7ba0e34"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "Music 3 text encoder",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb"
+          ],
+          "repo": "Comfy-Org/MiniMax-Music-3",
+          "path": "text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
+          "bytes": 9196611886,
+          "sha256": "010b7416d2336a08c711bc22ee65849c9623069ddb7d89bec011a75699e52014"
+        },
+        {
+          "tiers": [
+            "48gb",
+            "96gb"
+          ],
+          "repo": "Comfy-Org/MiniMax-Music-3",
+          "path": "text_encoders/minimax_music3_text_encoder_pruned_bf16.safetensors",
+          "bytes": 16706629398,
+          "sha256": "e81e469c92af324dc69b77e5a11179e22542a6d628f2b205c8cf6143e510d976"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "Music 3 audio decoder",
+      "variants": [
+        {
+          "repo": "Comfy-Org/MiniMax-Music-3",
+          "path": "vae/minimax_music3_dav.safetensors",
+          "bytes": 216696128,
+          "sha256": "2a32155b769be01445fcc2a8663b910fc9e1751e18dc1c3ec528064512d9ef0c"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Caption",
+      "required": true,
+      "description": "Genre, tempo, key, instruments, vocal timbre, production."
+    },
+    {
+      "name": "lyrics",
+      "type": "text",
+      "label": "Lyrics",
+      "default": "[Instrumental]"
+    },
+    {
+      "name": "duration",
+      "type": "float",
+      "label": "Longest seconds",
+      "default": 120,
+      "min": 5,
+      "max": 360,
+      "description": "The song may end sooner."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "37:13",
+          "input": "caption"
+        },
+        {
+          "param": "lyrics",
+          "node": "37:13",
+          "input": "lyrics"
+        },
+        {
+          "param": "duration",
+          "node": "37:13",
+          "input": "max_duration"
+        },
+        {
+          "param": "seed",
+          "node": "37:38",
+          "input": "seed"
+        },
+        {
+          "file": "model",
+          "node": "37:6",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "37:3",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "37:7",
+          "input": "vae_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "35",
+          "kind": "audio"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "final": {
+      "label": "30 steps",
+      "workflow": "main"
+    }
+  },
+  "default_mode": "final",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Licence as stated on the Comfy-Org repackage; confirm against MiniMax's own release before commercial use."
+}

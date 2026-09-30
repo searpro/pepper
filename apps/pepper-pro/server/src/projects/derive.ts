@@ -17,7 +17,7 @@ import type { AssetRow, ProjectRow, ShotRow } from './schema.js';
  *   voice_refs                  the voice clips of the speakers, in speaking order
  *   duration, seconds           the shot's length
  *   aspect                      the project's aspect ratio
- *   width, height               the aspect at the recipe's default pixel count
+ *   width, height               the aspect at the mode's (or recipe's) default pixel count
  *   fps                         the project's frame rate
  *
  * Only parameters the recipe declares are set, and the shot's own `params`
@@ -30,6 +30,8 @@ export interface DeriveInput {
   /** The shot's assets, in `assetIds` order, plus any dialogue speakers. */
   assets: AssetRow[];
   recipe: Recipe;
+  /** The mode the take renders in; a draft mode's smaller default size sets the pixel count. */
+  mode?: string;
 }
 
 interface DialogueLine {
@@ -158,8 +160,11 @@ export function deriveParams(input: DeriveInput): Record<string, unknown> {
 
   const width = has(recipe, 'width', ['int']);
   const height = has(recipe, 'height', ['int']);
-  if (width && height && typeof width.default === 'number' && typeof height.default === 'number') {
-    Object.assign(out, sizeFor(project.aspect, width.default, height.default));
+  const modeDefaults = recipe.modes?.[input.mode ?? recipe.default_mode]?.defaults ?? {};
+  const defaultWidth = modeDefaults.width ?? width?.default;
+  const defaultHeight = modeDefaults.height ?? height?.default;
+  if (width && height && typeof defaultWidth === 'number' && typeof defaultHeight === 'number') {
+    Object.assign(out, sizeFor(project.aspect, defaultWidth, defaultHeight));
   }
   if (has(recipe, 'fps', ['int', 'float'])) out.fps = project.fps;
 

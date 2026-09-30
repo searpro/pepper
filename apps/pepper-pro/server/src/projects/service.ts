@@ -442,7 +442,8 @@ export class ProjectService {
     };
     const candidates: Recipe[] = [];
     for (const recipe of this.deps.recipes.list()) {
-      if (recipe.kind !== 'video') continue;
+      // A shot is written as a prompt; finishing recipes (an upscaler) take a take instead.
+      if (recipe.kind !== 'video' || !recipe.params.some((p) => p.name === 'prompt')) continue;
       const status = await this.deps.recipes.status(recipe, this.deps.config.tier, this.deps.config.licenceMode);
       if (status.state === 'installed' && !status.licenceBlock) candidates.push(recipe);
     }
@@ -460,8 +461,9 @@ export class ProjectService {
     const shot = this.requireShot(shotId);
     const project = this.requireProject(shot.projectId);
     const recipe = await this.recipeFor(shot);
-    const params = deriveParams({ project, shot, assets: this.listAssets(project.id), recipe });
-    return { recipe: recipe.id, mode: mode ?? recipe.default_mode, params, shot_id: shot.id };
+    const chosen = mode ?? recipe.default_mode;
+    const params = deriveParams({ project, shot, assets: this.listAssets(project.id), recipe, mode: chosen });
+    return { recipe: recipe.id, mode: chosen, params, shot_id: shot.id };
   }
 
   /**
