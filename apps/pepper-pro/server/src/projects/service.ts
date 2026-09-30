@@ -73,7 +73,7 @@ export type ShotInput = Partial<
     | 'params'
   >
 >;
-export type CutInput = Partial<Pick<CutRow, 'name' | 'items' | 'music' | 'subtitles'>>;
+export type CutInput = Partial<Pick<CutRow, 'name' | 'items' | 'music' | 'subtitles' | 'beatSync'>>;
 
 /** A plan as Claude (or the Script screen) writes it: assets by reference, scenes of shots. */
 export interface PlanInput {
@@ -101,6 +101,16 @@ export interface PlanInput {
       params?: Record<string, unknown>;
     }[];
   }[];
+}
+
+/** What a vision model made of a take, against its shot. */
+export interface TakeReview {
+  ok: boolean;
+  /** 0-5, how well the take matches the shot. */
+  score: number;
+  issues: string[];
+  model: string;
+  at: number;
 }
 
 export interface TakeView extends TakeRow {
@@ -507,6 +517,7 @@ export class ProjectService {
           file: null,
           score: null,
           notes: '',
+          review: null,
           createdAt: Date.now(),
         };
         this.db.insert(takes).values(row).run();
@@ -547,6 +558,13 @@ export class ProjectService {
         ? `/v1/projects/${encodeURIComponent(take.projectId)}/files/${encodeURIComponent(take.file)}`
         : ((result.video_url ?? result.image_url ?? result.audio_url) as string | undefined),
     };
+  }
+
+  /** Store a vision model's check of a take (see engines/analyze.ts). */
+  setTakeReview(id: string, review: TakeReview): TakeView {
+    this.requireTake(id);
+    this.db.update(takes).set({ review }).where(eq(takes.id, id)).run();
+    return this.viewTake(this.requireTake(id));
   }
 
   updateTake(id: string, input: { score?: number | null; notes?: string }): TakeView {
@@ -631,6 +649,7 @@ export class ProjectService {
       items,
       music: input.music ?? null,
       subtitles: input.subtitles ?? false,
+      beatSync: input.beatSync ?? false,
       exportJobId: null,
       createdAt: now,
       updatedAt: now,

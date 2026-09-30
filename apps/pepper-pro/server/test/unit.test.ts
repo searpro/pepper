@@ -12,7 +12,7 @@ import { loadConfig } from '../src/config.js';
 import { buildPrompt } from '../src/engines/build.js';
 import { ProgressTracker, outputFiles } from '../src/engines/comfy.js';
 import { resolveParams } from '../src/engines/params.js';
-import { buildCutArgs, buildSrt, frameFor, isSilent, parseLoudness, type Segment } from '../src/engines/render.js';
+import { buildCutArgs, buildSrt, frameFor, isSilent, parseLoudness, snapToBeats, type Segment } from '../src/engines/render.js';
 import { composePrompt, deriveParams, sizeFor } from '../src/projects/derive.js';
 import type { AssetRow, ProjectRow, ShotRow } from '../src/projects/schema.js';
 import { checkRecipe } from '../src/recipes/check.js';
@@ -390,6 +390,19 @@ describe('cut rendering', () => {
     ...extra,
   });
 
+  it('moves joins back onto the beat, never lengthening a take', () => {
+    const beats = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7];
+    const snapped = snapToBeats([segment(2.3, 'cut'), segment(3, 'cut'), segment(4, 'cut')], beats);
+    // 2.3 -> 2.0; the second starts at 2.0 and its natural join at 5.0 is on a beat.
+    expect(snapped.map((s) => s.duration)).toEqual([2, 3, 4]);
+    // With a crossfade into the next take the join is where the fade starts.
+    const faded = snapToBeats([segment(2.8, 'cut'), segment(3, 'fade')], beats);
+    // 2.8 s fading out from 2.3 s: the fade now starts on the 2.0 s beat.
+    expect(faded[0].duration).toBeCloseTo(2.5, 5);
+    // A take shorter than the minimum past its last beat is left alone.
+    expect(snapToBeats([segment(1.2, 'cut'), segment(1, 'cut')], [0.5, 2])[0].duration).toBe(1.2);
+  });
+
   it('joins with concat or xfade, mixes a ducked bed and normalises loudness', () => {
     const { args, duration } = buildCutArgs({
       segments: [segment(4, 'cut'), segment(3, 'fade'), segment(2, 'cut', { info: { duration: 0, hasAudio: false, hasVideo: true, still: true } })],
@@ -525,6 +538,20 @@ describe('api', () => {
     for (const take of allowed.json().takes) server.jobs.cancel(take.jobId);
   });
 
+  it('checks analysis requests before queueing them', async () => {
+    expect((await inject('POST', '/v1/analyze', { task: 'check' })).statusCode).toBe(400);
+    expect((await inject('POST', '/v1/analyze', { task: 'beats' })).statusCode).toBe(400);
+    expect((await inject('POST', '/v1/analyze', { task: 'beats', asset_id: 'nope' })).statusCode).toBe(400);
+    // Without a check model the job fails with what to do about it.
+    const project = (await inject('POST', '/v1/projects', { name: 'Check' })).json();
+    const plan = (await inject('POST', `/v1/projects/${project.id}/plan`, { scenes: [{ shots: [{ prompt: 'x', recipe: 'test-video' }] }] })).json();
+    const { takes } = (await inject('POST', '/v1/shots/render', { shot_ids: [plan.shots[0].id] })).json();
+    server.jobs.cancel(takes[0].jobId);
+    const job = (await inject('POST', '/v1/analyze', { task: 'check', take_id: takes[0].id })).json();
+    for (let i = 0; i < 50 && ['queued', 'running'].includes(server.jobs.get(job.id)!.status); i++) await new Promise((r) => setTimeout(r, 20));
+    expect(server.jobs.get(job.id)!.error?.message).toMatch(/CHECK_MODEL|no finished file/);
+  });
+
   it('answers MCP tool listing with the Pro tools', async () => {
     const response = await server.app.inject({
       method: 'POST',
@@ -534,7 +561,7 @@ describe('api', () => {
     });
     const names = response.json().result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual(
-      expect.arrayContaining(['pro_status', 'list_recipes', 'generate', 'plan_project', 'render_shots', 'get_project', 'get_job', 'add_input', 'get_logs']),
+      expect.arrayContaining(['pro_status', 'list_recipes', 'generate', 'plan_project', 'render_shots', 'get_project', 'analyze', 'get_job', 'add_input', 'get_logs']),
     );
   });
 });
@@ -632,6 +659,21 @@ describe.skipIf(!haveComfy)('comfyui end to end', () => {
       expect(render.result!.metadata).toMatchObject({ width: 1080, height: 1920, takes: 1 });
     }
   }, 300_000);
+
+  it('finds the beats of a track and stores them on its asset', async () => {
+    if (!haveFfmpeg) return;
+    const name = 'clicks.wav';
+    // Ten seconds of clicks at 120 bpm.
+    spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'aevalsrc=if(lt(mod(t\\,0.5)\\,0.03)\\,sin(2*PI*1000*t)\\,0):s=22050:d=10', join(server.paths.uploadsDir, name)]);
+    const project = server.projects.createProject({ name: 'Beat' });
+    const asset = server.projects.createAsset(project.id, { kind: 'audio', name: 'Clicks', audio: name });
+    const job = await settle(server.jobs.create('analyze', { task: 'beats', asset_id: asset.id }).id);
+    expect(job.error).toBeUndefined();
+    expect(job.result!.bpm).toBeGreaterThan(110);
+    expect(job.result!.bpm).toBeLessThan(130);
+    const beats = (server.projects.requireAsset(asset.id).meta as { beats: { beats: number[] } }).beats.beats;
+    expect(beats.length).toBeGreaterThan(12);
+  }, 120_000);
 
   it('cancels a running prompt through ComfyUI', async () => {
     const recipe = server.recipes.require('test-video');

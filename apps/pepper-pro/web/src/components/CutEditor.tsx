@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Check, Film, ListRestart, Plus, Scissors, Trash2 } 
 import { Badge, Button, Card, EmptyState, ErrorNote, Field, Input, Progress, Select, Spinner, Switch } from '@pepper/ui/components/ui';
 import { api, ApiRequestError } from '@pepper/ui/lib/api';
 import { TakeMedia } from '@/components/ShotDialog';
-import { isActive, type Asset, type Cut, type CutItem, type ProjectDetail, type Shot, type Take } from '@/lib/pro';
+import { beatsOf, isActive, type Asset, type Cut, type CutItem, type ProjectDetail, type Shot, type Take } from '@/lib/pro';
 
 const NONE = '__none__';
 
@@ -71,12 +71,15 @@ function CutForm({
   const [items, setItems] = React.useState<CutItem[]>(cut.items);
   const [music, setMusic] = React.useState(cut.music);
   const [subtitles, setSubtitles] = React.useState(cut.subtitles);
+  const [beatSync, setBeatSync] = React.useState(cut.beatSync);
 
   const shots = project.scenes.flatMap((s) => s.shots);
   const takes = new Map<string, { take: Take; shot: Shot }>();
   for (const shot of shots) for (const take of shot.takes) takes.set(take.id, { take, shot });
   const musicAssets = project.assets.filter((a: Asset) => a.audio);
-  const dirty = JSON.stringify([items, music, subtitles]) !== JSON.stringify([cut.items, cut.music, cut.subtitles]);
+  const dirty =
+    JSON.stringify([items, music, subtitles, beatSync]) !== JSON.stringify([cut.items, cut.music, cut.subtitles, cut.beatSync]);
+  const musicBeats = beatsOf(project.assets.find((a) => a.id === music?.asset_id));
   const exported = cut.export?.result as { video_url?: string; subtitles_url?: string } | undefined;
 
   const move = (index: number, by: number) => {
@@ -92,7 +95,7 @@ function CutForm({
         .filter((s) => s.chosenTakeId)
         .map((s) => items.find((i) => i.take_id === s.chosenTakeId) ?? { take_id: s.chosenTakeId as string }),
     );
-  const save = () => act(() => api.patch(`/v1/cuts/${cut.id}`, { items, music, subtitles }));
+  const save = () => act(() => api.patch(`/v1/cuts/${cut.id}`, { items, music, subtitles, beatSync }));
 
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -163,6 +166,18 @@ function CutForm({
             </Field>
           </div>
         ) : null}
+        {music ? (
+          <Field
+            label="Cut on the beat"
+            hint={
+              musicBeats
+                ? `Joins move back to the nearest of ${musicBeats.beats.length} beats (${Math.round(musicBeats.bpm)} bpm).`
+                : 'Find the track\'s beats under Cast first.'
+            }
+          >
+            <Switch checked={beatSync} onCheckedChange={setBeatSync} disabled={!musicBeats && !beatSync} />
+          </Field>
+        ) : null}
         <Field label="Burn in subtitles" hint="From each shot's dialogue; an .srt is written alongside either way.">
           <Switch checked={subtitles} onCheckedChange={setSubtitles} />
         </Field>
@@ -174,7 +189,7 @@ function CutForm({
           <Button
             disabled={busy || items.length === 0 || (cut.export !== null && isActive(cut.export.status))}
             onClick={() => void act(async () => {
-              if (dirty) await api.patch(`/v1/cuts/${cut.id}`, { items, music, subtitles });
+              if (dirty) await api.patch(`/v1/cuts/${cut.id}`, { items, music, subtitles, beatSync });
               await api.post(`/v1/cuts/${cut.id}/export`, {});
             })}
           >

@@ -110,6 +110,8 @@ export interface Take {
   error?: { code: string; message: string };
   url?: string;
   kind?: RecipeKind;
+  /** A vision model's check against the shot (analyze task `check`). */
+  review: { ok: boolean; score: number; issues: string[]; model: string; at: number } | null;
 }
 
 export interface Shot {
@@ -153,7 +155,20 @@ export interface Cut {
   items: CutItem[];
   music: { asset_id: string; gain_db?: number; duck?: boolean } | null;
   subtitles: boolean;
+  beatSync: boolean;
   export: { status: Job['status']; progress: number; error?: { message: string }; result?: Record<string, unknown> } | null;
+}
+
+/** What `analyze` beats stores on an audio asset's meta. */
+export interface BeatInfo {
+  bpm: number;
+  beats: number[];
+  downbeats: number[];
+  duration: number;
+}
+
+export function beatsOf(asset: Asset | undefined): BeatInfo | undefined {
+  return (asset?.meta as { beats?: BeatInfo } | undefined)?.beats;
 }
 
 export interface ProjectDetail extends Project {

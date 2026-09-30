@@ -1,9 +1,9 @@
 import * as React from 'react';
-import { Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { AudioWaveform, Pencil, Plus, SplitSquareHorizontal, Trash2, Users } from 'lucide-react';
 import { Badge, Button, Card, Dialog, DialogContent, EmptyState, ErrorNote, Field, Input, Select, Spinner, Textarea } from '@pepper/ui/components/ui';
-import { api, ApiRequestError } from '@pepper/ui/lib/api';
+import { api, ApiRequestError, waitForJob } from '@pepper/ui/lib/api';
 import { MediaField, MediaThumb } from '@/components/inputs';
-import { ASSET_KINDS, inputUrl, type Asset } from '@/lib/pro';
+import { ASSET_KINDS, beatsOf, inputUrl, type Asset } from '@/lib/pro';
 
 /**
  * A project's cast, places, products and sounds. Pictures are what reference
@@ -62,6 +62,7 @@ export function AssetsPanel({ projectId, assets, onChanged }: { projectId: strin
             {asset.description ? <p className="line-clamp-3 text-xs text-muted-foreground">{asset.description}</p> : null}
             {asset.voice?.upload ? <MediaThumb name={asset.voice.upload} kind="audio" className="w-full" /> : null}
             {asset.audio ? <MediaThumb name={asset.audio} kind="audio" className="w-full" /> : null}
+            {asset.audio ? <AudioTools asset={asset} onChanged={onChanged} /> : null}
           </Card>
         ))}
       </div>
@@ -74,6 +75,49 @@ export function AssetsPanel({ projectId, assets, onChanged }: { projectId: strin
           onChanged();
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * Analysis for a track: its beats (so the cut can land on them) and its stems
+ * (so a performance can lip-sync to the vocals alone). Both run as jobs; the
+ * card updates when they finish.
+ */
+function AudioTools({ asset, onChanged }: { asset: Asset; onChanged: () => void }) {
+  const [busy, setBusy] = React.useState<string>();
+  const [error, setError] = React.useState<string>();
+  const beats = beatsOf(asset);
+
+  const run = async (task: 'beats' | 'stems') => {
+    setBusy(task);
+    setError(undefined);
+    try {
+      const job = await api.post<{ id: string }>('/v1/analyze', { task, asset_id: asset.id });
+      const done = await waitForJob(job.id, 1500);
+      if (done.status === 'failed') setError(done.error?.message ?? 'Analysis failed');
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.error.message : String(err));
+    } finally {
+      setBusy(undefined);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {beats ? <Badge variant="primary">{Math.round(beats.bpm)} bpm · {beats.beats.length} beats</Badge> : null}
+        <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void run('beats')}>
+          {busy === 'beats' ? <Spinner /> : <AudioWaveform />} {beats ? 'Re-find beats' : 'Find beats'}
+        </Button>
+        {asset.meta.stem ? null : (
+          <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void run('stems')}>
+            {busy === 'stems' ? <Spinner /> : <SplitSquareHorizontal />} Split vocals
+          </Button>
+        )}
+      </div>
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
     </div>
   );
 }

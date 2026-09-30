@@ -51,6 +51,9 @@ if [[ "${1:-}" != "--packs-only" ]]; then
   # default build for a different CUDA.
   uv pip install -q --python "$PY" --index-url "$TORCH_INDEX" torch torchvision torchaudio
   uv pip install -q --python "$PY" -r "$COMFY_DIR/requirements.txt"
+  # analyze jobs (python/analyze.py): beat tracking and vocal separation.
+  # Checked when added: neither changes the torch or numpy ComfyUI runs on.
+  uv pip install -q --python "$PY" librosa demucs soundfile
 fi
 
 # Every pack any recipe names, once: "name repo commit" per line.

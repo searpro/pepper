@@ -100,6 +100,29 @@ const LOUDNORM = 'I=-14:TP=-1.5:LRA=11';
  */
 export type Loudness = { measure: true } | { measured: LoudnessMeasure } | { silent: true };
 
+/**
+ * Move each join back to the latest beat before it, so the picture changes on
+ * the music's beat. Only ever shortens a take (never past `minS`), since a
+ * take has no frames beyond its end; the joins follow buildCutArgs' timeline,
+ * where a crossfade starts FADE_S before the outgoing take ends.
+ */
+export function snapToBeats(segments: Segment[], beats: number[], minS = 1): Segment[] {
+  const out = segments.map((segment) => ({ ...segment }));
+  const sorted = [...beats].sort((a, b) => b - a);
+  let start = 0;
+  for (let i = 0; i < out.length - 1; i++) {
+    const segment = out[i];
+    const next = out[i + 1];
+    const fade = next.transition === 'fade' && start + segment.duration > FADE_S && next.duration > FADE_S;
+    const overlap = fade ? FADE_S : 0;
+    const join = start + segment.duration - overlap;
+    const beat = sorted.find((b) => b <= join + 1e-6 && b - start + overlap >= minS);
+    if (beat !== undefined) segment.duration = beat - start + overlap;
+    start += segment.duration - overlap;
+  }
+  return out;
+}
+
 export function parseLoudness(log: string): LoudnessMeasure | null {
   const match = /\{\s*"input_i"[\s\S]*?\}/.exec(log);
   if (!match) return null;
@@ -294,7 +317,7 @@ export class RenderEngine implements Engine {
     const assets = projects.listAssets(project.id);
     const { width, height } = frameFor(project.aspect);
 
-    const segments: Segment[] = [];
+    let segments: Segment[] = [];
     for (const item of cut.items as CutItem[]) {
       const take = projects.requireTake(item.take_id);
       if (!take.file) throw errors.validation(`Take ${take.id} has no finished file yet`);
@@ -316,19 +339,28 @@ export class RenderEngine implements Engine {
     }
     if (segments.length === 0) throw errors.validation('This cut has no takes in it');
 
-    const workDir = join(paths.cacheDir, 'render', context.job.id);
-    await mkdir(workDir, { recursive: true });
-    const srt = buildSrt(segments);
-    const srtPath = join(workDir, 'subtitles.srt');
-    await writeFile(srtPath, srt);
-
     const bed = cut.music as MusicBed | null;
     let music: { path: string; gainDb: number; duck: boolean } | undefined;
     if (bed) {
       const asset = assets.find((a) => a.id === bed.asset_id);
       if (!asset?.audio) throw errors.validation('The music bed asset has no audio file');
       music = { path: safeResolve(paths.uploadsDir, asset.audio), gainDb: bed.gain_db ?? -14, duck: bed.duck ?? true };
+      if (cut.beatSync) {
+        const beats = (asset.meta as { beats?: { beats?: number[] } }).beats?.beats;
+        if (beats?.length) {
+          segments = snapToBeats(segments, beats);
+          context.onLog(`Cutting on the beat of ${asset.name}`);
+        } else {
+          context.onLog(`${asset.name} has no beat analysis (run analyze beats on it); cutting where the takes end`);
+        }
+      }
     }
+
+    const workDir = join(paths.cacheDir, 'render', context.job.id);
+    await mkdir(workDir, { recursive: true });
+    const srt = buildSrt(segments);
+    const srtPath = join(workDir, 'subtitles.srt');
+    await writeFile(srtPath, srt);
 
     const outputName = uniqueOutputName('mp4', 'cut');
     const output = safeResolve(paths.outputDir, outputName);

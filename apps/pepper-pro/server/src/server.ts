@@ -18,11 +18,13 @@ import { TextService } from '@pepper/core/services/text-gen.js';
 import { ProBackendManager } from './backends.js';
 import type { ProConfig } from './config.js';
 import { ComfyEngine } from './engines/comfy.js';
+import { AnalyzeEngine } from './engines/analyze.js';
 import { RenderEngine } from './engines/render.js';
 import { registerProTools } from './mcp/tools.js';
 import { buildPaths, ensureDirs, type ProPaths } from './paths.js';
 import { ProjectService } from './projects/service.js';
 import { PRO_MIGRATIONS, PRO_SCHEMA_SQL } from './projects/schema.js';
+import { analyzeRoutes } from './routes/analyze.js';
 import { projectRoutes } from './routes/projects.js';
 import { DOWNLOAD_KINDS, comfyLayout, type DownloadKind, type DownloadSlot } from './recipes/layout.js';
 import { RecipeStore } from './recipes/store.js';
@@ -115,7 +117,8 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
         },
       }),
     )
-    .register(new RenderEngine({ paths, projects, log: app.log }));
+    .register(new RenderEngine({ paths, projects, log: app.log }))
+    .register(new AnalyzeEngine({ config, paths, projects, recipes, text, log: app.log }));
   engines.attach(jobs);
 
   const resources = new ResourceMonitor();
@@ -145,6 +148,7 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
   await app.register(generateRoutes, { jobs, comfy, backends, paths, llamacppTimeoutMs: config.llamacppTimeoutMs });
   await app.register(recipeRoutes, { config, recipes, downloads });
   await app.register(projectRoutes, { projects });
+  await app.register(analyzeRoutes, { jobs, projects });
   await app.register(mediaRoutes, { paths, jobs });
   await app.register(downloadRoutes, { downloads, kinds: DOWNLOAD_KINDS });
   await app.register(logRoutes, { logs, backendSources: backends.ids() });

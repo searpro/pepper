@@ -62,6 +62,11 @@ export interface ProConfig extends CoreConfig {
   llamacppPort: number;
   llamacppTimeoutMs: number;
   llamacppReleaseRepo: string;
+  /**
+   * The llama.cpp model (a vision model, its GGUF and mmproj in one folder
+   * under llm/) that checks takes; empty until one is installed.
+   */
+  checkModel: string;
 
   /** Where the recipe templates shipped with the app live. */
   recipesDir: string;
@@ -96,6 +101,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProConfig {
     llamacppPort: positiveNum('LLAMACPP_PORT', env.LLAMACPP_PORT, 8090),
     llamacppTimeoutMs: num('LLAMACPP_TIMEOUT', env.LLAMACPP_TIMEOUT, 300_000),
     llamacppReleaseRepo: repo('LLAMACPP_RELEASE_REPO', env.LLAMACPP_RELEASE_REPO, 'searpro/llama.cpp'),
+    checkModel: env.CHECK_MODEL?.trim() ?? '',
 
     recipesDir: path(env.RECIPES_DIR?.trim() || new URL('../recipes', import.meta.url).pathname),
   };

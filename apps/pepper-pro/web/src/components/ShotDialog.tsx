@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Eye, Plus, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
+import { Check, Eye, Plus, ScanEye, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -17,7 +17,7 @@ import {
   TabsTrigger,
   Textarea,
 } from '@pepper/ui/components/ui';
-import { api, ApiRequestError } from '@pepper/ui/lib/api';
+import { api, ApiRequestError, waitForJob } from '@pepper/ui/lib/api';
 import { cn } from '@pepper/ui/lib/utils';
 import { MediaField } from '@/components/inputs';
 import { LicenceNotice } from '@/components/licence';
@@ -301,7 +301,12 @@ export function TakeMedia({ take, className }: { take: Take; className?: string 
 }
 
 function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: boolean; onChanged: () => void; onError: (e: string) => void }) {
-  const run = (action: () => Promise<unknown>) => void action().then(onChanged, (err) => onError(message(err)));
+  const [checking, setChecking] = React.useState(false);
+  const run = (action: () => Promise<unknown>) =>
+    void action().then(onChanged, (err) => {
+      setChecking(false);
+      onError(err instanceof Error && !(err instanceof ApiRequestError) ? err.message : message(err));
+    });
   return (
     <div className={cn('flex flex-col gap-2 rounded-lg border p-2', chosen ? 'border-primary ring-1 ring-primary' : 'border-border')}>
       <div className="flex items-center justify-between gap-2 text-[11px]">
@@ -316,6 +321,20 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
       {isActive(take.status) ? <Progress value={take.progress} indeterminate={take.status === 'queued'} /> : null}
       <TakeMedia take={take} />
       {take.error ? <ErrorNote>{take.error.message}</ErrorNote> : null}
+      {take.review ? (
+        <div className="flex flex-col gap-1 text-[11px]" title={`Checked by ${take.review.model}`}>
+          <Badge variant={take.review.ok ? 'success' : 'warning'} className="self-start">
+            {take.review.ok ? 'Looks right' : 'Needs a look'} · {take.review.score}/5
+          </Badge>
+          {take.review.issues.length ? (
+            <ul className="list-disc pl-4 text-muted-foreground">
+              {take.review.issues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       <div className="flex items-center justify-between gap-1">
         <div className="flex">
           {[1, 2, 3, 4, 5].map((n) => (
@@ -333,7 +352,25 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
           >
             <Check /> {chosen ? 'Chosen' : 'Choose'}
           </Button>
-          <Button size="icon-sm" variant="ghost" aria-label="Delete take" onClick={() => run(() => api.delete(`/v1/takes/${take.id}`))}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Check with the vision model"
+            title="Check with the vision model"
+            disabled={take.status !== 'completed' || checking}
+            onClick={() => {
+              setChecking(true);
+              run(async () => {
+                const job = await api.post<{ id: string }>('/v1/analyze', { task: 'check', take_id: take.id });
+                const done = await waitForJob(job.id, 1500);
+                setChecking(false);
+                if (done.status === 'failed') throw new Error(done.error?.message ?? 'The check failed');
+              });
+            }}
+          >
+            {checking ? <Spinner /> : <ScanEye />}
+          </Button>
+                    <Button size="icon-sm" variant="ghost" aria-label="Delete take" onClick={() => run(() => api.delete(`/v1/takes/${take.id}`))}>
             <Trash2 />
           </Button>
         </div>

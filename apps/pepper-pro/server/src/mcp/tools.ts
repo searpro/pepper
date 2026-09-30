@@ -19,6 +19,7 @@ import {
   waitSeconds,
   type ToolContext,
 } from '@pepper/core/mcp/kit.js';
+import { analyzeSchema } from '../routes/analyze.js';
 import { planSchema, renderSchema } from '../routes/projects.js';
 
 /**
@@ -227,6 +228,20 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
     },
   );
 
+  server.registerTool(
+    'analyze',
+    {
+      title: 'Analyze media',
+      description:
+        '`beats`: tempo and beats of a track (give asset_id of a music asset, then set beatSync on the cut ' +
+        'to cut on the beat). `stems`: split a song into vocals and accompaniment assets (lip-sync a ' +
+        'performance to the vocals). `check`: a vision model reviews a finished take against its shot and ' +
+        'stores the verdict on it (shown by get_project).',
+      inputSchema: { ...analyzeSchema.shape, wait_seconds: waitSeconds(30) },
+    },
+    async ({ wait_seconds, ...body }) => submit(ctx, '/v1/analyze', body, wait_seconds),
+  );
+
   registerJobTools(server, ctx);
   registerInputTool(server, ctx);
   registerLogTool(server, ctx, {
@@ -263,7 +278,17 @@ function summarizeProject(project: unknown): unknown {
         prompt: string;
         recipeId: string | null;
         chosenTakeId: string | null;
-        takes: { id: string; mode: string; status: string; progress: number; seed: number | null; url?: string; error?: unknown }[];
+        takes: {
+          id: string;
+          mode: string;
+          status: string;
+          progress: number;
+          seed: number | null;
+          url?: string;
+          error?: unknown;
+          score: number | null;
+          review: { ok: boolean; score: number; issues: string[] } | null;
+        }[];
       }[];
     }[];
     cuts: { id: string; name: string; items: unknown[]; export: unknown }[];
@@ -284,7 +309,18 @@ function summarizeProject(project: unknown): unknown {
         prompt: shot.prompt.slice(0, 160),
         recipe: shot.recipeId ?? undefined,
         chosen: shot.chosenTakeId ?? undefined,
-        takes: shot.takes.map((t) => defined({ id: t.id, mode: t.mode, status: t.status, progress: t.progress, seed: t.seed ?? undefined, error: t.error })),
+        takes: shot.takes.map((t) =>
+          defined({
+            id: t.id,
+            mode: t.mode,
+            status: t.status,
+            progress: t.progress,
+            seed: t.seed ?? undefined,
+            score: t.score ?? undefined,
+            review: t.review ? { ok: t.review.ok, score: t.review.score, issues: t.review.issues } : undefined,
+            error: t.error,
+          }),
+        ),
       })),
     })),
     cuts: p.cuts.map((c) => ({ id: c.id, name: c.name, items: c.items.length, export: c.export })),

@@ -129,6 +129,8 @@ const cutBody = z.object({
     .nullable()
     .optional(),
   subtitles: z.boolean().optional(),
+  /** Snap cut points back to the music bed's beats (analyze it first). */
+  beatSync: z.boolean().optional(),
 });
 
 const id = z.object({ id: z.string() });

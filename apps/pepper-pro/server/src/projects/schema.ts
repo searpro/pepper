@@ -129,6 +129,8 @@ export const takes = sqliteTable(
     file: text('file'),
     score: integer('score'),
     notes: text('notes').notNull().default(''),
+    /** A vision model's check of the take: `{ ok, score, issues[], model, at }`. */
+    review: text('review', { mode: 'json' }),
     createdAt: integer('created_at').notNull(),
   },
   (t) => ({
@@ -149,6 +151,8 @@ export const cuts = sqliteTable(
     music: text('music', { mode: 'json' }),
     /** Burn the dialogue in as subtitles. */
     subtitles: integer('subtitles', { mode: 'boolean' }).notNull().default(false),
+    /** Move each cut point back to the music bed's nearest beat. */
+    beatSync: integer('beat_sync', { mode: 'boolean' }).notNull().default(false),
     exportJobId: text('export_job_id'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
@@ -260,4 +264,7 @@ CREATE INDEX IF NOT EXISTS cuts_project_idx ON cuts (project_id);
 `;
 
 /** Ordered upgrades to Pepper Pro's own tables. */
-export const PRO_MIGRATIONS: string[] = [];
+export const PRO_MIGRATIONS: string[] = [
+  'ALTER TABLE takes ADD COLUMN review TEXT',
+  'ALTER TABLE cuts ADD COLUMN beat_sync INTEGER NOT NULL DEFAULT 0',
+];
