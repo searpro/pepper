@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import threading
 import time
@@ -155,6 +156,12 @@ class Vast:
         return listed.get("offers", []) if isinstance(listed, dict) else listed
 
 
+# Vast's status message follows the image pull layer by layer; only the
+# "Pulling from" and "Status:" lines say anything.
+PULL_NOISE = re.compile(r"^[0-9a-f]{12}: (Pulling fs layer|Waiting|Downloading|Verifying Checksum|"
+                        r"Download complete|Extracting|Pull complete|Already exists)")
+
+
 def healthy(url: str | None) -> bool:
     if not url:
         return False
@@ -218,6 +225,9 @@ def follow_logs(vast: Vast, instance_id: int, stop: threading.Event, tail: int =
                 r = requests.get(url, timeout=30)
                 if r.ok:
                     lines = r.text.splitlines()
+                    # Docker's answer while the image is still being pulled, not a log.
+                    if any("No such container" in line for line in lines[:2]):
+                        lines = None
                     break
                 time.sleep(1)
             if lines is not None:
@@ -326,7 +336,7 @@ def cmd_up(vast: Vast, env: dict, a) -> None:
             if healthy(url):
                 break
             msg = (inst.get("status_msg") or "").strip()
-            if msg and msg != last_msg:
+            if msg and msg != last_msg and not PULL_NOISE.match(msg):
                 print(f"[vast] {inst.get('actual_status') or 'starting'}: {msg[:200]}", flush=True)
                 last_msg = msg
             if inst.get("actual_status") == "exited" and inst.get("intended_status") == "running":
