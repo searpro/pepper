@@ -64,6 +64,7 @@ There is no linter or formatter configured; match the surrounding style
 | `docs/CATALOGUE.md` | Pepper's remote catalogue manifest format (catalogue lives in searpro/pepper-catalogue) |
 | `docs/PRODUCTION-VIDEO.md` | Research behind Pepper Pro: models, recipes, projects |
 | `docs/PEPPER-PRO.md` | Pepper Pro's design, and what is built and verified so far (§13) |
+| `docs/MCP.md` | Using Pepper Pro's MCP endpoint from another project: connect, tools, a video end to end |
 
 ## Conventions (short form — full list in docs/ARCHITECTURE.md)
 

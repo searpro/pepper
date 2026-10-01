@@ -31,8 +31,13 @@ Everything else (jobs, downloads, logs, auth, media, MCP) is `@pepper/core`.
   ffmpeg.
 - `src/golden/`: golden-shot runs and the blind A/B (`golden/shots.json`).
 - `src/mcp/tools.ts`: Claude's tools. Keep them few: pro_status,
-  list_recipes, install_recipe, generate, plan_project, render_shots,
-  get_project, analyze, plus core's job/input/log tools. None waits past 50 s.
+  list_models, install_model, generate_image / generate_video /
+  generate_audio, plan_project, render_shots, get_project, analyze, plus
+  core's job/input/log tools. None waits past 50 s. The generate tools speak
+  generic fields (prompt, image, end_image, reference_images, audio, duration,
+  aspect_ratio, quality), which `src/generate.ts` maps onto each recipe's own
+  parameters and `POST /v1/generate` serves; media come by URL, data URI,
+  upload or output name. `docs/MCP.md` is the guide for other projects.
 - A new column is an `ALTER TABLE` in `PRO_MIGRATIONS` (fresh databases run
   every migration, so do not also add it to `PRO_SCHEMA_SQL`); a new table is
   a `CREATE TABLE IF NOT EXISTS` in the schema SQL.

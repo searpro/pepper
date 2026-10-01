@@ -14,6 +14,7 @@ import { AnalyzeEngine } from '../src/engines/analyze.js';
 import { ProgressTracker, outputFiles } from '../src/engines/comfy.js';
 import { resolveParams } from '../src/engines/params.js';
 import { buildCutArgs, buildSrt, frameFor, isSilent, parseLoudness, snapToBeats, type Segment } from '../src/engines/render.js';
+import { describeModel, mapRequest, pickModel, type ModelDescription } from '../src/generate.js';
 import { joinArgs, planSegments } from '../src/projects/chain.js';
 import { composePrompt, deriveParams, sizeFor } from '../src/projects/derive.js';
 import type { AssetRow, ProjectRow, ShotRow } from '../src/projects/schema.js';
@@ -594,6 +595,71 @@ describe('cut rendering', () => {
   });
 });
 
+describe('generic generation', () => {
+  const RECIPES = fileURLToPath(new URL('../recipes', import.meta.url));
+  let store: RecipeStore;
+  let models: ModelDescription[];
+  const installed = { state: 'installed' as const, files: [], missingBytes: 0, installBytes: 0, tierVerified: true };
+  beforeAll(async () => {
+    store = new RecipeStore(RECIPES, buildPaths(await tempConfig()), log);
+    await store.load();
+    models = store.list().map((r) => describeModel(r, installed));
+  });
+  const model = (id: string) => models.find((m) => m.id === id)!;
+
+  it('describes each recipe in generic terms', () => {
+    expect(model('h3-video')).toMatchObject({
+      kind: 'video',
+      inputs: { prompt: 'required', image: 'optional', end_image: 'optional', audio: 'optional' },
+      duration: { min: 1, max: 15 },
+      qualities: ['draft', 'final'],
+    });
+    expect(model('h3-video').inputs.reference_images).toBeUndefined();
+    expect(model('h3-reference')).toMatchObject({ inputs: { reference_images: 'optional', voice_reference: 'optional' }, max_reference_images: 4 });
+    expect(model('qwen-image-edit').inputs).toMatchObject({ image: 'required', reference_images: 'optional' });
+    expect(model('flux2-klein-edit').max_reference_images).toBe(1);
+    expect(model('seedvr2-upscale-image').inputs.prompt).toBeUndefined();
+  });
+
+  it("maps generic fields onto each recipe's own parameters", () => {
+    const h3 = mapRequest(store.require('h3-video'), {
+      prompt: 'a walk',
+      image: 'a.png',
+      end_image: 'b.png',
+      duration: 8,
+      aspect_ratio: '9:16',
+      quality: 'draft',
+    });
+    expect(h3.mode).toBe('draft');
+    expect(h3.params).toMatchObject({ prompt: 'a walk', first_frame: 'a.png', last_frame: 'b.png', duration: 8 });
+    expect((h3.params.width as number) < (h3.params.height as number)).toBe(true);
+    expect(() => mapRequest(store.require('h3-video'), { prompt: 'x', duration: 20 })).toThrow(/1-15 s.*render_shots/);
+
+    expect(mapRequest(store.require('qwen-image-edit'), { prompt: 'x', image: 'a.png', reference_images: ['r.png'] }).params.images).toEqual(['a.png', 'r.png']);
+    expect(mapRequest(store.require('flux2-klein-edit'), { prompt: 'x', image: 'a.png', reference_images: ['r.png'] }).params).toMatchObject({ image: 'a.png', reference: 'r.png' });
+    // An image-to-video model given only references starts from the first.
+    expect(mapRequest(store.require('infinitetalk'), { prompt: 'x', reference_images: ['p.png'], audio: 'v.wav' }).params).toMatchObject({ image: 'p.png', audio: 'v.wav' });
+
+    const tts = store.require('qwen3-tts');
+    expect(mapRequest(tts, { prompt: 'Hello.', voice: 'serena' })).toMatchObject({ mode: 'preset', params: { text: 'Hello.', speaker: 'Serena' } });
+    expect(mapRequest(tts, { prompt: 'Hello.', voice: 'a warm, slow old man' })).toMatchObject({ mode: 'design', params: { voice: 'a warm, slow old man' } });
+    expect(mapRequest(tts, { prompt: 'Hello.', voice_reference: 'me.wav' })).toMatchObject({ mode: 'final', params: { voice_ref: 'me.wav' } });
+  });
+
+  it('picks the best installed model that takes every input given', () => {
+    expect(pickModel('video', { prompt: 'x', reference_images: ['a.png', 'b.png'] }, models).id).toBe('h3-reference');
+    expect(pickModel('video', { prompt: 'x', image: 'a.png', audio: 'v.wav' }, models).id).toBe('h3-video');
+    expect(pickModel('video', { prompt: 'x', image: 'a.png', audio: 'v.wav', audio_2: 'w.wav' }, models).id).toBe('infinitetalk-duo');
+    expect(pickModel('image', { image: 'a.png' }, models).id).toBe('seedvr2-upscale-image');
+    expect(pickModel('audio', { prompt: 'x', lyrics: 'la la' }, models, 'music').capabilities).toContain('music');
+    // A model verified on a GPU wins over an unverified one that ranks higher.
+    const verifiedFirst = [{ ...model('krea2-image'), verified: undefined }, { ...model('zimage-turbo'), verified: { date: 'd', gpu: 'g' } }];
+    expect(pickModel('image', { prompt: 'x' }, verifiedFirst).id).toBe('zimage-turbo');
+    const none = models.map((m) => ({ ...m, unavailable: 'not installed' }));
+    expect(() => pickModel('video', { prompt: 'x' }, none)).toThrow(/No video model.*not installed/);
+  });
+});
+
 describe('recipe uninstall', () => {
   it('frees files shared only with recipes that use nothing else', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'pepper-pro-recipes-'));
@@ -726,6 +792,51 @@ describe('api', () => {
     }
   });
 
+  it('generates in generic terms, fetching media from a URL', async () => {
+    const models = (await inject('GET', '/v1/models?kind=video')).json().models;
+    expect(models.find((m: { id: string }) => m.id === 'test-video')).toMatchObject({
+      inputs: { prompt: 'optional' },
+      duration: { min: 0.5, max: 5 },
+      installed: true,
+    });
+
+    const job = (await inject('POST', '/v1/generate', { kind: 'video', model: 'test-video', prompt: 'red', duration: 2, aspect_ratio: '9:16' })).json();
+    expect(job).toMatchObject({ model: 'test-video', quality: 'draft' });
+    const params = server.jobs.get(job.jobs[0].id)!.params as { params: Record<string, number> };
+    expect(params.params.duration).toBe(2);
+    expect(params.params.width).toBeLessThan(params.params.height);
+    // Cancelled, and let settle, so nothing writes after the server closes.
+    const stop = async (id: string) => {
+      server.jobs.cancel(id);
+      for (let i = 0; i < 100 && ['queued', 'running'].includes(server.jobs.get(id)!.status); i++) await new Promise((r) => setTimeout(r, 20));
+    };
+    await stop(job.jobs[0].id);
+
+    // An input the model does not take is refused with the reason.
+    const refused = await inject('POST', '/v1/generate', { kind: 'video', model: 'test-video', prompt: 'x', audio: 'a.wav' });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error.message).toMatch(/does not take audio/);
+
+    // A reference image by URL is fetched into uploads.
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const { createServer } = await import('node:http');
+    const http = createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'image/png' });
+      res.end(png);
+    });
+    await new Promise<void>((resolve) => http.listen(0, '127.0.0.1', resolve));
+    const port = (http.address() as { port: number }).port;
+    try {
+      const image = (await inject('POST', '/v1/generate', { kind: 'image', model: 'test-image', reference_images: [`http://127.0.0.1:${port}/ref`] })).json();
+      const refs = (server.jobs.get(image.jobs[0].id)!.params as { params: { refs: string[] } }).params.refs;
+      expect(refs).toHaveLength(1);
+      expect((await stat(join(server.paths.uploadsDir, refs[0]))).size).toBe(png.length);
+      await stop(image.jobs[0].id);
+    } finally {
+      http.close();
+    }
+  });
+
   it('refuses a bad recipe request before queueing', async () => {
     expect((await inject('POST', '/v1/jobs', { recipe: 'nope' })).statusCode).toBe(404);
     const bad = await inject('POST', '/v1/jobs', { recipe: 'test-image', params: { width: 2 } });
@@ -807,6 +918,27 @@ describe('api', () => {
     expect(server.jobs.get(job.id)!.error?.message).toMatch(/CHECK_MODEL|no finished file/);
   });
 
+  it('generates over MCP in generic terms and follows several jobs at once', async () => {
+    const mcp = (method: string, params: unknown) =>
+      server.app.inject({
+        method: 'POST',
+        url: '/mcp',
+        headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json' },
+        payload: { jsonrpc: '2.0', id: 1, method, params },
+      });
+    const generated = (await mcp('tools/call', { name: 'generate_video', arguments: { model: 'test-video', prompt: 'red', count: 2 } })).json().result;
+    expect(generated.isError).toBeFalsy();
+    expect(JSON.parse(generated.content[0].text)).toEqual({ model: 'test-video', quality: 'draft' });
+    const ids = generated.structuredContent.jobs.map((j: { id: string }) => j.id);
+    expect(ids).toHaveLength(2);
+    for (const id of ids) server.jobs.cancel(id);
+    const followed = (await mcp('tools/call', { name: 'get_job', arguments: { ids, wait_seconds: 5 } })).json().result;
+    expect(followed.structuredContent.jobs.map((j: { id: string }) => j.id)).toEqual(ids);
+    for (let i = 0; i < 100 && ids.some((id: string) => ['queued', 'running'].includes(server.jobs.get(id)!.status)); i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  });
+
   it('answers MCP tool listing with the Pro tools', async () => {
     const response = await server.app.inject({
       method: 'POST',
@@ -816,7 +948,21 @@ describe('api', () => {
     });
     const names = response.json().result.tools.map((t: { name: string }) => t.name);
     expect(names).toEqual(
-      expect.arrayContaining(['pro_status', 'list_recipes', 'generate', 'plan_project', 'render_shots', 'get_project', 'analyze', 'get_job', 'add_input', 'get_logs']),
+      expect.arrayContaining([
+        'pro_status',
+        'list_models',
+        'install_model',
+        'generate_image',
+        'generate_video',
+        'generate_audio',
+        'plan_project',
+        'render_shots',
+        'get_project',
+        'analyze',
+        'get_job',
+        'add_input',
+        'get_logs',
+      ]),
     );
   });
 });

@@ -150,6 +150,7 @@ export function summarizeJob(ctx: ToolContext, job: Job): Record<string, unknown
   const result = (job.result ?? {}) as Record<string, unknown>;
   const metadata = (result.metadata ?? {}) as Record<string, unknown>;
   const output = (result.image_url ?? result.video_url ?? result.audio_url) as string | undefined;
+  const name = output ? decodeURIComponent(output.split('/').pop() ?? '') : undefined;
   return defined({
     id: job.id,
     kind: job.kind,
@@ -158,8 +159,11 @@ export function summarizeJob(ctx: ToolContext, job: Job): Record<string, unknown
     step: job.step,
     total_steps: job.totalSteps,
     error: job.error,
-    output_name: output ? decodeURIComponent(output.split('/').pop() ?? '') : undefined,
+    output_name: name,
     url: absolute(ctx, output),
+    // A link that works without the API token, for 7 days or until the
+    // output is swept: what another program fetches the file with.
+    download_url: name && ctx.apiToken ? absolute(ctx, signMediaUrl(ctx.apiToken, name)) : undefined,
     text: result.text as string | undefined,
     seed: metadata.seed as number | undefined,
     duration_ms: metadata.duration_ms as number | undefined,
@@ -344,17 +348,30 @@ export function registerJobTools(server: McpServer, ctx: ToolContext): void {
     {
       title: 'Get a job',
       description:
-        'Status and result of a generation job, optionally waiting for it to finish. Shows ' +
-        'image results inline.' +
+        'Status and result of generation jobs, waiting up to wait_seconds for them to finish (give ' +
+        '`id`, or `ids` to wait on several at once). Each finished job has a download_url that works ' +
+        'without credentials. Shows image results inline.' +
         SHOWN,
       _meta: SHOWS_MEDIA,
-      inputSchema: { id: z.string(), wait_seconds: waitSeconds(30) },
+      inputSchema: {
+        id: z.string().optional(),
+        ids: z.array(z.string()).max(20).optional(),
+        wait_seconds: waitSeconds(30),
+      },
       annotations: READ_ONLY,
     },
-    async ({ id, wait_seconds }) => {
-      const job = await waitForJob(ctx, id, wait_seconds);
-      if (!job) throw new ApiCallError(`JOB_NOT_FOUND: Job not found: ${id}`);
-      return jobResult(ctx, job);
+    async ({ id, ids, wait_seconds }) => {
+      const wanted = [...(id ? [id] : []), ...(ids ?? [])];
+      if (wanted.length === 0) throw new ApiCallError('VALIDATION_ERROR: give id or ids');
+      // One budget for all of them: each waits for what is left of it.
+      const deadline = Date.now() + Math.min(wait_seconds, MAX_WAIT_S) * 1000;
+      const settled: Job[] = [];
+      for (const one of wanted) {
+        const job = await waitForJob(ctx, one, Math.max(0, (deadline - Date.now()) / 1000));
+        if (!job) throw new ApiCallError(`JOB_NOT_FOUND: Job not found: ${one}`);
+        settled.push(job);
+      }
+      return settled.length === 1 ? jobResult(ctx, settled[0]) : jobsResult(ctx, settled);
     },
   );
 

@@ -153,7 +153,7 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
     }),
   });
   await app.register(coreJobRoutes, { jobs });
-  await app.register(generateRoutes, { jobs, comfy, backends, paths, llamacppTimeoutMs: config.llamacppTimeoutMs });
+  await app.register(generateRoutes, { jobs, comfy, backends, paths, recipes, config, llamacppTimeoutMs: config.llamacppTimeoutMs });
   await app.register(recipeRoutes, { config, recipes, downloads, storage });
   await app.register(projectRoutes, { projects });
   await app.register(analyzeRoutes, { jobs, projects });
