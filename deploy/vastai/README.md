@@ -28,7 +28,8 @@ volume.
 ## One-time setup
 
 1. **API key**: cloud.vast.ai → Account → Keys. Put it in
-   `deploy/vastai/.env` (git-ignored), or export `VAST_API_KEY`. A key saved
+   `deploy/vastai/.env` (git-ignored), or export `VAST_API_KEY` (or
+   `VAST_AI_API_KEY`). A key saved
    by the `vastai` CLI (`~/.config/vastai/vast_api_key`) also works:
 
    ```bash

@@ -28,7 +28,7 @@ Configuration comes from `deploy/vastai/.env` (git-ignored), falling back to
 `deploy/runpod/.env` and `deploy/kaggle/.env` for the PEPPER_* values they
 share, and the process environment beats all three:
 
-    VAST_API_KEY=...          cloud.vast.ai → Account → Keys (or the CLI's ~/.config/vastai/vast_api_key)
+    VAST_API_KEY=...          cloud.vast.ai → Account → Keys (or VAST_AI_API_KEY, or the CLI's ~/.config/vastai/vast_api_key)
     PEPPER_API_TOKEN=...      required
     PEPPER_TUNNEL_TOKEN=...   with PEPPER_HOSTNAME: serve at a fixed hostname
     PEPPER_HOSTNAME=...
@@ -49,6 +49,8 @@ from pathlib import Path
 import requests
 
 API = "https://console.vast.ai/api/v0"
+# Listing instances moved to v1 (v0 answers 410); everything else is still v0.
+API_V1 = "https://console.vast.ai/api/v1"
 HERE = Path(__file__).resolve().parent
 ENV_FILES = [HERE / ".env", HERE.parent / "runpod" / ".env", HERE.parent / "kaggle" / ".env"]
 KEY_FILES = [Path.home() / ".config" / "vastai" / "vast_api_key", Path.home() / ".vast_api_key"]
@@ -91,6 +93,9 @@ def load_env() -> dict[str, str]:
     for key in ("VAST_API_KEY", *SECRET_KEYS, "PEPPER_HOSTNAME"):
         if os.environ.get(key):
             values[key] = os.environ[key]
+    # Both spellings are in use; VAST_API_KEY is the one Vast's own docs give.
+    if not values.get("VAST_API_KEY"):
+        values["VAST_API_KEY"] = os.environ.get("VAST_AI_API_KEY") or values.get("VAST_AI_API_KEY", "")
     if not values.get("VAST_API_KEY"):
         for path in KEY_FILES:
             if path.exists() and path.read_text().strip():
@@ -105,8 +110,8 @@ class Vast:
         if key:
             self.session.headers["Authorization"] = f"Bearer {key}"
 
-    def call(self, method: str, path: str, **kwargs):
-        r = self.session.request(method, f"{API}{path}", timeout=60, **kwargs)
+    def call(self, method: str, path: str, base: str = API, **kwargs):
+        r = self.session.request(method, f"{base}{path}", timeout=60, **kwargs)
         if r.status_code >= 400:
             raise RuntimeError(f"{method} {path} → {r.status_code}: {r.text[:500]}")
         body = r.json() if r.content else None
@@ -115,7 +120,7 @@ class Vast:
         return body
 
     def instances(self) -> list[dict]:
-        listed = self.call("GET", "/instances/", params={"owner": "me"})
+        listed = self.call("GET", "/instances/", base=API_V1)
         return [i for i in listed.get("instances", []) if i.get("label") == LABEL]
 
     def instance(self, instance_id: int) -> dict | None:
