@@ -182,11 +182,16 @@ def public_url(env: dict[str, str], inst: dict | None = None) -> str | None:
 
 
 def describe(inst: dict) -> str:
-    ram = inst.get("cpu_ram")
+    # The container's limit, not the host's: cpu_ram is the whole machine.
+    ram = inst.get("mem_limit") or (inst.get("cpu_ram") or 0) / 1000
+    # dph_total stays the running price; a stopped instance pays for its disk only.
+    stopped = inst.get("intended_status") == "stopped"
+    cost = (f"${inst.get('storage_total_cost') or 0:.3f}/h for the disk while stopped" if stopped
+            else f"${inst.get('dph_total', 0):.3f}/h")
     return (f"{inst['id']}: {inst.get('actual_status') or 'starting'} (wants {inst.get('intended_status')}), "
             f"{inst.get('gpu_name')} {round((inst.get('gpu_ram') or 0) / 1000)} GB, "
-            f"{round(ram / 1000) if ram else '?'} GB RAM, {inst.get('geolocation') or '?'}, "
-            f"${inst.get('dph_total', 0):.3f}/h, {inst.get('disk_space', '?')} GB disk")
+            f"{round(ram) if ram else '?'} GB RAM, {inst.get('geolocation') or '?'}, "
+            f"{cost}, {inst.get('disk_space', '?')} GB disk")
 
 
 # --- Commands -------------------------------------------------------------------
@@ -326,6 +331,7 @@ def cmd_up(vast: Vast, env: dict, a) -> None:
     threading.Thread(target=follow_logs, args=(vast, instance_id, stop), daemon=True).start()
     deadline = time.time() + a.wait * 60
     last_msg = None
+    exited_since: float | None = None
     try:
         while time.time() < deadline:
             inst = vast.instance(instance_id)
@@ -339,9 +345,16 @@ def cmd_up(vast: Vast, env: dict, a) -> None:
             if msg and msg != last_msg and not PULL_NOISE.match(msg):
                 print(f"[vast] {inst.get('actual_status') or 'starting'}: {msg[:200]}", flush=True)
                 last_msg = msg
+            # actual_status lags: a restarted instance reads "exited" for a while
+            # after its container is back (Pepper answered at once in testing).
+            # Only an exit that lasts is a crash.
             if inst.get("actual_status") == "exited" and inst.get("intended_status") == "running":
-                stop.set()
-                sys.exit("the container exited; see the log above (`down --destroy` to remove it)")
+                exited_since = exited_since or time.time()
+                if time.time() - exited_since > 300:
+                    stop.set()
+                    sys.exit("the container exited; see the log above (`down --destroy` to remove it)")
+            else:
+                exited_since = None
             time.sleep(10)
         else:
             stop.set()
