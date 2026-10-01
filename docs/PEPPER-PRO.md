@@ -536,18 +536,21 @@ Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `ltx23-audio-to-video`,
 
 ### 13.3 Not yet proven or not yet built
 
-- **Nothing has run on a GPU.** Every recipe is validated against ComfyUI
-  v0.38.0's node types, by our validator and by ComfyUI's own `/prompt`
-  validation, with and without its optional inputs. The engine, projects,
-  long takes and retakes, cuts, analysis and golden runs are tested end to
-  end on a CPU ComfyUI with model-free recipes. The one recipe that has made
-  real output is `qwen3-tts`, on the CPU (preset, cloned and two-voice
-  dialogue speech, each transcribed back by Whisper). No recipe has a
-  `verified` entry: the first pod session per tier should render the golden
-  shots and fill them in, and H3's continuation (the 22-frame overlap long
-  takes and retakes rely on) needs checking there on real footage.
-- **The Pro image has not been built by CI yet** (the workflow runs on
-  `main`). It was built locally with CPU torch (`--build-arg
+- **Six of 19 recipes have run on a GPU** (2026-10-01, an RTX PRO 4500
+  Blackwell, 32 GB, with 62 GB RAM; the 24 GB tier's cards were not
+  available): `h3-video` (10 golden shots in draft, about 7.6 min per 5 s),
+  `zimage-turbo`, `qwen3-tts`, `infinitetalk`, `infinitetalk-duo` and
+  `flux2-klein-edit`, each with a `verified` entry. H3's continuation holds on
+  real footage: a 20 s long take joined two segments with no visible seam,
+  the continuing segment repeating exactly the 22 frames that are trimmed, and
+  a retake from 10 s kept the opening. The other 13 are validated against
+  ComfyUI's node types (ours and ComfyUI's own `/prompt` check) but not yet
+  rendered. Findings: H3 drafts are slow on this card (29 min per 15 s
+  segment); switching between H3 and another model on 62 GB of host RAM
+  thrashes (a Z-Image still took minutes instead of seconds); InfiniteTalk's
+  draft is 3.24 s, shorter than most lines.
+- **The Pro image is built by CI** on `main`. It was also built locally
+  with CPU torch (`--build-arg
   TORCH_INDEX=https://download.pytorch.org/whl/cpu`), which runs the same
   install and recipe smoke test (19 recipes valid inside the image), and
   the container booted and served the app; the CUDA wheels themselves were

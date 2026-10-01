@@ -175,5 +175,11 @@
     "48gb",
     "96gb"
   ],
-  "notes": "The output is about one megapixel at the input's aspect ratio."
+  "notes": "The output is about one megapixel at the input's aspect ratio.",
+  "verified": {
+    "date": "2026-10-01",
+    "gpu": "RTX PRO 4500 Blackwell 32 GB, 62 GB RAM (32gb tier)",
+    "seconds": 48,
+    "notes": "Try-on golden shot: the jacket from image 2 put on the model in image 1, keeping pose, face and studio. 48 s including the model load."
+  }
 }
