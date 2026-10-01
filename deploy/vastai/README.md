@@ -96,7 +96,7 @@ uv run deploy/vastai/launch.py down --destroy  # delete the instance and its dis
 - Ctrl-C during `up` only detaches. The instance keeps running, and billing.
 - A stopped instance keeps the environment it was created with. Changing
   the image, tier or tokens takes `up --fresh`.
-- Restarting a stopped instance can wait: someone else may have rented its
+- Restarting a stopped instance can wait (Vast answers "state change queued"): someone else may have rented its
   GPU in the meantime. Vast then holds the instance until the GPU frees up.
   If you don't want to wait, run `up --fresh`, which rents a new machine;
   the models download again.

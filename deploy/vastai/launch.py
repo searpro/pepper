@@ -304,9 +304,18 @@ def cmd_up(vast: Vast, env: dict, a) -> None:
         # A stopped instance comes back on the same machine with its disk, so
         # its models are already there. Its GPU may be rented by someone else
         # meanwhile; Vast then holds it until the GPU frees up.
-        vast.call("PUT", f"/instances/{inst['id']}/", json={"state": "running"})
         instance_id = inst["id"]
         print(f"starting the stopped instance {describe(inst)}", flush=True)
+        try:
+            vast.call("PUT", f"/instances/{inst['id']}/", json={"state": "running"})
+        except RuntimeError as exc:
+            # Vast refuses with "state change queued" when the GPU is taken, and
+            # starts the instance by itself once it frees up.
+            if "queued" not in str(exc):
+                raise
+            print("its GPU is rented by someone else right now; Vast has queued the start and will run it "
+                  "when the GPU frees up. `down` cancels that, `up --fresh` rents another machine "
+                  "(models download again).", flush=True)
         print("its environment is the one it was created with; `up --fresh` to change image, tier or tokens", flush=True)
     else:
         inst_env = {
