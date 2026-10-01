@@ -11,4 +11,5 @@ apps/*/web/dist/
 __pycache__/
 deploy/kaggle/.last-url
 deploy/runpod/.pod
+deploy/vastai/.instance
 .claude/settings.local.json

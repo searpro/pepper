@@ -133,7 +133,7 @@ repository's own README for how to add an entry.
 Models can also be installed by URL from the Models window, so an unreachable
 catalogue is never a hard block.
 
-## Docker / RunPod
+## Docker / RunPod / Vast.ai
 
 ```bash
 docker build -t pepper .
@@ -197,6 +197,8 @@ npm run dev:pro-web    # SPA, proxying to PEPPER_API (default :3000)
 
 # On a RunPod GPU (the image is ghcr.io/searpro/pepper-pro):
 uv run deploy/runpod/launch.py up --product pro --tier 32gb
+# Or on Vast.ai (deploy/vastai/README.md):
+uv run deploy/vastai/launch.py up --product pro --tier 32gb
 ```
 
 The design, the recipe format and what has been verified so far are in

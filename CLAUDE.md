@@ -56,6 +56,7 @@ There is no linter or formatter configured; match the surrounding style
 | `apps/pepper-pro/server/recipes/<id>/` | Recipes: `recipe.json` plus ComfyUI API-format workflows; `recipes/README.md` is the contract |
 | `apps/*/web/src/pages/*`, `packages/ui/src/*` | SPA screens; `packages/ui/src/lib/api.ts` is the API client |
 | `deploy/runpod` | RunPod launcher (`launch.py` local; `--product pro --tier …` for Pro) and container `entrypoint.mjs` (tunnel, idle shutdown) |
+| `deploy/vastai` | Vast.ai launcher (`launch.py`, the same commands as RunPod's; same image and entrypoint, which stops an idle instance instead of terminating it) |
 | `deploy/kaggle` | Kaggle GPU launcher (`launch.py` local, `kernel.py` remote); free, 16 GB; Pepper only |
 | `Dockerfile`, `Dockerfile.pro`, `.github/workflows/*.yml` | The images pods run (`ghcr.io/searpro/pepper`, `…/pepper-pro`), rebuilt on pushes to `main`; `test.yml` runs typecheck and tests |
 | `.mcp.json`, `.claude/pepper-mcp.mjs` | Claude Code's `pepper` MCP server: a stdio bridge to a running instance |
@@ -117,7 +118,11 @@ The `pepper-dev` skill has the full loop. In short:
   starts Pepper Pro on a matching GPU and host RAM.
 - `uv run deploy/kaggle/launch.py --hours 2 --packs starter` — free, runs the
   checkout including uncommitted changes, but only 16 GB.
-- Both serve one hostname through one named tunnel; never run two at once.
+- `uv run deploy/vastai/launch.py gpus | up | status | logs | down` — the
+  same on Vast.ai: same image, flags and tiers. Models live on the instance's
+  disk, so `down` (and idle) *stops* it and the next `up` restarts it;
+  `down --destroy` deletes it. Ask before `up` here too.
+- All of them serve one hostname through one named tunnel; never run two at once.
 - The `pepper` MCP server (`.mcp.json`) reaches whichever is running. Its
   bridge reads the hostname and token from `deploy/runpod/.env` /
   `deploy/kaggle/.env`; `PEPPER_URL=http://localhost:3000` points it at a
@@ -130,9 +135,10 @@ The `pepper-dev` skill has the full loop. In short:
 - Config is env-driven (`apps/*/server/src/config.ts` over core's
   `packages/core/src/config.ts`, annotated in `apps/*/server/.env.example`).
   `apps/*/server/.env` is gitignored and may hold secrets — don't print it.
-- `deploy/kaggle/.env` and `deploy/runpod/.env` hold the API token, the tunnel
-  token and the RunPod key. They are denied to `Read`; never print them, copy
-  them into commands, or write to them — tell the user what to add instead.
+- `deploy/kaggle/.env`, `deploy/runpod/.env` and `deploy/vastai/.env` hold the
+  API token, the tunnel token and the RunPod or Vast.ai key. They are denied
+  to `Read`; never print them, copy them into commands, or write to them —
+  tell the user what to add instead.
 - With `PEPPER_API_TOKEN` set, `/v1/*`, `/mcp` and `/docs` need it; unset (local
   dev), the server is open.
 - Default release repos are Linux-CUDA-only forks; local macOS dev needs

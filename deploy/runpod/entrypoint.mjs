@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 /**
  * Container entrypoint: runs Pepper, the named Cloudflare tunnel, and an
- * optional idle shutdown. Written for RunPod, but nothing here needs it
- * except the shutdown itself.
+ * optional idle shutdown. Written for RunPod and used unchanged on Vast.ai;
+ * nothing here needs either except the shutdown itself.
  *
  * Environment:
  *   PEPPER_API_TOKEN      required, unless PEPPER_ALLOW_OPEN=true
  *   PEPPER_TUNNEL_TOKEN   run `cloudflared tunnel run` with this token
  *   PEPPER_HOSTNAME       the tunnel's hostname, for the log line only
- *   PEPPER_IDLE_MINUTES   terminate the pod after this long idle (0/unset: never)
+ *   PEPPER_IDLE_MINUTES   shut the host down after this long idle (0/unset: never)
  *   PEPPER_APP            the server to run (default Pepper's; the Pro image sets Pepper Pro's)
  *   RUNPOD_POD_ID, RUNPOD_API_KEY   set by RunPod itself; used to terminate
+ *   CONTAINER_ID, CONTAINER_API_KEY set by Vast.ai itself; used to stop
  *
  * Plain Node with no dependencies, so it runs from the image as copied.
  */
@@ -98,6 +99,7 @@ function run(name, command, args, childEnv) {
 const pepperEnv = { ...process.env, ...(apiToken ? { PEPPER_API_TOKEN: apiToken } : {}) };
 delete pepperEnv.PEPPER_TUNNEL_TOKEN;
 delete pepperEnv.RUNPOD_API_KEY;
+delete pepperEnv.CONTAINER_API_KEY;
 if (!apiToken) delete pepperEnv.PEPPER_API_TOKEN;
 
 const pepper = run('pepper', process.execPath, [env('PEPPER_APP') ?? 'apps/pepper/server/dist/index.js'], pepperEnv);
@@ -116,7 +118,7 @@ function startTunnel(attempt = 0) {
     'cloudflared',
     'cloudflared',
     ['tunnel', '--no-autoupdate', 'run', '--url', `http://127.0.0.1:${PORT}`],
-    { ...process.env, TUNNEL_TOKEN: tunnelToken, PEPPER_API_TOKEN: '', RUNPOD_API_KEY: '' },
+    { ...process.env, TUNNEL_TOKEN: tunnelToken, PEPPER_API_TOKEN: '', RUNPOD_API_KEY: '', CONTAINER_API_KEY: '' },
   );
   const started = Date.now();
   tunnel.on('exit', (code) => {
@@ -133,7 +135,7 @@ if (tunnelToken) {
   log(`starting the named tunnel${env('PEPPER_HOSTNAME') ? ` for https://${env('PEPPER_HOSTNAME')}` : ''}`);
   startTunnel();
 } else {
-  log('no PEPPER_TUNNEL_TOKEN; reachable only through the host (on RunPod, its HTTP proxy on port 3000)');
+  log('no PEPPER_TUNNEL_TOKEN; reachable only through the host (RunPod\'s HTTP proxy, or Vast\'s mapped port 3000)');
 }
 
 // --- Idle shutdown ------------------------------------------------------------
@@ -187,8 +189,36 @@ async function terminatePod() {
   return false;
 }
 
+/**
+ * Stop, not destroy, on Vast.ai: a stopped instance keeps its disk, which is
+ * where the models are (Vast has no network volume to keep them on), and
+ * costs only that disk's storage. The container is then stopped by Vast
+ * itself, so this does not exit: exiting first would leave an instance that
+ * wants to run with a dead container.
+ */
+async function stopVastInstance() {
+  const id = env('CONTAINER_ID');
+  const key = env('CONTAINER_API_KEY');
+  try {
+    const response = await fetch(`https://console.vast.ai/api/v0/instances/${id}/`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ state: 'stopped' }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (response.ok) return true;
+    log(`Vast stop returned ${response.status}: ${(await response.text().catch(() => '')).slice(0, 200)}`);
+  } catch (err) {
+    log(`Vast stop failed (${err.message})`);
+  }
+  return false;
+}
+
+const onVast = Boolean(env('CONTAINER_ID') && env('CONTAINER_API_KEY'));
+
 if (idleMinutes > 0) {
-  log(`will terminate this pod after ${idleMinutes} idle minutes`);
+  log(`will ${onVast ? 'stop this instance' : 'terminate this pod'} after ${idleMinutes} idle minutes`);
+  let stopRequested = false;
   let warned = false;
   setInterval(async () => {
     let idle;
@@ -200,11 +230,17 @@ if (idleMinutes > 0) {
     if (typeof idle !== 'number') return;
     const limit = idleMinutes * 60;
     if (idle >= limit - 300 && idle < limit && !warned) {
-      log(`idle for ${Math.floor(idle / 60)} min; terminating in about ${Math.ceil((limit - idle) / 60)} min`);
+      log(`idle for ${Math.floor(idle / 60)} min; shutting down in about ${Math.ceil((limit - idle) / 60)} min`);
       warned = true;
     }
     if (idle < limit - 300) warned = false;
-    if (idle >= limit) {
+    if (idle >= limit && !stopRequested) {
+      if (onVast) {
+        log(`idle for ${Math.floor(idle / 60)} min; stopping the instance (its disk and models are kept)`);
+        // Asked once; a failed request is retried at the next check.
+        stopRequested = await stopVastInstance();
+        return;
+      }
       log(`idle for ${Math.floor(idle / 60)} min; terminating the pod`);
       if (await terminatePod()) shutdown(0);
     }

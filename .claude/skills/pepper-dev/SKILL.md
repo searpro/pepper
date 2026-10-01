@@ -1,6 +1,6 @@
 ---
 name: pepper-dev
-description: Develop and verify a Pepper feature end to end — change the code, check it locally, then run it on a GPU (a RunPod pod, or a free Kaggle kernel) and exercise it through the Pepper MCP tools. Use when implementing or debugging anything in Pepper that needs real generation (sd-cli, llama.cpp, audio.cpp, Python runners) to prove it works.
+description: Develop and verify a Pepper feature end to end — change the code, check it locally, then run it on a GPU (a RunPod pod, a Vast.ai instance, or a free Kaggle kernel) and exercise it through the Pepper MCP tools. Use when implementing or debugging anything in Pepper that needs real generation (sd-cli, llama.cpp, audio.cpp, Python runners) to prove it works.
 ---
 
 # Pepper development loop
@@ -35,9 +35,10 @@ rather than VRAM).
 
 ## Stage 2 — on a GPU
 
-Both targets serve the same hostname through one named tunnel, so **only one
+All targets serve the same hostname through one named tunnel, so **only one
 instance can run at a time**; the launchers refuse to start a second. Check
-first: `pepper_status` (MCP), or `uv run deploy/runpod/launch.py status`.
+first: `pepper_status` (MCP), or `uv run deploy/runpod/launch.py status`
+(`deploy/vastai/launch.py status`).
 Ask the user before launching either — one spends money, the other quota.
 
 | | RunPod (the default target) | Kaggle |
@@ -70,6 +71,17 @@ for the container log, and **`launch.py down` when finished** — a forgotten
 pod bills until it idles out. Anything that adds Python dependencies must be
 baked into the image (`Dockerfile`, `apps/pepper/server/src/scripts/install-python.ts`):
 installing onto the network volume at run time takes 20+ minutes.
+
+### Vast.ai
+
+`deploy/vastai/launch.py` takes the same commands and options (`gpus`, `up`,
+`status`, `logs`, `down`; `--product pro --tier`, `--image`) and runs the same
+image, often for less than RunPod. Vast has no network volume: the models sit
+on the instance's own disk (`--disk`, default 150 GB), so `down` and the idle
+shutdown *stop* the instance, keeping that disk, and the next `up` restarts
+it on the same machine. `up --fresh` rents another machine (models download
+again); `down --destroy` deletes the instance and its disk. Its README has
+the details.
 
 ### Kaggle
 
