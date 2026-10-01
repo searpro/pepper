@@ -42,6 +42,8 @@ export interface RecipeStatus {
   files: ResolvedFile[];
   /** Bytes still to download for the required files. */
   missingBytes: number;
+  /** What an install downloads: the missing files, optional ones included. */
+  installBytes: number;
   /** Whether this recipe has been checked on the configured tier. */
   tierVerified: boolean;
   /** Why the recipe cannot be used under the given licence mode, if it cannot. */
@@ -171,6 +173,7 @@ export class RecipeStore {
       state,
       files,
       missingBytes: required.filter((f) => !f.installed).reduce((sum, f) => sum + (f.variant.bytes ?? 0), 0),
+      installBytes: files.filter((f) => !f.installed).reduce((sum, f) => sum + (f.variant.bytes ?? 0), 0),
       tierVerified: recipe.tiers.includes(tier),
       licenceBlock: licenceBlock(recipe.licence, licenceMode),
     };

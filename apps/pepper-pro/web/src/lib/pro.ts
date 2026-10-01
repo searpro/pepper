@@ -49,6 +49,8 @@ export interface Recipe {
   tier_verified: boolean;
   licence_block?: string;
   missing_bytes: number;
+  /** What Install downloads: missing files, optional ones included. */
+  install_bytes: number;
   files: { id: string; label: string; folder: string; name: string; optional: boolean; installed: boolean; bytes?: number }[];
 }
 

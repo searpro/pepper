@@ -13,7 +13,7 @@ import { mcpRoutes } from '@pepper/core/routes/mcp.js';
 import { mediaRoutes } from '@pepper/core/routes/media.js';
 import { systemRoutes } from '@pepper/core/routes/system.js';
 import { ResourceMonitor } from '@pepper/core/services/resources.js';
-import { StorageMonitor } from '@pepper/core/services/storage.js';
+import { StorageMonitor, volumeBytes } from '@pepper/core/services/storage.js';
 import { TextService } from '@pepper/core/services/text-gen.js';
 import { ProBackendManager } from './backends.js';
 import type { ProConfig } from './config.js';
@@ -77,7 +77,7 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
   const backends = new ProBackendManager(config, paths, settings, app.log, logs, () =>
     recipes.list().flatMap((recipe) => recipe.nodes.map((pack) => pack.name)),
   );
-  const storage = new StorageMonitor(paths.dataDir, config.dataVolumeGb ? config.dataVolumeGb * 1024 ** 3 : null);
+  const storage = new StorageMonitor(paths.dataDir, config.dataVolumeGb ? volumeBytes(config.dataVolumeGb) : null);
 
   const downloads = new DownloadManager<DownloadKind, DownloadSlot>(
     config,
@@ -154,7 +154,7 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
   });
   await app.register(coreJobRoutes, { jobs });
   await app.register(generateRoutes, { jobs, comfy, backends, paths, llamacppTimeoutMs: config.llamacppTimeoutMs });
-  await app.register(recipeRoutes, { config, recipes, downloads });
+  await app.register(recipeRoutes, { config, recipes, downloads, storage });
   await app.register(projectRoutes, { projects });
   await app.register(analyzeRoutes, { jobs, projects });
   await app.register(goldenRoutes, { golden, paths });

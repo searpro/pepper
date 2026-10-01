@@ -87,6 +87,12 @@ export interface EnqueueInput<Kind extends string = string, Slot extends string 
   url: string;
   /** Explicit filename; otherwise derived from the URL. */
   name?: string;
+  /**
+   * The file's size when the caller knows it (a recipe or catalogue entry
+   * does). A queued download then counts as space already spoken for, so a
+   * batch of installs cannot together overrun the volume.
+   */
+  expectedBytes?: number;
 }
 
 interface SidecarMeta {
@@ -163,6 +169,17 @@ export class DownloadManager<Kind extends string = string, Slot extends string =
     return interrupted.length;
   }
 
+  /**
+   * Bytes the queued and running downloads (other than `except`) have yet to
+   * write: what a new download, or an install deciding whether it fits, must
+   * leave room for.
+   */
+  pendingBytes(except?: string): number {
+    return this.list({ status: ['queued', 'downloading'] })
+      .filter((other) => other.id !== except && other.total !== null)
+      .reduce((sum, other) => sum + Math.max(0, other.total! - other.received), 0);
+  }
+
   async enqueue(input: EnqueueInput<Kind, Slot>): Promise<DownloadTask<Kind, Slot>> {
     const slot = this.layout.parseSlot(input.slot);
     const name = this.layout.fileNameFor(input.url, input.name);
@@ -194,7 +211,7 @@ export class DownloadManager<Kind extends string = string, Slot extends string =
       url: input.url,
       status: 'queued',
       received: 0,
-      total: null,
+      total: input.expectedBytes ?? null,
       error: null,
       createdAt: now,
       updatedAt: now,
@@ -507,11 +524,9 @@ export class DownloadManager<Kind extends string = string, Slot extends string =
     if (!res.body) throw errors.downloadFailed('Empty response body');
 
     if (total !== null && this.storage.limited) {
-      // What the other running downloads have yet to write is space already
-      // spoken for, though nothing on disk shows it.
-      const pending = this.list({ status: ['downloading'] })
-        .filter((other) => other.id !== task.id && other.total !== null)
-        .reduce((sum, other) => sum + Math.max(0, other.total! - other.received), 0);
+      // What the other running and queued downloads have yet to write is
+      // space already spoken for, though nothing on disk shows it.
+      const pending = this.pendingBytes(task.id);
       try {
         await this.storage.assertRoom(total - received, pending);
       } catch (err) {

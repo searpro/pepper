@@ -9,6 +9,15 @@ const RESERVE_BYTES = 2 * 1024 ** 3;
 /** `du` over a network volume takes seconds; a status poll must not wait on it. */
 const MAX_AGE_MS = 60_000;
 
+/**
+ * A volume size in RunPod's gigabytes as bytes. They are decimal: a 100 GB
+ * volume refused writes at about 100e9 bytes, so counting it as 100 GiB
+ * (7 % more) let downloads that did not fit pass the room check.
+ */
+export function volumeBytes(gb: number): number {
+  return gb * 1e9;
+}
+
 export interface StorageSnapshot {
   /** Null until the first measurement finishes. */
   usedBytes: number | null;
@@ -59,7 +68,7 @@ export class StorageMonitor {
    * Throw unless `bytes` more fit. `alsoPending` is what other downloads
    * already under way have still to write, which `du` cannot see yet.
    */
-  async assertRoom(bytes: number, alsoPending = 0): Promise<void> {
+  async assertRoom(bytes: number, alsoPending = 0, what = 'this file'): Promise<void> {
     if (this.limitBytes === null) return;
     // Always a fresh figure: the cached one may predate a download or a delete.
     this.measured = null;
@@ -68,8 +77,9 @@ export class StorageMonitor {
     const free = this.limitBytes - RESERVE_BYTES - used - alsoPending;
     if (bytes > free) {
       throw errors.downloadFailed(
-        `Not enough room on the data volume: this file needs ${gb(bytes)} and ${gb(Math.max(0, free))} is free ` +
-          `(${gb(used)} used of ${gb(this.limitBytes)}). Delete a model first, or grow the volume.`,
+        `Not enough room on the data volume: ${what} needs ${gb(bytes)} and ${gb(Math.max(0, free))} is free ` +
+          `(${gb(used)} used of ${gb(this.limitBytes)}${alsoPending ? `, ${gb(alsoPending)} more already queued` : ''}). ` +
+          'Delete a model first, or grow the volume.',
       );
     }
   }

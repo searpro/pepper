@@ -649,6 +649,42 @@ describe('api', () => {
     expect(shot.dialogue).toEqual([{ asset_id: full.assets[0].id, line: 'Hello.' }]);
   });
 
+  it('refuses an install that would not fit, counting queued downloads', async () => {
+    const response = await inject('GET', '/v1/recipes/test-audio');
+    // Its one file is optional: not needed to run, but Install fetches it.
+    expect(response.json()).toMatchObject({ missing_bytes: 0, install_bytes: 10 });
+
+    // A 1 MB volume has no room once 2 GB is held back for the database.
+    const small = await buildServer(await tempConfig({ DATA_VOLUME_GB: '0.001' }));
+    try {
+      const refused = await small.app.inject({ method: 'POST', url: '/v1/recipes/test-audio/install', payload: {} });
+      expect(refused.statusCode).toBeGreaterThanOrEqual(400);
+      expect(refused.json().error.message).toMatch(/Not enough room on the data volume: Test audio needs/);
+      expect(small.downloads.list()).toHaveLength(0);
+    } finally {
+      await small.app.close();
+      small.closeDb();
+    }
+
+    // A queued download's expected size is space already spoken for.
+    const queued = await server.downloads.enqueue({
+      kind: 'comfy',
+      bundle: 'checkpoints',
+      slot: 'file',
+      url: 'https://example.invalid/never.safetensors',
+      name: 'never.safetensors',
+      expectedBytes: 5e9,
+    });
+    expect(server.downloads.pendingBytes()).toBeGreaterThanOrEqual(5e9);
+    expect(server.downloads.pendingBytes(queued.id)).toBeLessThan(5e9);
+    // It can never finish (the host does not exist); stop it if it has not failed already.
+    try {
+      server.downloads.cancel(queued.id);
+    } catch {
+      // already failed
+    }
+  });
+
   it('refuses a bad recipe request before queueing', async () => {
     expect((await inject('POST', '/v1/jobs', { recipe: 'nope' })).statusCode).toBe(404);
     const bad = await inject('POST', '/v1/jobs', { recipe: 'test-image', params: { width: 2 } });

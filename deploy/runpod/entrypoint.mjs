@@ -14,7 +14,7 @@
  *
  * Plain Node with no dependencies, so it runs from the image as copied.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -51,6 +51,34 @@ if (env('PYTHON_DIR') && resolve(env('PYTHON_DIR')) !== resolve(stalePython) && 
   // minutes to delete, and nothing here depends on them being gone.
   log(`removing the unused Python environment at ${stalePython} (in the background)`);
   spawn('rm', ['-rf', stalePython], { stdio: 'ignore', detached: true }).unref();
+}
+
+// A volume filled to its quota leaves the server unable to write its own
+// database, so it dies at startup and the pod restarts into the same crash,
+// with no way in to free space. Unfinished downloads (`.part`, and the
+// `.part.json` beside each) are the one thing safe to throw away: they are
+// fetched again from the start. So when the volume is within 2 GB of its
+// size, they go before the server starts.
+const dataDir = process.env.DATA_DIR || '/data';
+const volumeGb = Number(env('DATA_VOLUME_GB') ?? 0);
+if (volumeGb > 0) {
+  const usedBytes = () => {
+    const out = spawnSync('du', ['-sk', dataDir], { encoding: 'utf8', timeout: 300_000 });
+    const kb = Number(String(out.stdout ?? '').trim().split(/\s+/)[0]);
+    return Number.isFinite(kb) && kb > 0 ? kb * 1024 : null;
+  };
+  // RunPod's gigabytes are decimal (services/storage.ts in core).
+  const limit = volumeGb * 1e9;
+  const before = usedBytes();
+  if (before !== null && before > limit - 2e9) {
+    log(`the data volume is full (${(before / 1e9).toFixed(1)} of ${volumeGb} GB); removing unfinished downloads`);
+    spawnSync('find', [dataDir, '-type', 'f', '(', '-name', '*.part', '-o', '-name', '*.part.json', ')', '-delete'], {
+      stdio: 'ignore',
+      timeout: 300_000,
+    });
+    const after = usedBytes();
+    if (after !== null) log(`freed ${((before - after) / 1e9).toFixed(1)} GB; ${(after / 1e9).toFixed(1)} of ${volumeGb} GB used`);
+  }
 }
 
 const children = new Set();

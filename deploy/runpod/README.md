@@ -123,11 +123,15 @@ as the 4090 numbers below were for Pepper.
   and a music model.
 - **A full volume.** The volume is a quota the filesystem does not report, so
   the launcher tells Pepper its size (`DATA_VOLUME_GB`) and a download that
-  would not fit is refused up front, with the numbers. `pepper_status` and
-  `/v1/system/status` show `storage` (used / total). If the volume fills
-  anyway, Pepper starts with a temporary in-memory database and says so in the
-  log; delete a model and restart the pod. To grow a volume: runpod.io →
-  Storage → edit (it can grow, never shrink).
+  would not fit is refused up front, with the numbers; a Pepper Pro recipe
+  install is refused whole, counting its optional files and the downloads
+  already queued. Sizes are decimal gigabytes, as RunPod counts them.
+  `pepper_status` and `/v1/system/status` show `storage` (used / total). If
+  the volume fills anyway, the entrypoint deletes unfinished downloads
+  (`.part` files) at the next boot so the server can start; Pepper also falls
+  back to a temporary in-memory database and says so in the log. Delete a
+  model and restart the pod. To grow a volume: runpod.io → Storage → edit (it
+  can grow, never shrink).
 - **Downloads can stall.** HuggingFace transfers sometimes drop to a crawl
   after the first few GB; cancel and retry the download (Models → Downloads),
   which resumes from the partial file on a fresh connection.
