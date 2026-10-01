@@ -417,7 +417,7 @@ weights on first use.
 
 On RunPod a pod bills per second, so the container entrypoint
 (`deploy/runpod/entrypoint.mjs`) terminates the pod after a configurable idle
-period, using `activity` from `/v1/system/status` (`services/activity.ts`).
+period (on Vast.ai it stops the instance, whose disk holds the models), using `activity` from `/v1/system/status` (`services/activity.ts`).
 Reads never count: the web app polls status every few seconds for as long as
 a tab is open, and a forgotten tab must not keep a GPU billing. Activity is a
 successful non-GET request (401s from scanners do not count; on `/mcp` only a

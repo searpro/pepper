@@ -13,7 +13,7 @@
  *   Token  PEPPER_API_TOKEN (none is fine for an open local server)
  *
  * Each is taken from the process environment first, then `deploy/runpod/.env`,
- * then `deploy/kaggle/.env` (of this checkout, then of the main one). Set PEPPER_URL=http://localhost:3000 to reach a
+ * `deploy/vastai/.env`, then `deploy/kaggle/.env` (of this checkout, then of the main one). Set PEPPER_URL=http://localhost:3000 to reach a
  * local `npm run dev` when the .env files name a hostname.
  *
  * Pepper's endpoint is stateless with plain JSON responses (one POST per
@@ -46,7 +46,7 @@ function roots() {
     return [ROOT];
   }
 }
-const ENV_FILES = ['deploy/runpod/.env', 'deploy/kaggle/.env'];
+const ENV_FILES = ['deploy/runpod/.env', 'deploy/vastai/.env', 'deploy/kaggle/.env'];
 // Tools wait at most 50 s; anything slower than this is a dead connection.
 const TIMEOUT_MS = 90_000;
 
@@ -84,7 +84,7 @@ const token = env.PEPPER_API_TOKEN;
 function explain(status) {
   if (status === 401) return `Pepper at ${base} rejected the API token (PEPPER_API_TOKEN).`;
   // Cloudflare answers for the hostname while no instance holds the tunnel.
-  if (status === 502 || status === 530) return `No Pepper instance is running at ${base} (HTTP ${status}). Start one with deploy/runpod/launch.py up.`;
+  if (status === 502 || status === 530) return `No Pepper instance is running at ${base} (HTTP ${status}). Start one with deploy/runpod/launch.py up (or deploy/vastai/launch.py up).`;
   return `Pepper at ${base} answered HTTP ${status}.`;
 }
 
