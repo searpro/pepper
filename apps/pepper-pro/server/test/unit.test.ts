@@ -594,6 +594,47 @@ describe('cut rendering', () => {
   });
 });
 
+describe('recipe uninstall', () => {
+  it('frees files shared only with recipes that use nothing else', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-pro-recipes-'));
+    const audio = JSON.parse(await readFile(join(FIXTURES, 'test-audio', 'recipe.json'), 'utf8'));
+    const variant = (path: string) => [{ repo: 'example/none', path, bytes: 10 }];
+    for (const [id, own] of [['share-a', 'a.safetensors'], ['share-b', 'b.safetensors']]) {
+      await mkdir(join(dir, id), { recursive: true });
+      await writeFile(join(dir, id, 'workflow.json'), await readFile(join(FIXTURES, 'test-audio', 'workflow.json')));
+      const files = [
+        { id: 'shared', folder: 'checkpoints', label: 'Shared', variants: variant('shared.safetensors') },
+        { id: 'own', folder: 'checkpoints', label: 'Own', variants: variant(own) },
+      ];
+      await writeFile(join(dir, id, 'recipe.json'), JSON.stringify({ ...audio, id, files }));
+    }
+    const server = await buildServer(await tempConfig({ RECIPES_DIR: dir }));
+    try {
+      const install = async (id: string, which: string[]) => {
+        for (const f of await server.recipes.resolveFiles(server.recipes.require(id), '32gb')) {
+          if (!which.includes(f.file.id)) continue;
+          await mkdir(join(f.path, '..'), { recursive: true });
+          await writeFile(f.path, 'x');
+        }
+      };
+      // Only A is installed; B merely resolves to the shared file. Deleting A frees both.
+      await install('share-a', ['shared', 'own']);
+      let res = (await server.app.inject({ method: 'DELETE', url: '/v1/recipes/share-a' })).json();
+      expect(res.deleted).toHaveLength(2);
+      expect(res.kept).toEqual([]);
+      // Both installed: deleting A keeps the file B still needs.
+      await install('share-a', ['shared', 'own']);
+      await install('share-b', ['own']);
+      res = (await server.app.inject({ method: 'DELETE', url: '/v1/recipes/share-a' })).json();
+      expect(res.deleted).toEqual(['checkpoints/a.safetensors']);
+      expect(res.kept).toEqual(['checkpoints/shared.safetensors']);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  });
+});
+
 describe('api', () => {
   let server: ProServer;
   beforeAll(async () => {

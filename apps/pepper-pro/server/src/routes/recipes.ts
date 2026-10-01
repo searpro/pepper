@@ -147,13 +147,18 @@ export async function recipeRoutes(fastify: FastifyInstance, options: RecipeRout
     async (req) => {
       const recipe = recipes.require(req.params.id);
       const mine = await recipes.resolveFiles(recipe, config.tier);
-      // Reference counting from disk: a file stays if any other recipe that
-      // has anything installed resolves to the same folder and name.
+      // Reference counting from disk: a file stays if another recipe that is
+      // in use resolves to the same folder and name. In use means it has an
+      // installed file of its own, not just ones it shares with this recipe:
+      // otherwise the shared files would keep each other alive (H3's text
+      // encoder and VAEs survived deleting h3-video because h3-reference
+      // "had files installed", which were those same files).
+      const mineKeys = new Set(mine.map((f) => f.relPath));
       const kept = new Set<string>();
       for (const other of recipes.list()) {
         if (other.id === recipe.id) continue;
         const files = await recipes.resolveFiles(other, config.tier);
-        if (!files.some((f) => f.installed)) continue;
+        if (!files.some((f) => f.installed && !mineKeys.has(f.relPath))) continue;
         for (const f of files) kept.add(f.relPath);
       }
       const deleted: string[] = [];
