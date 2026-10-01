@@ -31,6 +31,7 @@ recipes/<id>/
 | `qwen-image-edit` | image | Edits and combining images (try-on, product placement) | Research only |
 | `flux2-klein-edit` | image | Quick permissive edits, and try-on with a second image | Apache 2.0 |
 | `seedvr2-upscale-image` | image | Restore and upscale a still | Apache 2.0 |
+| `ming-image-design` | image | UI screens, posters and infographics with legible text | MIT |
 | `ace-step-music` | audio | Songs from style tags and lyrics, fast | MIT |
 | `minimax-music-3` | audio | Produced songs, slower | Apache 2.0 (per the Comfy-Org repackage) |
 | `qwen3-tts` | audio | Speech: a cloned voice, a described voice, nine presets, or a dialogue of up to four voices | Apache 2.0 |

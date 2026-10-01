@@ -19,6 +19,7 @@ import {
   waitSeconds,
   type ToolContext,
 } from '@pepper/core/mcp/kit.js';
+import { ASPECT_RATIOS } from '../generate.js';
 import { analyzeSchema } from '../routes/analyze.js';
 import { planSchema, renderSchema } from '../routes/projects.js';
 
@@ -65,71 +66,127 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
   );
 
   server.registerTool(
-    'list_recipes',
+    'list_models',
     {
-      title: 'List recipes',
+      title: 'List models',
       description:
-        'Recipes (pinned ComfyUI pipelines) with their capabilities, modes, parameters, licence and ' +
-        'install state. Use a recipe id with `generate`, or on a shot in `plan_project`.',
+        'The models generate_image, generate_video and generate_audio can run: what each takes (prompt, image, ' +
+        'end_image, reference_images, audio, …, required or optional), durations, aspect ratios, qualities ' +
+        '(draft/final), licence, whether it is installed, and measured seconds per output where verified.',
       inputSchema: { kind: z.enum(['image', 'video', 'audio']).optional() },
       annotations: READ_ONLY,
     },
     async (args) => {
-      const { recipes } = await call<{ recipes: Record<string, unknown>[] }>(ctx, 'GET', `/v1/recipes${query(args)}`);
-      return {
-        content: [
-          json(
-            recipes.map((r) =>
-              defined({
-                id: r.id as string,
-                name: r.name as string,
-                kind: r.kind as string,
-                state: r.state as string,
-                capabilities: r.capabilities as string[],
-                modes: r.modes as unknown[],
-                params: (r.params as { name: string; type: string; required?: boolean; description?: string }[]).map((p) =>
-                  defined({ name: p.name, type: p.type, required: p.required || undefined, description: p.description }),
-                ),
-                licence: (r.licence as { name: string; commercial: string; excluded_territories: string[] }),
-                licence_block: r.licence_block as string | undefined,
-              }),
-            ),
-          ),
-        ],
-      };
+      const { models } = await call<{ models: Record<string, unknown>[] }>(ctx, 'GET', `/v1/models${query(args)}`);
+      return { content: [json(models.map((m) => defined({ ...m, description: undefined, install_bytes: m.installed ? undefined : m.install_bytes })))] };
     },
   );
 
   server.registerTool(
-    'install_recipe',
+    'install_model',
     {
-      title: 'Install a recipe',
-      description: "Download a recipe's model files for this tier (queued; follow with get_logs or pro_status).",
+      title: 'Install a model',
+      description: "Download a model's files (queued; minutes for tens of GB). Refused when the volume has no room.",
       inputSchema: { id: z.string() },
     },
     async ({ id }) => ({ content: [json(await call(ctx, 'POST', `/v1/recipes/${encodeURIComponent(id)}/install`, {}))] }),
   );
 
+  const generic = {
+    model: z.string().optional().describe('A model id from list_models; the best installed fit when omitted.'),
+    prompt: z.string().optional(),
+    reference_images: z.array(z.string()).max(8).optional().describe('Pictures of people, products or places to keep consistent.'),
+    quality: z.string().optional().describe('"draft" (faster, to try ideas) or "final"; the model default when omitted.'),
+    seed: z.number().int().min(0).optional().describe('Reuse a seed to reproduce or finish a draft.'),
+    count: z.number().int().min(1).max(8).optional().describe('Variations, each with its own seed.'),
+    params: z.record(z.unknown()).optional().describe("The model's own parameters, for anything else."),
+  };
+  const MEDIA_IN = 'Media inputs take a URL, a data URI, an upload name (add_input) or a previous output_name. ';
+  const generateTool = (kind: 'image' | 'video' | 'audio', fallbackWait: number) =>
+    async (args: Record<string, unknown>) => {
+      const { wait_seconds, ...body } = args as { wait_seconds: number } & Record<string, unknown>;
+      const created = await call<{ model: string; quality: string; jobs: Job[] }>(ctx, 'POST', '/v1/generate', defined({ ...body, kind }));
+      const deadline = Date.now() + Math.min(wait_seconds ?? fallbackWait, MAX_WAIT_S) * 1000;
+      const settled: Job[] = [];
+      for (const job of created.jobs) {
+        settled.push((await waitSettled(ctx, job.id, Math.max(0, deadline - Date.now()))) ?? job);
+      }
+      const result = await jobsResult(ctx, settled);
+      result.content.unshift(json({ model: created.model, quality: created.quality }));
+      return result;
+    };
+
   server.registerTool(
-    'generate',
+    'generate_image',
     {
-      title: 'Run a recipe',
+      title: 'Generate an image',
       description:
-        'Generate an image, video or audio clip with one recipe outside a project (look ideas, a ' +
-        'character sheet, a keyframe). Inputs such as `image` take upload names from add_input. ' +
+        'Text to image, or an edit when `image` is given (restyle, recolour, try-on with reference_images). ' +
+        MEDIA_IN +
+        'Returns the job; images usually finish within the wait.' +
+        SHOWN,
+      _meta: SHOWS_MEDIA,
+      inputSchema: {
+        ...generic,
+        image: z.string().optional().describe('An image to edit or upscale.'),
+        aspect_ratio: z.enum(ASPECT_RATIOS).optional(),
+        wait_seconds: waitSeconds(40),
+      },
+    },
+    generateTool('image', 40),
+  );
+
+  server.registerTool(
+    'generate_video',
+    {
+      title: 'Generate a video',
+      description:
+        'Text or image to video, with sound on models that make it. `image` is the start frame, `end_image` ' +
+        'the last; `reference_images` keep a cast consistent; `audio` drives lip-sync or a performance; ' +
+        '`video` is motion to transfer. ' +
+        MEDIA_IN +
+        'Videos take minutes: this returns job ids at once (wait_seconds 0); follow them with get_job ' +
+        '(`ids`, up to 50 s a call). Each finished job has a download_url. ' +
         PROMPTING +
         SHOWN,
       _meta: SHOWS_MEDIA,
       inputSchema: {
-        recipe: z.string(),
-        mode: z.string().optional().describe('e.g. "draft" or "final"; the recipe default when omitted.'),
-        params: z.record(z.unknown()).default({}),
-        batch: z.number().int().min(1).max(8).optional(),
-        wait_seconds: waitSeconds(20),
+        ...generic,
+        image: z.string().optional().describe('Start frame, or the subject for talking and dancing models.'),
+        end_image: z.string().optional(),
+        audio: z.string().optional().describe('A voice or song to lip-sync or perform to.'),
+        audio_2: z.string().optional().describe('The second speaker, for two-person models.'),
+        video: z.string().optional().describe('Driving video, for motion transfer and character replacement.'),
+        duration: z.number().positive().optional().describe('Seconds; list_models gives each model its range.'),
+        aspect_ratio: z.enum(ASPECT_RATIOS).optional(),
+        wait_seconds: waitSeconds(0),
       },
     },
-    async ({ recipe, mode, params, batch, wait_seconds }) =>
-      submit(ctx, '/v1/jobs', { recipe, mode, params, batch }, wait_seconds),
+    generateTool('video', 0),
+  );
+
+  server.registerTool(
+    'generate_audio',
+    {
+      title: 'Generate speech or music',
+      description:
+        'Speech (`audio_type: "speech"`): `prompt` is the line; give `voice_reference` (a few seconds of a ' +
+        'voice to clone) or `voice` (a preset name or a description of a voice). Music (`audio_type: ' +
+        '"music"`): `prompt` is the style, `lyrics` the words, `duration` the length. ' +
+        MEDIA_IN +
+        SHOWN,
+      _meta: SHOWS_MEDIA,
+      inputSchema: {
+        ...generic,
+        audio_type: z.enum(['speech', 'music']).optional(),
+        voice_reference: z.string().optional(),
+        voice: z.string().optional(),
+        lyrics: z.string().optional(),
+        duration: z.number().positive().optional(),
+        wait_seconds: waitSeconds(40),
+      },
+    },
+    generateTool('audio', 40),
   );
 
   // --- Projects ----------------------------------------------------------------

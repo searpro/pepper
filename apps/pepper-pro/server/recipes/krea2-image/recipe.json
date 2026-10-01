@@ -179,5 +179,11 @@
     "32gb",
     "48gb",
     "96gb"
-  ]
+  ],
+  "verified": {
+    "date": "2026-10-01",
+    "gpu": "RTX PRO 4500 Blackwell 32 GB, 62 GB RAM (32gb tier)",
+    "seconds": 7.3,
+    "notes": "4 of 4 golden stills at 1024x1024, about 7.3 s each (85 s for the first, loading the model). A more filmic, photographic look than Z-Image; the chalkboard is hand-lettered and correct, with an extra line it was not asked for."
+  }
 }

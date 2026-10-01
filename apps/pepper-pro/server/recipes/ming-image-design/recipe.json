@@ -1,0 +1,207 @@
+{
+  "schema": 1,
+  "id": "ming-image-design",
+  "version": 1,
+  "kind": "image",
+  "name": "Ming-Image 0.1 Design — UI, posters, infographics",
+  "description": "Designs where the words must be readable: app and web screens, dashboards, posters, infographics, packaging and slides, with legible text and coherent layout. Describe the layout and quote every piece of text exactly.",
+  "family": "ming-image",
+  "capabilities": [
+    "text-to-image",
+    "design",
+    "ui",
+    "typography",
+    "poster"
+  ],
+  "licence": {
+    "id": "mit",
+    "name": "MIT",
+    "url": "https://huggingface.co/inclusionAI/Ming-Image-0.1-Design",
+    "commercial": "yes"
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "Ming-Image 0.1 Design (6B)",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Comfy-Org/Ming-Image",
+          "path": "diffusion_models/ming_image_0.1_design_int8_convrot.safetensors",
+          "revision": "53654871e47a5d2daed7b3a986cbf1010ef81c78",
+          "bytes": 6175239953,
+          "sha256": "0d3f5bcc6d2cb830578ea6d0925b30b9fb66058bcb651cc8633e60760dceb1d0"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/Ming-Image",
+          "path": "diffusion_models/ming_image_0.1_design_bf16.safetensors",
+          "revision": "53654871e47a5d2daed7b3a986cbf1010ef81c78",
+          "bytes": 12309858664,
+          "sha256": "8781c6fc679f1812ad318cc7fd84c4d05a23b3571b9a7efeff73a92054ef4659"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "Ling-mini 2.0 text encoder (MoE)",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Comfy-Org/Ming-Image",
+          "path": "text_encoders/ming_image_0.1_ling_mini_2.0_int8_convrot.safetensors",
+          "revision": "53654871e47a5d2daed7b3a986cbf1010ef81c78",
+          "bytes": 19507670525,
+          "sha256": "9d9f31cfce37c24ae1589287f5c33bd9dda80e14ddf773b5e17a0bb69c8cc4b1"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/Ming-Image",
+          "path": "text_encoders/ming_image_0.1_ling_mini_2.0_bf16.safetensors",
+          "revision": "53654871e47a5d2daed7b3a986cbf1010ef81c78",
+          "bytes": 36677768245,
+          "sha256": "7eccad21934f2e6d9103b5c589a448082e89f7b5b73a6b9c6d0332be7de26c1e"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "VAE",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Ming-Image",
+          "path": "vae/ming_image_vae_bf16.safetensors",
+          "revision": "53654871e47a5d2daed7b3a986cbf1010ef81c78",
+          "bytes": 253816696,
+          "sha256": "7f5bed402dc8c77dc2e0ab1929a85d4df433b7cf7b599dfa8c353da98db0b90a"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Prompt",
+      "required": true,
+      "description": "Describe the layout region by region and put every word that must appear in quotes."
+    },
+    {
+      "name": "width",
+      "type": "int",
+      "label": "Width",
+      "default": 2048,
+      "min": 512,
+      "max": 2048
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "label": "Height",
+      "default": 2048,
+      "min": 512,
+      "max": 2048
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "5",
+          "input": "text"
+        },
+        {
+          "param": "width",
+          "node": "11",
+          "input": "width"
+        },
+        {
+          "param": "width",
+          "node": "3",
+          "input": "width"
+        },
+        {
+          "param": "height",
+          "node": "11",
+          "input": "height"
+        },
+        {
+          "param": "height",
+          "node": "3",
+          "input": "height"
+        },
+        {
+          "param": "seed",
+          "node": "9",
+          "input": "noise_seed"
+        },
+        {
+          "file": "model",
+          "node": "1",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "4",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "6",
+          "input": "vae_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "14",
+          "kind": "image"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "draft": {
+      "label": "Draft (1 MP)",
+      "workflow": "main",
+      "defaults": {
+        "width": 1024,
+        "height": 1024
+      }
+    },
+    "final": {
+      "label": "Final (4 MP)",
+      "workflow": "main"
+    }
+  },
+  "default_mode": "final",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Native ComfyUI support from v0.38.1. Sizes are its native 1024 and 2048 px buckets (12 steps, euler, CFG 1, as the official template). Text-to-image only; the image edit mode needs the layered JSON prompt the official edit template builds. The template's optional prompt enhancer is left out: write the full prompt. The template's \"comfy kitchen attention\" (int8, GPU-only) is not used either: the image validates every recipe on a CPU ComfyUI, where only PyTorch attention exists. Worth measuring once verified."
+}

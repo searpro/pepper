@@ -21,8 +21,8 @@
 # and uv (https://docs.astral.sh/uv/).
 set -euo pipefail
 
-COMFY_TAG=v0.38.0
-COMFY_COMMIT=6b747c0428c343e1417219641db93a4fb7cb69ae
+COMFY_TAG=v0.38.1
+COMFY_COMMIT=20ca544ee0436721d8eb5f544665e490609f72c8
 COMFY_REPO=https://github.com/comfyanonymous/ComfyUI
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

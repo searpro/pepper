@@ -380,6 +380,26 @@
       "prompt": "A coffee shop chalkboard menu that reads exactly \"FLAT WHITE 4.50\" and \"OAT LATTE 5.00\", hand-lettered, warm light."
     },
     {
+      "id": "design-app-screen",
+      "target": "product",
+      "kind": "image",
+      "capabilities": [
+        "design"
+      ],
+      "seed": 2511,
+      "prompt": "A mobile banking app home screen, flat modern UI, portrait phone layout on a light grey background. Top bar: the title \"Wallet\" in bold. A navy balance card reading \"Available balance\" above \"$12,480.55\". Below, a row of four round icon buttons labelled \"Send\", \"Request\", \"Pay\" and \"Top up\". Then a list headed \"Recent activity\" with three rows: \"Blue Bottle Coffee  -$6.40\", \"Salary  +$4,200.00\", \"Netflix  -$15.99\". Crisp sans-serif type, generous spacing."
+    },
+    {
+      "id": "design-poster",
+      "target": "product",
+      "kind": "image",
+      "capabilities": [
+        "design"
+      ],
+      "seed": 2512,
+      "prompt": "A concert poster in a bold Swiss grid style: a large red circle overlapping black diagonal bars on off-white paper. Headline \"NIGHT SIGNALS\" in huge condensed capitals across the top, \"LIVE AT THE ROUNDHOUSE\" beneath it, and at the bottom \"14 NOVEMBER 2026 · DOORS 7PM\". No other text."
+    },
+    {
       "id": "edit-tryon",
       "target": "fashion",
       "kind": "image",

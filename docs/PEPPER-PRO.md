@@ -499,7 +499,7 @@ proven.
 | --- | --- |
 | 1. Seam | `Engine` and `EngineRegistry` in `packages/core/src/engines`; Pepper's sd-cli, llama.cpp, audio.cpp, vLLM and Python runners behind it (`apps/pepper/server/src/engines/pepper.ts`), memory arbitration in core |
 | 2. Split | `packages/core`, `packages/ui`, `apps/pepper`; Pepper's image, Kaggle kernel and RunPod entrypoint build and run from the new layout; its 129 tests pass |
-| 3. Engine | `apps/pepper-pro`: the ComfyUI process (pinned v0.38.0, custom nodes off except what recipes whitelist, no API nodes), one prompt at a time over HTTP and the websocket, cancel by dequeue + interrupt, `/free` on a family switch, recycling after N jobs, OOM mapped to a clear error; recipes, bindings and validation; ComfyUI-layout downloads; `Dockerfile.pro` (validates every recipe against the ComfyUI it installs before the image can publish); `launch.py up --product pro --tier …` |
+| 3. Engine | `apps/pepper-pro`: the ComfyUI process (pinned v0.38.1, custom nodes off except what recipes whitelist, no API nodes), one prompt at a time over HTTP and the websocket, cancel by dequeue + interrupt, `/free` on a family switch, recycling after N jobs, OOM mapped to a clear error; recipes, bindings and validation; ComfyUI-layout downloads; `Dockerfile.pro` (validates every recipe against the ComfyUI it installs before the image can publish); `launch.py up --product pro --tier …` |
 | 4. Recipes | 19 recipes (below); `validate-recipes` against a live ComfyUI, and offline in the unit tests against a saved subset of its node types; a `test` workflow in CI |
 | 5. Projects | Tables, routes and screens for projects, cast, scenes, shots, takes and cuts; the cut render (trims, crossfades, ducked music bed, LUT, burned-in or sidecar subtitles, two-pass −14 LUFS); the MCP tools |
 | 6. Specialists | InfiniteTalk (one and two speakers), LongCat-Avatar, Wan-Animate 2, Wan-Dancer, SCAIL-2 character replacement, Qwen3-TTS (cloned, designed, preset and multi-voice speech), two-image try-on; `analyze` jobs (beats, stems, Whisper transcription against the line, a vision model's check of a take); cuts that land on the beat; golden shots with a blind A/B per recipe version, speech results checked by ear automatically |
@@ -528,10 +528,13 @@ Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `ltx23-audio-to-video`,
 - **H3 references use the native Ref2VA model**, not the hybrid loader, which
   holds the FL2VA and Ref2VA weights at once; worth measuring on a 48 GB tier
   before adopting.
-- **More MCP tools than three**: `pro_status`, `list_recipes`,
-  `install_recipe`, `generate` and `analyze` beside the trio, because Claude
-  needs to see what is installed, make keyframes outside a project and check
-  takes. Each is short, and none waits past 50 s.
+- **More MCP tools than three**: `pro_status`, `list_models`,
+  `install_model`, `generate_image` / `generate_video` / `generate_audio` and
+  `analyze` beside the trio, because Claude needs to see what is installed,
+  generate outside a project and check takes. The generate tools take
+  generic fields and media by URL, the way hosted services (Higgsfield, fal)
+  do, so another project can use Pepper Pro the same way (`docs/MCP.md`).
+  Each is short, and none waits past 50 s.
 - **Pepper Pro is RunPod-only.** Kaggle's 16 GB is below every Pro tier.
 
 ### 13.3 Not yet proven or not yet built

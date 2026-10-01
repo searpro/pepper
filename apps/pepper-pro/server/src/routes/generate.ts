@@ -7,16 +7,55 @@ import { errors } from '@pepper/core/errors.js';
 import type { JobManager } from '@pepper/core/jobs/manager.js';
 import { errorResponseSchema, jobSchema } from '@pepper/core/schemas.js';
 import { proxyToBackend } from '@pepper/core/services/proxy.js';
+import type { ProConfig } from '../config.js';
 import type { ComfyEngine } from '../engines/comfy.js';
+import {
+  ASPECT_RATIOS,
+  describeModel,
+  mapRequest,
+  mismatch,
+  pickModel,
+  resolveRequestMedia,
+  type GenericRequest,
+  type ModelDescription,
+} from '../generate.js';
 import type { ProPaths } from '../paths.js';
+import type { RecipeStore } from '../recipes/store.js';
 
 export interface GenerateRoutesOptions {
   jobs: JobManager;
   comfy: ComfyEngine;
   backends: BackendManager;
   paths: ProPaths;
+  recipes: RecipeStore;
+  config: ProConfig;
   llamacppTimeoutMs: number;
 }
+
+const media = z.string().min(1);
+
+/** One generation in generic terms (src/generate.ts); `model` is a recipe id. */
+export const genericSchema = z.object({
+  kind: z.enum(['image', 'video', 'audio']),
+  model: z.string().optional().describe('A model id from GET /v1/models; the best installed fit when omitted.'),
+  audio_type: z.enum(['speech', 'music']).optional().describe('audio only: picks the model family when model is omitted.'),
+  prompt: z.string().max(8000).optional(),
+  image: media.optional().describe('Start frame, subject or image to edit: a URL, data URI, upload or output name.'),
+  end_image: media.optional(),
+  reference_images: z.array(media).max(8).optional(),
+  audio: media.optional(),
+  audio_2: media.optional(),
+  video: media.optional(),
+  voice_reference: media.optional(),
+  voice: z.string().max(500).optional(),
+  lyrics: z.string().max(8000).optional(),
+  duration: z.number().positive().optional(),
+  aspect_ratio: z.enum(ASPECT_RATIOS).optional(),
+  quality: z.string().optional(),
+  seed: z.number().int().min(0).optional(),
+  count: z.number().int().min(1).max(8).optional(),
+  params: z.record(z.unknown()).optional(),
+});
 
 export const recipeJobSchema = z.object({
   recipe: z.string().min(1),
@@ -32,7 +71,62 @@ export const recipeJobSchema = z.object({
  */
 export async function generateRoutes(fastify: FastifyInstance, options: GenerateRoutesOptions): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
-  const { jobs, comfy } = options;
+  const { jobs, comfy, recipes, config } = options;
+
+  const models = async (): Promise<ModelDescription[]> =>
+    Promise.all(recipes.list().map(async (r) => describeModel(r, await recipes.status(r, config.tier, config.licenceMode))));
+
+  app.get(
+    '/v1/models',
+    {
+      schema: {
+        tags: ['jobs'],
+        summary: 'Models for POST /v1/generate',
+        description: 'Each recipe in generic terms: the inputs it takes, durations, aspect ratios, qualities, and whether it can run here.',
+        querystring: z.object({ kind: z.enum(['image', 'video', 'audio']).optional() }),
+      },
+    },
+    async (req) => ({ models: (await models()).filter((m) => !req.query.kind || m.kind === req.query.kind) }),
+  );
+
+  app.post(
+    '/v1/generate',
+    {
+      schema: {
+        tags: ['jobs'],
+        summary: 'Generate an image, video or audio clip in generic terms',
+        description:
+          'Like POST /v1/jobs, but with model-independent fields (prompt, image, end_image, reference_images, ' +
+          'audio, duration, aspect_ratio, quality) mapped onto the chosen recipe, and media given by URL, data URI, ' +
+          'upload or output name. Without `model`, the best installed model that takes every input given is used.',
+        body: genericSchema,
+      },
+    },
+    async (req, reply) => {
+      const { kind, model, audio_type, count, ...fields } = req.body;
+      const all = await models();
+      let chosen: ModelDescription;
+      if (model) {
+        recipes.require(model); // a 404 naming the id, if there is no such recipe
+        chosen = all.find((m) => m.id === model)!;
+        if (chosen.kind !== kind) throw errors.validation(`${model} makes ${chosen.kind}, not ${kind}`);
+        // Install state and licence are the engine's to report, with their own codes.
+        const why = mismatch({ ...chosen, unavailable: undefined }, fields as GenericRequest);
+        if (why) throw errors.validation(`${model} ${why} (list_models shows what each model takes)`);
+      } else {
+        chosen = pickModel(kind, fields as GenericRequest, all, audio_type);
+      }
+      const request = await resolveRequestMedia(fields as GenericRequest, { uploadsDir: options.paths.uploadsDir, outputDir: options.paths.outputDir });
+      const recipe = recipes.require(chosen.id);
+      const { mode, params } = mapRequest(recipe, request);
+      const created = [];
+      for (let i = 0; i < (count ?? 1); i++) {
+        const prepared = await comfy.prepareRequest({ recipe: recipe.id, mode, params });
+        created.push(jobs.create(prepared.recipe.kind, { recipe: prepared.recipe.id, mode: prepared.mode, params: prepared.values }));
+      }
+      return reply.code(202).send({ model: chosen.id, quality: mode, jobs: created });
+    },
+  );
 
   app.post(
     '/v1/jobs',
