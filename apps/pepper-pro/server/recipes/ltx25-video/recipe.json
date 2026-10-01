@@ -1,0 +1,284 @@
+{
+  "schema": 1,
+  "id": "ltx25-video",
+  "version": 1,
+  "kind": "video",
+  "name": "LTX 2.5 — fast video with sound",
+  "description": "Fast distilled video with sound from a prompt, optionally between a first and a last frame. Cheaper than H3; for b-roll, establishing shots and transitions between two keyframes.",
+  "family": "ltx-2.5",
+  "capabilities": [
+    "text-to-video",
+    "first-frame",
+    "last-frame",
+    "native-audio",
+    "broll"
+  ],
+  "licence": {
+    "id": "ltx-2.x-community",
+    "name": "LTX-2.x Community Licence",
+    "url": "https://github.com/Lightricks/LTX-2/blob/main/LICENSE-2_x",
+    "commercial": "under-10M",
+    "obligations": [
+      "Entities over $10M annual revenue need a commercial licence from Lightricks."
+    ]
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "LTX 2.5 22B distilled",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Lightricks/LTX-2.5",
+          "path": "diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+          "bytes": 21504034224
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Lightricks/LTX-2.5",
+          "path": "diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors",
+          "bytes": 42018190584
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "Gemma 4 12B text encoder",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Lightricks/LTX-2.5",
+          "path": "text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+          "bytes": 15372969374
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Lightricks/LTX-2.5",
+          "path": "text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors",
+          "bytes": 26263858182
+        }
+      ]
+    },
+    {
+      "id": "video_vae",
+      "folder": "vae",
+      "label": "Video VAE",
+      "variants": [
+        {
+          "repo": "Lightricks/LTX-2.5",
+          "path": "vae/ltx-2.5-video-vae-bf16.safetensors",
+          "bytes": 1472223346
+        }
+      ]
+    },
+    {
+      "id": "audio_vae",
+      "folder": "vae",
+      "label": "Audio VAE",
+      "variants": [
+        {
+          "repo": "Lightricks/LTX-2.5",
+          "path": "vae/ltx-2.5-audio-vae-bf16.safetensors",
+          "bytes": 364866540
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Prompt",
+      "required": true
+    },
+    {
+      "name": "first_frame",
+      "type": "image",
+      "label": "First frame"
+    },
+    {
+      "name": "last_frame",
+      "type": "image",
+      "label": "Last frame"
+    },
+    {
+      "name": "duration",
+      "type": "int",
+      "label": "Seconds",
+      "default": 5,
+      "min": 1,
+      "max": 20
+    },
+    {
+      "name": "fps",
+      "type": "int",
+      "label": "Frames per second",
+      "default": 24,
+      "min": 8,
+      "max": 50
+    },
+    {
+      "name": "width",
+      "type": "int",
+      "label": "Width",
+      "default": 1280,
+      "min": 256,
+      "max": 2048
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "label": "Height",
+      "default": 704,
+      "min": 256,
+      "max": 2048
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "251:252",
+          "input": "value"
+        },
+        {
+          "param": "width",
+          "node": "251:215",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "251:216",
+          "input": "value"
+        },
+        {
+          "param": "duration",
+          "node": "251:198",
+          "input": "value"
+        },
+        {
+          "param": "fps",
+          "node": "251:205",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "251:196",
+          "input": "noise_seed"
+        },
+        {
+          "param": "first_frame",
+          "nodes": [
+            {
+              "node": "31",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "last_frame",
+          "nodes": [
+            {
+              "node": "39",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "file": "model",
+          "node": "251:230",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "251:228",
+          "input": "clip_name"
+        },
+        {
+          "file": "video_vae",
+          "node": "251:229",
+          "input": "vae_name"
+        },
+        {
+          "file": "audio_vae",
+          "node": "251:227",
+          "input": "vae_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "68",
+          "kind": "video"
+        }
+      ],
+      "bypass": [
+        {
+          "node": "251:206",
+          "requires": [
+            "image"
+          ],
+          "through": {
+            "0": "positive",
+            "1": "negative",
+            "2": "latent"
+          }
+        },
+        {
+          "node": "251:204",
+          "requires": [
+            "image"
+          ],
+          "through": {
+            "0": "positive",
+            "1": "negative",
+            "2": "latent"
+          }
+        }
+      ]
+    }
+  },
+  "modes": {
+    "draft": {
+      "label": "Draft (half size)",
+      "workflow": "main",
+      "defaults": {
+        "width": 896,
+        "height": 512
+      }
+    },
+    "final": {
+      "label": "Final",
+      "workflow": "main"
+    }
+  },
+  "default_mode": "draft",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Distilled, 8 steps in both modes; the draft only renders smaller, so it previews composition rather than the exact take."
+}

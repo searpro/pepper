@@ -1,0 +1,155 @@
+{
+  "schema": 1,
+  "id": "seedvr2-upscale-video",
+  "version": 1,
+  "kind": "video",
+  "name": "SeedVR2 — restore and upscale a video",
+  "description": "Upscales a finished take (720p to 1440p) with temporally consistent detail; the audio is kept.",
+  "family": "seedvr2",
+  "capabilities": [
+    "upscale",
+    "restore",
+    "finish"
+  ],
+  "licence": {
+    "id": "apache-2.0",
+    "name": "Apache 2.0",
+    "url": "https://www.apache.org/licenses/LICENSE-2.0",
+    "commercial": "yes"
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "SeedVR2",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb"
+          ],
+          "repo": "Comfy-Org/SeedVR2",
+          "path": "diffusion_models/seedvr2_3b_int8_convrot.safetensors",
+          "bytes": 3458259704,
+          "sha256": "c3dec8bcc5916843a8a858572970597462e1f2dc598d6dfd818f6cd40f53a157"
+        },
+        {
+          "tiers": [
+            "48gb"
+          ],
+          "repo": "Comfy-Org/SeedVR2",
+          "path": "diffusion_models/seedvr2_7b_int8_convrot.safetensors",
+          "bytes": 8334897976,
+          "sha256": "5aa0d25fc9d35e449b659d0c9a5dcb22e2a4fa04032101b95a39da42b32c1be6"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/SeedVR2",
+          "path": "diffusion_models/seedvr2_7b_fp16.safetensors",
+          "bytes": 16480583960,
+          "sha256": "2742ca6fee63bc5cc1773f426dd4b07b78cad27f51c9ea5cd42b035e6b592252"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "SeedVR2 VAE",
+      "variants": [
+        {
+          "repo": "Comfy-Org/SeedVR2",
+          "path": "vae/seedvr2_ema_vae_fp16.safetensors",
+          "bytes": 501324814,
+          "sha256": "20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "video",
+      "type": "video",
+      "label": "Video",
+      "required": true
+    },
+    {
+      "name": "scale",
+      "type": "float",
+      "label": "Scale",
+      "default": 2,
+      "min": 1,
+      "max": 4
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "video",
+          "nodes": [
+            {
+              "node": "73",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "param": "scale",
+          "node": "66:57",
+          "input": "resize_type.multiplier"
+        },
+        {
+          "param": "seed",
+          "node": "66:54",
+          "input": "seed"
+        },
+        {
+          "file": "model",
+          "node": "66:52",
+          "input": "unet_name"
+        },
+        {
+          "file": "vae",
+          "node": "66:51",
+          "input": "vae_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "76",
+          "kind": "video"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "final": {
+      "label": "Upscale",
+      "description": "Processes the clip in temporal chunks so a long take fits in memory.",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "66:105",
+          "input": "value",
+          "value": true
+        }
+      ]
+    }
+  },
+  "default_mode": "final",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ]
+}

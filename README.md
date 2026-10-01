@@ -49,11 +49,11 @@ with models on the volume and binaries on ephemeral disk.
 For local development, copy the example env file and edit it:
 
 ```bash
-cp server/.env.example server/.env
+cp apps/pepper/server/.env.example apps/pepper/server/.env
 ```
 
-`server/.env` is gitignored and loaded automatically by `npm start` and
-`npm run dev` — both run with `server/` as their working directory, which is
+`apps/pepper/server/.env` is gitignored and loaded automatically by `npm start` and
+`npm run dev` — both run with `apps/pepper/server/` as their working directory, which is
 where it has to live. Every setting in `.env.example` is commented out and
 annotated with its default, so an empty file behaves exactly like no file.
 
@@ -177,10 +177,37 @@ because sd-api clients depend on those shapes. The UI uses the queued paths.
 Every sd-api path still works and returns its original response shape; see
 [`docs/API-COMPATIBILITY.md`](docs/API-COMPATIBILITY.md).
 
+## Pepper Pro
+
+The repository also holds **Pepper Pro** (`apps/pepper-pro`), the production
+product: ComfyUI is its only generative engine, driven through pinned
+*recipes* (MiniMax H3, LTX 2.5/2.3, InfiniteTalk, Wan-Animate 2, Wan-Dancer,
+Krea 2, Z-Image, Qwen-Image and FLUX.2 edit, SeedVR2, ACE-Step, MiniMax
+Music 3), and work is organised as projects: a cast, scenes of shots, takes of
+each shot (drafted cheaply, the best finished) and an exported cut with a music
+bed, subtitles and social loudness. Claude plans and directs it over MCP.
+Both products share `packages/core` and `packages/ui`.
+
+```bash
+# ComfyUI at the pinned version, into apps/pepper-pro/server/data/comfy
+# (CPU torch is enough to develop against; drop TORCH_INDEX on a CUDA machine):
+TORCH_INDEX=https://download.pytorch.org/whl/cpu apps/pepper-pro/server/scripts/install-comfy.sh
+npm run dev:pro        # API on :3000
+npm run dev:pro-web    # SPA, proxying to PEPPER_API (default :3000)
+
+# On a RunPod GPU (the image is ghcr.io/searpro/pepper-pro):
+uv run deploy/runpod/launch.py up --product pro --tier 32gb
+```
+
+The design, the recipe format and what has been verified so far are in
+[`docs/PEPPER-PRO.md`](docs/PEPPER-PRO.md); the recipes and their licences
+in [`apps/pepper-pro/server/recipes/README.md`](apps/pepper-pro/server/recipes/README.md).
+
 ## Architecture
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and the
-reasoning behind the parts that differ from sd-api.
+reasoning behind the parts that differ from sd-api, and for how the two
+products share a core.
 
 ## Development
 

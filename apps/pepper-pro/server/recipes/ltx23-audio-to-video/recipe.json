@@ -1,0 +1,269 @@
+{
+  "schema": 1,
+  "id": "ltx23-audio-to-video",
+  "version": 1,
+  "kind": "video",
+  "name": "LTX 2.3 — picture to a soundtrack",
+  "description": "Animates one image to an existing audio clip, keeping the audio exactly: a character singing or rapping to a finished track, or speaking a recorded line. Longer takes than H3 (up to 20 s).",
+  "family": "ltx-2.3",
+  "capabilities": [
+    "audio-driven",
+    "lip-sync",
+    "performance",
+    "first-frame"
+  ],
+  "licence": {
+    "id": "ltx-2-community",
+    "name": "LTX-2 Community Licence",
+    "url": "https://github.com/Lightricks/LTX-2/blob/main/LICENSE-2",
+    "commercial": "under-10M",
+    "obligations": [
+      "Entities over $10M annual revenue need a commercial licence from Lightricks."
+    ]
+  },
+  "files": [
+    {
+      "id": "checkpoint",
+      "folder": "checkpoints",
+      "label": "LTX 2.3 22B (fp8)",
+      "variants": [
+        {
+          "repo": "Lightricks/LTX-2.3-fp8",
+          "path": "ltx-2.3-22b-dev-fp8.safetensors",
+          "bytes": 29145431166,
+          "sha256": "28606c5b5a06ce56f896d4dfcb20f212739e07a68fbe48e53638188449d26450"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "Gemma 3 12B text encoder",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb"
+          ],
+          "repo": "Comfy-Org/ltx-2",
+          "path": "split_files/text_encoders/gemma_3_12B_it_fp4_mixed.safetensors",
+          "bytes": 9447702218,
+          "sha256": "aaca463d11e6d8d2a4bdb0d6299214c15ef78a3f73e0ef8113d5a9d0219b3f6d"
+        },
+        {
+          "tiers": [
+            "48gb",
+            "96gb"
+          ],
+          "repo": "Comfy-Org/ltx-2",
+          "path": "split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors",
+          "bytes": 13205434827,
+          "sha256": "60216ce97c01c3a8753c2dfd0a89fc76e16fbe446d1a32ef8f1b528ac8bae466"
+        }
+      ]
+    },
+    {
+      "id": "distill_lora",
+      "folder": "loras",
+      "label": "Distilled LoRA",
+      "variants": [
+        {
+          "repo": "Comfy-Org/ltx-2.3",
+          "path": "split_files/loras/ltx_2.3_22b_distilled_1.1_lora_dynamic_fro09_avg_rank_111_bf16.safetensors",
+          "bytes": 2741024390,
+          "sha256": "31e0c0195fb841bf31af78e8b60858f489e87ddcea4a5239abc80943da65e3ac"
+        }
+      ]
+    },
+    {
+      "id": "upscaler",
+      "folder": "latent_upscale_models",
+      "label": "Spatial upscaler x2",
+      "variants": [
+        {
+          "repo": "Lightricks/LTX-2.3",
+          "path": "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
+          "bytes": 995743560,
+          "sha256": "5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Prompt",
+      "required": true,
+      "description": "Who is performing and how; the audio is kept as it is."
+    },
+    {
+      "name": "image",
+      "type": "image",
+      "label": "Image",
+      "required": true
+    },
+    {
+      "name": "audio",
+      "type": "audio",
+      "label": "Audio",
+      "required": true
+    },
+    {
+      "name": "duration",
+      "type": "float",
+      "label": "Seconds",
+      "default": 9,
+      "min": 1,
+      "max": 20,
+      "description": "The audio is trimmed to this."
+    },
+    {
+      "name": "fps",
+      "type": "int",
+      "label": "Frames per second",
+      "default": 24,
+      "min": 8,
+      "max": 50
+    },
+    {
+      "name": "width",
+      "type": "int",
+      "label": "Width",
+      "default": 1280,
+      "min": 256,
+      "max": 2048
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "label": "Height",
+      "default": 704,
+      "min": 256,
+      "max": 2048
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "340:319",
+          "input": "value"
+        },
+        {
+          "param": "width",
+          "node": "340:330",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "340:324",
+          "input": "value"
+        },
+        {
+          "param": "duration",
+          "node": "340:331",
+          "input": "value"
+        },
+        {
+          "param": "fps",
+          "node": "340:323",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "340:286",
+          "input": "noise_seed"
+        },
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "269",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "audio",
+          "nodes": [
+            {
+              "node": "276",
+              "input": "audio"
+            }
+          ]
+        },
+        {
+          "file": "checkpoint",
+          "node": "340:317",
+          "input": "ckpt_name"
+        },
+        {
+          "file": "checkpoint",
+          "node": "340:318",
+          "input": "ckpt_name"
+        },
+        {
+          "file": "checkpoint",
+          "node": "340:335",
+          "input": "ckpt_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "340:318",
+          "input": "text_encoder"
+        },
+        {
+          "file": "distill_lora",
+          "node": "340:293",
+          "input": "lora_name"
+        },
+        {
+          "file": "upscaler",
+          "node": "340:313",
+          "input": "model_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "341",
+          "kind": "video"
+        }
+      ],
+      "progress": {
+        "340:291": 3,
+        "340:310": 1
+      }
+    }
+  },
+  "modes": {
+    "draft": {
+      "label": "Draft (half size)",
+      "workflow": "main",
+      "defaults": {
+        "width": 896,
+        "height": 512
+      }
+    },
+    "final": {
+      "label": "Final",
+      "workflow": "main"
+    }
+  },
+  "default_mode": "draft",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Two stages: half size with the audio latent frozen, then a x2 latent upscale and refine."
+}

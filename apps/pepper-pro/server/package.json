@@ -1,0 +1,34 @@
+{
+  "name": "@pepper-pro/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pepper Pro: production image, video and audio through ComfyUI, organised as projects, shots and takes.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch --conditions=pepper-source src/index.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "convert-template": "node scripts/convert-template.mjs",
+    "validate-recipes": "tsx --conditions=pepper-source src/scripts/validate-recipes.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@pepper/core": "0.1.0",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.38.4",
+    "fastify": "^5.2.1",
+    "fastify-type-provider-zod": "^4.0.2",
+    "pino": "^9.6.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "playwright": "^1.56.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.4"
+  }
+}

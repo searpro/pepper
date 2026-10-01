@@ -23,11 +23,11 @@ look for new backend support, then for new models. A model is only useful if a
 backend can run it. Sources, in order of signal:
 
 - **Backend releases**: what Pepper installs is the latest release of the
-  repos in `server/src/config.ts` (`DEFAULT_RELEASE_REPOS`). Read their
+  repos in `apps/pepper/server/src/config.ts` (`DEFAULT_RELEASE_REPOS`). Read their
   release notes and merged PRs for newly supported architectures:
   stable-diffusion.cpp (image/video), llama.cpp (LLMs), audio.cpp (speech, and
   music through its `gen` task). Python runners are fixed:
-  `server/python/pepper_runner/runners`; a model needing a new one is a Pepper
+  `apps/pepper/server/python/pepper_runner/runners`; a model needing a new one is a Pepper
   change first (`pepper-dev` skill), not a catalogue entry.
 - **HuggingFace**: new or trending repos by pipeline tag, especially GGUF
   conversions (`?search=gguf&sort=trending`), and fine-tunes, merges and

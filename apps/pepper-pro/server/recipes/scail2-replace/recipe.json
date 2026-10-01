@@ -1,0 +1,504 @@
+{
+  "schema": 1,
+  "id": "scail2-replace",
+  "version": 1,
+  "kind": "video",
+  "name": "SCAIL-2 — put your character into a video",
+  "description": "Replaces a person in an existing video with the character in one image, keeping the scene, the camera, the motion and the soundtrack: re-cast a clip, a dance or a walk-through with your own character.",
+  "family": "scail-2",
+  "capabilities": [
+    "character-replacement",
+    "motion-transfer",
+    "performance"
+  ],
+  "licence": {
+    "id": "mit",
+    "name": "MIT (SCAIL-2); SAM License (SAM 3.1 tracker)",
+    "url": "https://huggingface.co/Comfy-Org/SCAIL-2",
+    "commercial": "yes",
+    "obligations": [
+      "SAM 3.1 (the person tracker) is under the SAM License: commercial use is allowed; it may not be used for military, weapons or espionage purposes, and redistributing its weights needs a copy of its licence."
+    ]
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "SCAIL-2 14B",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Comfy-Org/SCAIL-2",
+          "path": "diffusion_models/wan2.1_14B_SCAIL_2_int8_convrot.safetensors",
+          "bytes": 16654506256,
+          "sha256": "a2114c18a811243185f103765cd5004b61652141aa55a9016d3bdceebceb5ac0"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/SCAIL-2",
+          "path": "diffusion_models/wan2.1_14B_SCAIL_2_fp16.safetensors",
+          "bytes": 32794040328,
+          "sha256": "e3f9cd52184949ee8ffdc01ba14de4c619e0ddfa09ae105cb7efce5c8dc9fe43"
+        }
+      ]
+    },
+    {
+      "id": "dpo_lora",
+      "folder": "loras",
+      "label": "SCAIL-2 DPO LoRA",
+      "variants": [
+        {
+          "repo": "Comfy-Org/SCAIL-2",
+          "path": "loras/wan2.1_SCAIL_2_DPO_lora_bf16.safetensors",
+          "bytes": 1226936552,
+          "sha256": "b106522036f64e50f5f8ae3b808973515ff442cc2fac27b65d875eafb95b89e2"
+        }
+      ]
+    },
+    {
+      "id": "distill_lora",
+      "folder": "loras",
+      "label": "LightX2V step distill",
+      "variants": [
+        {
+          "repo": "Kijai/WanVideo_comfy",
+          "path": "Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+          "bytes": 738005744,
+          "sha256": "85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "umT5 XXL (fp8)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+          "path": "split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "bytes": 6735906897,
+          "sha256": "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68"
+        }
+      ]
+    },
+    {
+      "id": "clip_vision",
+      "folder": "clip_vision",
+      "label": "CLIP vision H",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+          "path": "split_files/clip_vision/clip_vision_h.safetensors",
+          "bytes": 1264219396,
+          "sha256": "64a7ef761bfccbadbaa3da77366aac4185a6c58fa5de5f589b42a65bcc21f161"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "Wan 2.1 VAE",
+      "variants": [
+        {
+          "repo": "Kijai/WanVideo_comfy",
+          "path": "Wan2_1_VAE_bf16.safetensors",
+          "bytes": 253806278,
+          "sha256": "1ab9a32cc2c740f6e39d80d367ce5dcc28db8c71b79b28670546b8973e9d75f9"
+        }
+      ]
+    },
+    {
+      "id": "sam",
+      "folder": "checkpoints",
+      "label": "SAM 3.1 (person tracking)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/sam3.1",
+          "path": "checkpoints/sam3.1_multiplex_fp16.safetensors",
+          "bytes": 1745546848,
+          "sha256": "9ba99c92703c2e8b4f47de2d34a539bb8e18923049e238b780d70dbe6368eb03"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "The new character",
+      "required": true,
+      "description": "Their appearance, clothing and manner."
+    },
+    {
+      "name": "image",
+      "type": "image",
+      "label": "Character",
+      "required": true
+    },
+    {
+      "name": "video",
+      "type": "video",
+      "label": "Video to re-cast",
+      "required": true
+    },
+    {
+      "name": "replace",
+      "type": "string",
+      "label": "Who to replace",
+      "default": "person",
+      "description": "What SAM 3.1 tracks in the video, e.g. \"woman in red\"."
+    },
+    {
+      "name": "width",
+      "type": "int",
+      "label": "Width",
+      "default": 896,
+      "min": 256,
+      "max": 1280
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "label": "Height",
+      "default": 512,
+      "min": 256,
+      "max": 1280
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "short": {
+      "file": "workflow-81.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "213:3",
+          "input": "text"
+        },
+        {
+          "param": "replace",
+          "node": "213:191",
+          "input": "text"
+        },
+        {
+          "param": "width",
+          "node": "213:178",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "213:179",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "213:19",
+          "input": "noise_seed"
+        },
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "30",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "video",
+          "nodes": [
+            {
+              "node": "155",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "file": "model",
+          "node": "213:154",
+          "input": "unet_name"
+        },
+        {
+          "file": "dpo_lora",
+          "node": "213:318",
+          "input": "lora_name"
+        },
+        {
+          "file": "distill_lora",
+          "node": "213:11",
+          "input": "lora_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "213:9",
+          "input": "clip_name"
+        },
+        {
+          "file": "clip_vision",
+          "node": "213:75",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "213:7",
+          "input": "vae_name"
+        },
+        {
+          "file": "sam",
+          "node": "213:193",
+          "input": "ckpt_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "save",
+          "kind": "video"
+        }
+      ],
+      "progress": {
+        "213:19": 1
+      }
+    },
+    "medium": {
+      "file": "workflow-157.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "213:3",
+          "input": "text"
+        },
+        {
+          "param": "replace",
+          "node": "213:191",
+          "input": "text"
+        },
+        {
+          "param": "width",
+          "node": "213:178",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "213:179",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "213:19",
+          "input": "noise_seed"
+        },
+        {
+          "param": "seed",
+          "node": "c2:sample",
+          "input": "noise_seed"
+        },
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "30",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "video",
+          "nodes": [
+            {
+              "node": "155",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "file": "model",
+          "node": "213:154",
+          "input": "unet_name"
+        },
+        {
+          "file": "dpo_lora",
+          "node": "213:318",
+          "input": "lora_name"
+        },
+        {
+          "file": "distill_lora",
+          "node": "213:11",
+          "input": "lora_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "213:9",
+          "input": "clip_name"
+        },
+        {
+          "file": "clip_vision",
+          "node": "213:75",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "213:7",
+          "input": "vae_name"
+        },
+        {
+          "file": "sam",
+          "node": "213:193",
+          "input": "ckpt_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "save",
+          "kind": "video"
+        }
+      ],
+      "progress": {
+        "213:19": 1,
+        "c2:sample": 1
+      }
+    },
+    "long": {
+      "file": "workflow-309.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "213:3",
+          "input": "text"
+        },
+        {
+          "param": "replace",
+          "node": "213:191",
+          "input": "text"
+        },
+        {
+          "param": "width",
+          "node": "213:178",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "213:179",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "213:19",
+          "input": "noise_seed"
+        },
+        {
+          "param": "seed",
+          "node": "c2:sample",
+          "input": "noise_seed"
+        },
+        {
+          "param": "seed",
+          "node": "c3:sample",
+          "input": "noise_seed"
+        },
+        {
+          "param": "seed",
+          "node": "c4:sample",
+          "input": "noise_seed"
+        },
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "30",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "video",
+          "nodes": [
+            {
+              "node": "155",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "file": "model",
+          "node": "213:154",
+          "input": "unet_name"
+        },
+        {
+          "file": "dpo_lora",
+          "node": "213:318",
+          "input": "lora_name"
+        },
+        {
+          "file": "distill_lora",
+          "node": "213:11",
+          "input": "lora_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "213:9",
+          "input": "clip_name"
+        },
+        {
+          "file": "clip_vision",
+          "node": "213:75",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "213:7",
+          "input": "vae_name"
+        },
+        {
+          "file": "sam",
+          "node": "213:193",
+          "input": "ckpt_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "save",
+          "kind": "video"
+        }
+      ],
+      "progress": {
+        "213:19": 1,
+        "c2:sample": 1,
+        "c3:sample": 1,
+        "c4:sample": 1
+      }
+    }
+  },
+  "modes": {
+    "draft": {
+      "label": "Draft (81 frames)",
+      "workflow": "short"
+    },
+    "final": {
+      "label": "Final (157 frames)",
+      "workflow": "medium"
+    },
+    "long": {
+      "label": "Long (309 frames)",
+      "workflow": "long"
+    }
+  },
+  "default_mode": "draft",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Frames are the driving video's, at its frame rate (81, 157 or 309: windows of 81 overlapping by 5). A driving video shorter than the mode repeats its last frames. Distilled, 6 steps."
+}

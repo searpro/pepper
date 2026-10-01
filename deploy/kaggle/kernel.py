@@ -411,7 +411,7 @@ def main() -> None:
     }
     if CONFIG.get("catalogue_url"):
         log(f"catalogue: {CONFIG['catalogue_url']}")
-    server = subprocess.Popen(["node", "dist/index.js"], cwd=f"{SRC}/server", env=server_env, text=True,
+    server = subprocess.Popen(["node", "dist/index.js"], cwd=f"{SRC}/apps/pepper/server", env=server_env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     threading.Thread(target=forward, args=(server, "[pepper]"), daemon=True).start()
     wait_healthy(server)

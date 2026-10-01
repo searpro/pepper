@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "test-audio",
+  "version": 1,
+  "kind": "audio",
+  "name": "Test audio",
+  "description": "Silence. Model-free, for tests. Its licence is non-commercial, to test the licence gate.",
+  "family": "test-audio",
+  "licence": { "id": "test-nc", "name": "Test NC", "commercial": "no" },
+  "files": [
+    { "id": "weights", "folder": "checkpoints", "label": "Weights nobody downloads", "optional": true, "variants": [{ "repo": "example/none", "path": "none.safetensors", "bytes": 10 }] }
+  ],
+  "params": [{ "name": "duration", "type": "float", "label": "Seconds", "default": 1, "min": 0.1, "max": 10 }],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [{ "param": "duration", "node": "1", "input": "duration" }],
+      "outputs": [{ "node": "2", "kind": "audio" }]
+    }
+  },
+  "modes": { "default": { "label": "Default", "workflow": "main" } },
+  "default_mode": "default",
+  "tiers": ["32gb"]
+}

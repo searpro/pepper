@@ -2,22 +2,26 @@
   "name": "pepper",
   "version": "0.1.0",
   "private": true,
-  "description": "Pepper — production media generation API (image, video, audio, text) over stable-diffusion.cpp, llama.cpp and audio.cpp.",
+  "description": "Pepper \u2014 production media generation API (image, video, audio, text) over stable-diffusion.cpp, llama.cpp and audio.cpp.",
   "type": "module",
   "license": "MIT",
   "engines": {
     "node": ">=20"
   },
   "workspaces": [
-    "server",
-    "web"
+    "packages/*",
+    "apps/*/server",
+    "apps/*/web"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace server",
-    "dev:web": "npm run dev --workspace web",
-    "build": "npm run build --workspace web && npm run build --workspace server",
-    "start": "npm run start --workspace server",
-    "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace web",
-    "test": "npm run test --workspace server"
+    "dev": "npm run dev --workspace @pepper/server",
+    "dev:web": "npm run dev --workspace @pepper/web",
+    "build": "npm run build --workspace @pepper/core && npm run build --workspace @pepper/web && npm run build --workspace @pepper/server",
+    "start": "npm run start --workspace @pepper/server",
+    "typecheck": "npm run typecheck --workspace @pepper/core && npm run typecheck --workspace @pepper/server && npm run typecheck --workspace @pepper/ui && npm run typecheck --workspace @pepper/web && npm run typecheck --workspace @pepper-pro/server && npm run typecheck --workspace @pepper-pro/web",
+    "test": "npm run test --workspace @pepper/server && npm run test --workspace @pepper-pro/server",
+    "dev:pro": "npm run dev --workspace @pepper-pro/server",
+    "dev:pro-web": "npm run dev --workspace @pepper-pro/web",
+    "build:pro": "npm run build --workspace @pepper/core && npm run build --workspace @pepper-pro/web && npm run build --workspace @pepper-pro/server"
   }
 }

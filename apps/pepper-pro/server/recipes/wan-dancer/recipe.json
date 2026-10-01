@@ -1,0 +1,360 @@
+{
+  "schema": 1,
+  "id": "wan-dancer",
+  "version": 1,
+  "kind": "video",
+  "name": "Wan-Dancer — dance to the music",
+  "description": "A character from one image dances to a music track, choreographed to its beat: a global pass plans the dance, a local pass renders it at 30 fps. For the AI-artist performing their song.",
+  "family": "wan-dancer",
+  "capabilities": [
+    "dance",
+    "performance",
+    "audio-driven",
+    "music",
+    "first-frame"
+  ],
+  "licence": {
+    "id": "apache-2.0",
+    "name": "Apache 2.0 (Wan and its LoRAs)",
+    "url": "https://www.apache.org/licenses/LICENSE-2.0",
+    "commercial": "yes"
+  },
+  "files": [
+    {
+      "id": "global_model",
+      "folder": "diffusion_models",
+      "label": "Wan-Dancer global 14B (fp8)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan-Dancer",
+          "path": "diffusion_models/wan2.2_dancer_14b_global_fp8_scaled.safetensors",
+          "bytes": 18342596856,
+          "sha256": "e6590802f488979209cb416dee711e55d44f1e651d4dbf7e92b2358fe74a2143"
+        }
+      ]
+    },
+    {
+      "id": "local_model",
+      "folder": "diffusion_models",
+      "label": "Wan-Dancer local 14B (fp8)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan-Dancer",
+          "path": "diffusion_models/wan2.2_dancer_14b_local_fp8_scaled.safetensors",
+          "bytes": 18342596856,
+          "sha256": "744b93871a4ca8d9645790dd9a52fe8b2e6876557aac94c930906270d3d9bd60"
+        }
+      ]
+    },
+    {
+      "id": "distill_lora",
+      "folder": "loras",
+      "label": "LightX2V step distill",
+      "variants": [
+        {
+          "repo": "Kijai/WanVideo_comfy",
+          "path": "Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+          "bytes": 738005744,
+          "sha256": "85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "umT5 XXL",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb"
+          ],
+          "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+          "path": "split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "bytes": 6735906897,
+          "sha256": "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68"
+        },
+        {
+          "tiers": [
+            "48gb",
+            "96gb"
+          ],
+          "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+          "path": "split_files/text_encoders/umt5_xxl_fp16.safetensors",
+          "bytes": 11366399385,
+          "sha256": "7b8850f1961e1cf8a77cca4c964a358d303f490833c6c087d0cff4b2f99db2af"
+        }
+      ]
+    },
+    {
+      "id": "clip_vision",
+      "folder": "clip_vision",
+      "label": "CLIP vision H",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+          "path": "split_files/clip_vision/clip_vision_h.safetensors",
+          "bytes": 1264219396,
+          "sha256": "64a7ef761bfccbadbaa3da77366aac4185a6c58fa5de5f589b42a65bcc21f161"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "Wan 2.1 VAE",
+      "variants": [
+        {
+          "repo": "Kijai/WanVideo_comfy",
+          "path": "Wan2_1_VAE_bf16.safetensors",
+          "bytes": 253806278,
+          "sha256": "1ab9a32cc2c740f6e39d80d367ce5dcc28db8c71b79b28670546b8973e9d75f9"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "image",
+      "type": "image",
+      "label": "Dancer",
+      "required": true
+    },
+    {
+      "name": "audio",
+      "type": "audio",
+      "label": "Music",
+      "required": true
+    },
+    {
+      "name": "style",
+      "type": "enum",
+      "label": "Style",
+      "default": "Street",
+      "options": [
+        "Chinese classic",
+        "K-Pop",
+        "Street",
+        "Latin",
+        "Tap"
+      ]
+    },
+    {
+      "name": "energy",
+      "type": "enum",
+      "label": "Energy",
+      "default": "medium",
+      "options": [
+        "low",
+        "medium",
+        "high",
+        "max"
+      ]
+    },
+    {
+      "name": "duration",
+      "type": "float",
+      "label": "Seconds",
+      "default": 10,
+      "min": 5,
+      "max": 30,
+      "description": "Rounded to 5 s segments."
+    },
+    {
+      "name": "width",
+      "type": "int",
+      "label": "Width",
+      "default": 480,
+      "min": 256,
+      "max": 1280
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "label": "Height",
+      "default": 832,
+      "min": 256,
+      "max": 1280
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "547",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "audio",
+          "nodes": [
+            {
+              "node": "548",
+              "input": "audio"
+            }
+          ]
+        },
+        {
+          "param": "style",
+          "node": "696:695",
+          "input": "index",
+          "map": {
+            "Chinese classic": 0,
+            "K-Pop": 1,
+            "Street": 2,
+            "Latin": 3,
+            "Tap": 4
+          }
+        },
+        {
+          "param": "style",
+          "node": "696:695",
+          "input": "choice",
+          "map": {
+            "Chinese classic": "Chinese Classic Dance 古典舞",
+            "K-Pop": "K-Pop 韩舞",
+            "Street": "Street Dance 街舞",
+            "Latin": "Latin Dance 拉丁舞",
+            "Tap": "Tap Dance 踢踏舞"
+          }
+        },
+        {
+          "param": "energy",
+          "node": "696:694",
+          "input": "index",
+          "map": {
+            "low": 0,
+            "medium": 1,
+            "high": 2,
+            "max": 3
+          }
+        },
+        {
+          "param": "energy",
+          "node": "696:694",
+          "input": "choice",
+          "map": {
+            "low": "low 低",
+            "medium": "medium 中等",
+            "high": "high 高",
+            "max": "max 最大"
+          }
+        },
+        {
+          "param": "duration",
+          "node": "710",
+          "input": "value"
+        },
+        {
+          "param": "width",
+          "node": "696:398",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "696:400",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "696:654",
+          "input": "noise_seed"
+        },
+        {
+          "param": "seed",
+          "node": "696:667",
+          "input": "noise_seed"
+        },
+        {
+          "file": "global_model",
+          "node": "696:484",
+          "input": "unet_name"
+        },
+        {
+          "file": "local_model",
+          "node": "696:475",
+          "input": "unet_name"
+        },
+        {
+          "file": "distill_lora",
+          "node": "696:488",
+          "input": "lora_name"
+        },
+        {
+          "file": "distill_lora",
+          "node": "696:476",
+          "input": "lora_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "696:477",
+          "input": "clip_name"
+        },
+        {
+          "file": "clip_vision",
+          "node": "696:479",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "696:478",
+          "input": "vae_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "699",
+          "kind": "video"
+        }
+      ],
+      "progress": {
+        "696:655": 1,
+        "696:667": 3
+      }
+    }
+  },
+  "modes": {
+    "draft": {
+      "label": "Draft (distilled global pass)",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "696:639",
+          "input": "value",
+          "value": true
+        }
+      ]
+    },
+    "final": {
+      "label": "Final (full global pass)",
+      "description": "The global pass without the distill LoRA, 25 steps at CFG 5.",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "696:639",
+          "input": "value",
+          "value": false
+        }
+      ]
+    }
+  },
+  "default_mode": "draft",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Two 14B models take turns; a 24 GB card needs 64 GB of system RAM. Output is 30 fps with the music."
+}

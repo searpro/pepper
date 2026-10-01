@@ -1,0 +1,154 @@
+{
+  "1": {
+    "class_type": "FB_Qwen3TTSDialogueInference",
+    "inputs": {
+      "script": "",
+      "role_bank": [
+        "40",
+        0
+      ],
+      "model_choice": "1.7B",
+      "device": "auto",
+      "precision": "bf16",
+      "language": "Auto",
+      "pause_linebreak": 0.5,
+      "period_pause": 0.4,
+      "comma_pause": 0.2,
+      "question_pause": 0.6,
+      "hyphen_pause": 0.3,
+      "merge_outputs": true,
+      "batch_size": 1,
+      "seed": 1,
+      "max_new_tokens_per_line": 2048,
+      "top_p": 1.0,
+      "top_k": 50,
+      "temperature": 0.9,
+      "repetition_penalty": 1.05,
+      "attention": "sdpa",
+      "unload_model_after_generate": true
+    }
+  },
+  "40": {
+    "class_type": "FB_Qwen3TTSRoleBank",
+    "inputs": {
+      "role_name_1": "Role1",
+      "prompt_1": [
+        "30",
+        0
+      ],
+      "role_name_2": "Role2",
+      "prompt_2": [
+        "31",
+        0
+      ],
+      "role_name_3": "Role3",
+      "prompt_3": [
+        "32",
+        0
+      ],
+      "role_name_4": "Role4",
+      "prompt_4": [
+        "33",
+        0
+      ]
+    }
+  },
+  "9": {
+    "class_type": "SaveAudio",
+    "inputs": {
+      "filename_prefix": "pepper-pro",
+      "audio": [
+        "1",
+        0
+      ]
+    }
+  },
+  "20": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "input.wav"
+    }
+  },
+  "30": {
+    "class_type": "FB_Qwen3TTSVoiceClonePrompt",
+    "inputs": {
+      "ref_audio": [
+        "20",
+        0
+      ],
+      "ref_text": "",
+      "model_choice": "1.7B",
+      "device": "auto",
+      "precision": "bf16",
+      "attention": "sdpa",
+      "x_vector_only": true,
+      "unload_model_after_generate": false
+    }
+  },
+  "21": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "input.wav"
+    }
+  },
+  "31": {
+    "class_type": "FB_Qwen3TTSVoiceClonePrompt",
+    "inputs": {
+      "ref_audio": [
+        "21",
+        0
+      ],
+      "ref_text": "",
+      "model_choice": "1.7B",
+      "device": "auto",
+      "precision": "bf16",
+      "attention": "sdpa",
+      "x_vector_only": true,
+      "unload_model_after_generate": false
+    }
+  },
+  "22": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "input.wav"
+    }
+  },
+  "32": {
+    "class_type": "FB_Qwen3TTSVoiceClonePrompt",
+    "inputs": {
+      "ref_audio": [
+        "22",
+        0
+      ],
+      "ref_text": "",
+      "model_choice": "1.7B",
+      "device": "auto",
+      "precision": "bf16",
+      "attention": "sdpa",
+      "x_vector_only": true,
+      "unload_model_after_generate": false
+    }
+  },
+  "23": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "input.wav"
+    }
+  },
+  "33": {
+    "class_type": "FB_Qwen3TTSVoiceClonePrompt",
+    "inputs": {
+      "ref_audio": [
+        "23",
+        0
+      ],
+      "ref_text": "",
+      "model_choice": "1.7B",
+      "device": "auto",
+      "precision": "bf16",
+      "attention": "sdpa",
+      "x_vector_only": true,
+      "unload_model_after_generate": false
+    }
+  }
+}

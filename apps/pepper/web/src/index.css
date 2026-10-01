@@ -1,0 +1,5 @@
+@import 'tailwindcss';
+@import '../../../../packages/ui/src/theme.css';
+
+/* Tailwind only generates classes it sees; the shared screens live outside this app. */
+@source '../../../../packages/ui/src';

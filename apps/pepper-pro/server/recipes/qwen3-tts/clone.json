@@ -1,0 +1,44 @@
+{
+  "1": {
+    "class_type": "FB_Qwen3TTSVoiceClone",
+    "inputs": {
+      "model_choice": "1.7B",
+      "device": "auto",
+      "precision": "bf16",
+      "language": "Auto",
+      "seed": 1,
+      "max_new_tokens": 2048,
+      "top_p": 1.0,
+      "top_k": 50,
+      "temperature": 0.9,
+      "repetition_penalty": 1.05,
+      "attention": "sdpa",
+      "unload_model_after_generate": true,
+      "target_text": "",
+      "ref_audio": [
+        "2",
+        0
+      ],
+      "ref_text": "",
+      "x_vector_only": false,
+      "instruct": "",
+      "custom_model_path": ""
+    }
+  },
+  "2": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "input.wav"
+    }
+  },
+  "9": {
+    "class_type": "SaveAudio",
+    "inputs": {
+      "filename_prefix": "pepper-pro",
+      "audio": [
+        "1",
+        0
+      ]
+    }
+  }
+}

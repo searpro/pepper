@@ -1,0 +1,184 @@
+{
+  "schema": 1,
+  "id": "qwen-image-edit",
+  "version": 1,
+  "kind": "image",
+  "name": "Qwen-Image 2.1 — edit and combine",
+  "description": "Edits an image by instruction, or combines up to three (put this garment on this model, place this product in this room). The strongest editor here, but research-only: not for commercial work.",
+  "family": "qwen-image-2.1",
+  "capabilities": [
+    "edit",
+    "try-on",
+    "multi-reference",
+    "keyframe"
+  ],
+  "licence": {
+    "id": "qwen-research",
+    "name": "Qwen Research Licence",
+    "url": "https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE",
+    "commercial": "no",
+    "obligations": [
+      "Research and evaluation only; outputs may not be used commercially."
+    ]
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "Qwen-Image 2.1",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb"
+          ],
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+          "bytes": 7256783064,
+          "sha256": "cb74113cb03faecd79611b01fd7fd642f0aa60d6f0b95086abee214d75eaa57d"
+        },
+        {
+          "tiers": [
+            "48gb",
+            "96gb"
+          ],
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "diffusion_models/qwen_image_2.1_bf16.safetensors",
+          "bytes": 14230280616,
+          "sha256": "89f4158d066cc33906a199fca85634f766892dd78f49b6698dabf187ac86c4bc"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "Qwen3-VL 8B",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+          "bytes": 9350798360,
+          "sha256": "8bfd0f6e12abf2d2d697ecc888e5e90b0d6741d6708f05799f53afa560452e8f"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "text_encoders/qwen3vl_8b_bf16.safetensors",
+          "bytes": 17534334616,
+          "sha256": "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "VAE",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "vae/qwen_image_2.1_vae_bf16.safetensors",
+          "bytes": 675509688,
+          "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Instruction",
+      "required": true,
+      "description": "What to change, referring to images as \"image 1\", \"image 2\"…"
+    },
+    {
+      "name": "images",
+      "type": "images",
+      "label": "Images",
+      "required": true,
+      "max_items": 3
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "459:474",
+          "input": "prompt"
+        },
+        {
+          "param": "seed",
+          "node": "459:458",
+          "input": "seed"
+        },
+        {
+          "param": "images",
+          "nodes": [
+            {
+              "node": "470",
+              "input": "image"
+            },
+            {
+              "node": "475",
+              "input": "image"
+            },
+            {
+              "node": "476",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "file": "model",
+          "node": "459:451",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "459:453",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "459:454",
+          "input": "vae_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "461",
+          "kind": "image"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "final": {
+      "label": "Edit (25 steps)",
+      "workflow": "main"
+    }
+  },
+  "default_mode": "final",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "The output takes the size of the first image."
+}

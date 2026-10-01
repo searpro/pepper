@@ -405,7 +405,7 @@ code. `backend: "python"` covers them, in two shapes.
 ### Runner models (video: Wan 2.2 5B, LTX-Video, EchoMimicV3)
 
 `"pythonRunner"` names one of Pepper's own runners in
-`server/python/pepper_runner/runners/`. A runner model is run **once per job**,
+`apps/pepper/server/python/pepper_runner/runners/`. A runner model is run **once per job**,
 exactly like sd-cli: Pepper writes a JSON job spec, spawns
 `python -m pepper_runner <spec>`, reads `@@pepper {json}` progress lines from
 its stdout, and the process writes one MP4 and exits. Nothing stays resident —
@@ -431,7 +431,7 @@ What the entry supplies:
 - **`pythonPackage`** (optional) — `git-url#commit` of upstream model code the
   runner imports. It is cloned at that commit *without* installing upstream's
   `requirements.txt`: the runner's dependencies are Pepper's pinned runner
-  environment (`server/python/requirements.txt`).
+  environment (`apps/pepper/server/python/requirements.txt`).
 - **`capabilities: ["s2v"]`** for a speech-driven model, which puts it on the
   Video page's Speech to video tab.
 

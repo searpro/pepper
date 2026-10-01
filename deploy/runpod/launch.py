@@ -11,9 +11,10 @@
     uv run deploy/runpod/launch.py status
     uv run deploy/runpod/launch.py logs                 # follow the pod's log
     uv run deploy/runpod/launch.py down                 # terminate it (the volume stays)
+    uv run deploy/runpod/launch.py up --product pro --tier 32gb   # Pepper Pro (ComfyUI recipes)
 
-A pod runs the published image (ghcr.io/searpro/pepper, built by CI from
-main), so unlike the Kaggle launcher it does not send local changes: push
+A pod runs the published image (ghcr.io/searpro/pepper, or pepper-pro for
+`--product pro`, built by CI from main), so unlike the Kaggle launcher it does not send local changes: push
 first, and wait for the image workflow.
 
 Configuration comes from `deploy/runpod/.env` (git-ignored), falling back to
@@ -46,12 +47,22 @@ API = "https://api.runpod.io/v2"
 HERE = Path(__file__).resolve().parent
 ENV_FILES = [HERE / ".env", HERE.parent / "kaggle" / ".env"]
 IMAGE = "ghcr.io/searpro/pepper:latest"
+PRO_IMAGE = "ghcr.io/searpro/pepper-pro:latest"
 POD_NAME = "pepper"
 VOLUME_NAME = "pepper-data"
 CATALOGUE_RAW = "https://raw.githubusercontent.com/searpro/pepper-catalogue/{branch}/pepper-catalogue.json"
 # First choice first. 24 GB is the useful step up from Kaggle's 16 GB; the
 # 4090 is the cheapest fast one and usually in stock.
 DEFAULT_GPUS = ["NVIDIA GeForce RTX 4090", "NVIDIA RTX A5000", "NVIDIA L4", "NVIDIA RTX A6000"]
+# Pepper Pro's hardware tiers (apps/pepper-pro/server/src/config.ts): the GPUs
+# to ask for, and the host RAM a tier's recipes assume. 24 GB cards need 64 GB
+# of RAM because H3's 32B text encoder and 22B model take turns in VRAM.
+PRO_TIERS = {
+    "24gb-64ram": (["NVIDIA GeForce RTX 4090", "NVIDIA RTX A5000"], 62),
+    "32gb": (["NVIDIA GeForce RTX 5090"], 62),
+    "48gb": (["NVIDIA L40S", "NVIDIA RTX 6000 Ada Generation", "NVIDIA RTX A6000"], 90),
+    "96gb": (["NVIDIA RTX PRO 6000 Blackwell Server Edition", "NVIDIA H100 80GB HBM3"], 120),
+}
 # The backend releases bundle CUDA 12 runtimes, which need a 12.x driver.
 MIN_CUDA = "12.4"
 SECRETS = {"PEPPER_API_TOKEN": "pepper_api_token", "PEPPER_TUNNEL_TOKEN": "pepper_tunnel_token"}
@@ -236,6 +247,7 @@ def cmd_up(rp: RunPod, env: dict, a) -> None:
         "DATA_VOLUME_GB": str(volume["size"]),
         **({"PEPPER_HOSTNAME": env["PEPPER_HOSTNAME"]} if "PEPPER_TUNNEL_TOKEN" in synced else {}),
         **({"CATALOGUE_URL": CATALOGUE_RAW.format(branch=a.catalogue_branch)} if a.catalogue_branch else {}),
+        **({"PEPPER_TIER": a.tier} if a.product == "pro" else {}),
     }
     pod = None
     for gpu in a.gpu:
@@ -338,7 +350,10 @@ def main() -> None:
 
     u = sub.add_parser("up", help="start a pod and wait until Pepper answers")
     u.add_argument("--gpu", action="append", help="GPU type, in order of preference (repeatable)")
-    u.add_argument("--image", default=IMAGE)
+    u.add_argument("--product", default="pepper", choices=["pepper", "pro"],
+                   help="pro: Pepper Pro's image, GPUs and RAM for --tier")
+    u.add_argument("--tier", default="24gb-64ram", choices=list(PRO_TIERS), help="Pepper Pro's hardware tier")
+    u.add_argument("--image", help=f"default: {IMAGE}, or {PRO_IMAGE} for --product pro")
     u.add_argument("--volume", default=VOLUME_NAME)
     u.add_argument("--cloud", default="SECURE", choices=["SECURE", "COMMUNITY"])
     u.add_argument("--disk", type=int, default=30, help="container disk, GB (outputs live here)")
@@ -356,8 +371,13 @@ def main() -> None:
     sub.add_parser("down", help="terminate the pepper pod (keeps the volume)")
 
     a = ap.parse_args()
+    pro = a.command == "up" and a.product == "pro"
+    if a.command == "up":
+        a.image = a.image or (PRO_IMAGE if pro else IMAGE)
+        if pro and a.min_ram is None:
+            a.min_ram = PRO_TIERS[a.tier][1]
     if getattr(a, "gpu", None) is None and a.command in ("up", "volume"):
-        a.gpu = DEFAULT_GPUS
+        a.gpu = PRO_TIERS[a.tier][0] if pro else DEFAULT_GPUS
     env = load_env()
     if not env.get("RUNPOD_API_KEY"):
         sys.exit(f"no RUNPOD_API_KEY in {ENV_FILES[0]} or the environment")

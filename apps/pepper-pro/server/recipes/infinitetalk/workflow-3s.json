@@ -1,0 +1,338 @@
+{
+  "24": {
+    "inputs": {
+      "audio": "input.wav"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "Load Audio"
+    }
+  },
+  "32": {
+    "inputs": {
+      "image": "input.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "149": {
+    "inputs": {
+      "value": 832
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "150": {
+    "inputs": {
+      "value": 480
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "188:13": {
+    "inputs": {
+      "unet_name": "Wan2_1-I2V-14B-480p_fp8_e4m3fn_scaled_KJ.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "188:16": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "188:29": {
+    "inputs": {
+      "vae_name": "Wan2_1_VAE_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "188:119": {
+    "inputs": {
+      "samples": [
+        "188:194",
+        0
+      ],
+      "vae": [
+        "188:29",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "188:129": {
+    "inputs": {
+      "mode": "single_speaker",
+      "width": [
+        "149",
+        0
+      ],
+      "height": [
+        "150",
+        0
+      ],
+      "length": 81,
+      "motion_frame_count": 9,
+      "audio_scale": 1,
+      "model": [
+        "188:179",
+        0
+      ],
+      "model_patch": [
+        "188:112",
+        0
+      ],
+      "positive": [
+        "188:14",
+        0
+      ],
+      "negative": [
+        "188:306",
+        0
+      ],
+      "vae": [
+        "188:29",
+        0
+      ],
+      "audio_encoder_output_1": [
+        "188:25",
+        0
+      ],
+      "start_image": [
+        "32",
+        0
+      ]
+    },
+    "class_type": "WanInfiniteTalkToVideo",
+    "_meta": {
+      "title": "WanInfiniteTalkToVideo"
+    }
+  },
+  "188:14": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "188:16",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "188:25": {
+    "inputs": {
+      "audio_encoder": [
+        "188:26",
+        0
+      ],
+      "audio": [
+        "24",
+        0
+      ]
+    },
+    "class_type": "AudioEncoderEncode",
+    "_meta": {
+      "title": "AudioEncoderEncode"
+    }
+  },
+  "188:112": {
+    "inputs": {
+      "name": "wan2.1_infiniteTalk_single_fp16.safetensors"
+    },
+    "class_type": "ModelPatchLoader",
+    "_meta": {
+      "title": "Load Model Patch"
+    }
+  },
+  "188:26": {
+    "inputs": {
+      "audio_encoder_name": "wav2vec2-chinese-base_fp16.safetensors"
+    },
+    "class_type": "AudioEncoderLoader",
+    "_meta": {
+      "title": "Load Audio Encoder"
+    }
+  },
+  "188:179": {
+    "inputs": {
+      "lora_name": "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "188:13",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "188:190": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "188:191": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "188:129",
+        0
+      ],
+      "positive": [
+        "188:129",
+        1
+      ],
+      "negative": [
+        "188:129",
+        2
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG Guider"
+    }
+  },
+  "188:192": {
+    "inputs": {
+      "scheduler": "normal",
+      "steps": 6,
+      "denoise": 1,
+      "model": [
+        "188:129",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "BasicScheduler"
+    }
+  },
+  "188:193": {
+    "inputs": {
+      "noise_seed": 801592322954930
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "188:194": {
+    "inputs": {
+      "noise": [
+        "188:193",
+        0
+      ],
+      "guider": [
+        "188:191",
+        0
+      ],
+      "sampler": [
+        "188:190",
+        0
+      ],
+      "sigmas": [
+        "188:192",
+        0
+      ],
+      "latent_image": [
+        "188:129",
+        3
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "188:306": {
+    "inputs": {
+      "conditioning": [
+        "188:14",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "Conditioning Zero Out"
+    }
+  },
+  "c1:all": {
+    "class_type": "RebatchImages",
+    "inputs": {
+      "batch_size": 4096,
+      "images": [
+        "188:119",
+        0
+      ]
+    }
+  },
+  "trim": {
+    "class_type": "TrimAudioDuration",
+    "inputs": {
+      "start_index": 0,
+      "duration": 3.24,
+      "audio": [
+        "24",
+        0
+      ]
+    }
+  },
+  "video": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "fps": 25,
+      "bit_depth": 8,
+      "color_space": "sRGB",
+      "codec": "none",
+      "images": [
+        "c1:all",
+        0
+      ],
+      "audio": [
+        "trim",
+        0
+      ]
+    }
+  },
+  "save": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "filename_prefix": "pepper-pro",
+      "format": "auto",
+      "format.codec": "auto",
+      "codec": "auto",
+      "video": [
+        "video",
+        0
+      ]
+    }
+  }
+}

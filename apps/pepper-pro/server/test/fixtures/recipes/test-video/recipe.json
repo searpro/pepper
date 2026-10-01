@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "id": "test-video",
+  "version": 1,
+  "kind": "video",
+  "name": "Test video",
+  "description": "A second of solid colour with silent audio. Model-free, for tests.",
+  "family": "test",
+  "capabilities": ["test", "first-frame", "text-to-video"],
+  "licence": { "id": "test", "name": "Test", "commercial": "yes" },
+  "files": [],
+  "params": [
+    { "name": "prompt", "type": "text", "label": "Prompt" },
+    { "name": "width", "type": "int", "label": "Width", "default": 64, "min": 16, "max": 512 },
+    { "name": "height", "type": "int", "label": "Height", "default": 64, "min": 16, "max": 512 },
+    { "name": "duration", "type": "float", "label": "Seconds", "default": 1, "min": 0.5, "max": 5 },
+    { "name": "seed", "type": "seed", "label": "Seed" }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        { "param": "width", "node": "1", "input": "width" },
+        { "param": "height", "node": "1", "input": "height" },
+        { "param": "duration", "node": "2", "input": "duration" }
+      ],
+      "outputs": [{ "node": "4", "kind": "video" }]
+    }
+  },
+  "modes": { "draft": { "label": "Draft", "workflow": "main" } },
+  "default_mode": "draft",
+  "tiers": ["32gb"]
+}

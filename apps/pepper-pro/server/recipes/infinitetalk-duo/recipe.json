@@ -1,0 +1,455 @@
+{
+  "schema": 1,
+  "id": "infinitetalk-duo",
+  "version": 1,
+  "kind": "video",
+  "name": "InfiniteTalk — two people talking",
+  "description": "One frame with two people and their two lines become a conversation: each lip-syncs to their own voice while the other listens. Speaker 1 is on the left of the frame. Up to 12 s per take.",
+  "family": "wan-2.1-i2v",
+  "capabilities": [
+    "dialogue",
+    "lip-sync",
+    "audio-driven",
+    "two-person"
+  ],
+  "licence": {
+    "id": "apache-2.0",
+    "name": "Apache 2.0 (Wan and its LoRAs)",
+    "url": "https://www.apache.org/licenses/LICENSE-2.0",
+    "commercial": "yes"
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "Wan 2.1 I2V 14B 480p (fp8)",
+      "variants": [
+        {
+          "repo": "Kijai/WanVideo_comfy_fp8_scaled",
+          "path": "I2V/Wan2_1-I2V-14B-480p_fp8_e4m3fn_scaled_KJ.safetensors",
+          "bytes": 16643349018,
+          "sha256": "2ff922282cd84589702e6e8c26e083d1160bfc2b217dd44e1ae2688441dc495d"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "umT5 XXL (fp8)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+          "path": "split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "bytes": 6735906897,
+          "sha256": "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "Wan 2.1 VAE",
+      "variants": [
+        {
+          "repo": "Kijai/WanVideo_comfy",
+          "path": "Wan2_1_VAE_bf16.safetensors",
+          "bytes": 253806278,
+          "sha256": "1ab9a32cc2c740f6e39d80d367ce5dcc28db8c71b79b28670546b8973e9d75f9"
+        }
+      ]
+    },
+    {
+      "id": "patch",
+      "folder": "model_patches",
+      "label": "InfiniteTalk (two speakers)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.1_ComfyUI_repackaged",
+          "path": "split_files/model_patches/wan2.1_infiniteTalk_multi_fp16.safetensors",
+          "bytes": 5124439112,
+          "sha256": "4c2486cdfb6ff9a9f27408e98e11e20619136933b20411e0c365b1e84075d195"
+        }
+      ]
+    },
+    {
+      "id": "audio_encoder",
+      "folder": "audio_encoders",
+      "label": "wav2vec2 (Chinese base)",
+      "variants": [
+        {
+          "repo": "Kijai/wav2vec2_safetensors",
+          "path": "wav2vec2-chinese-base_fp16.safetensors",
+          "bytes": 190115368,
+          "sha256": "000813e441020f18cff844c969d2d5d4adc2a5ce46b2db1f23950b05d88805b4"
+        }
+      ]
+    },
+    {
+      "id": "distill_lora",
+      "folder": "loras",
+      "label": "LightX2V step distill",
+      "variants": [
+        {
+          "repo": "Kijai/WanVideo_comfy",
+          "path": "Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+          "bytes": 738005744,
+          "sha256": "85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Prompt",
+      "required": true,
+      "description": "Who is speaking and how: expression, gestures, camera."
+    },
+    {
+      "name": "image",
+      "type": "image",
+      "label": "Both people",
+      "required": true,
+      "description": "One frame with both speakers: speaker 1 on the left, speaker 2 on the right."
+    },
+    {
+      "name": "audio",
+      "type": "audio",
+      "label": "Speaker 1",
+      "required": true,
+      "description": "Speaker 1's line, played first."
+    },
+    {
+      "name": "audio_2",
+      "type": "audio",
+      "label": "Speaker 2",
+      "required": true,
+      "description": "Speaker 2's line, played after speaker 1's."
+    },
+    {
+      "name": "width",
+      "type": "int",
+      "label": "Width",
+      "default": 832,
+      "min": 256,
+      "max": 1280
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "label": "Height",
+      "default": 480,
+      "min": 256,
+      "max": 1280
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "short": {
+      "file": "workflow-3s.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "188:14",
+          "input": "text"
+        },
+        {
+          "param": "width",
+          "node": "149",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "150",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "188:193",
+          "input": "noise_seed"
+        },
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "32",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "audio",
+          "nodes": [
+            {
+              "node": "24",
+              "input": "audio"
+            }
+          ]
+        },
+        {
+          "file": "model",
+          "node": "188:13",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "188:16",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "188:29",
+          "input": "vae_name"
+        },
+        {
+          "file": "patch",
+          "node": "188:112",
+          "input": "name"
+        },
+        {
+          "file": "audio_encoder",
+          "node": "188:26",
+          "input": "audio_encoder_name"
+        },
+        {
+          "file": "distill_lora",
+          "node": "188:179",
+          "input": "lora_name"
+        },
+        {
+          "param": "audio_2",
+          "nodes": [
+            {
+              "node": "90",
+              "input": "audio"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "node": "save",
+          "kind": "video"
+        }
+      ],
+      "progress": {
+        "188:194": 1
+      }
+    },
+    "medium": {
+      "file": "workflow-6s.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "188:14",
+          "input": "text"
+        },
+        {
+          "param": "width",
+          "node": "149",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "150",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "188:193",
+          "input": "noise_seed"
+        },
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "32",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "audio",
+          "nodes": [
+            {
+              "node": "24",
+              "input": "audio"
+            }
+          ]
+        },
+        {
+          "file": "model",
+          "node": "188:13",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "188:16",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "188:29",
+          "input": "vae_name"
+        },
+        {
+          "file": "patch",
+          "node": "188:112",
+          "input": "name"
+        },
+        {
+          "file": "audio_encoder",
+          "node": "188:26",
+          "input": "audio_encoder_name"
+        },
+        {
+          "file": "distill_lora",
+          "node": "188:179",
+          "input": "lora_name"
+        },
+        {
+          "param": "audio_2",
+          "nodes": [
+            {
+              "node": "90",
+              "input": "audio"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "node": "save",
+          "kind": "video"
+        }
+      ],
+      "progress": {
+        "188:194": 1,
+        "c2:sample": 1
+      }
+    },
+    "long": {
+      "file": "workflow-12s.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "188:14",
+          "input": "text"
+        },
+        {
+          "param": "width",
+          "node": "149",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "150",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "188:193",
+          "input": "noise_seed"
+        },
+        {
+          "param": "image",
+          "nodes": [
+            {
+              "node": "32",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "audio",
+          "nodes": [
+            {
+              "node": "24",
+              "input": "audio"
+            }
+          ]
+        },
+        {
+          "file": "model",
+          "node": "188:13",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "188:16",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "188:29",
+          "input": "vae_name"
+        },
+        {
+          "file": "patch",
+          "node": "188:112",
+          "input": "name"
+        },
+        {
+          "file": "audio_encoder",
+          "node": "188:26",
+          "input": "audio_encoder_name"
+        },
+        {
+          "file": "distill_lora",
+          "node": "188:179",
+          "input": "lora_name"
+        },
+        {
+          "param": "audio_2",
+          "nodes": [
+            {
+              "node": "90",
+              "input": "audio"
+            }
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "node": "save",
+          "kind": "video"
+        }
+      ],
+      "progress": {
+        "188:194": 1,
+        "c2:sample": 1,
+        "c3:sample": 1,
+        "c4:sample": 1
+      }
+    }
+  },
+  "modes": {
+    "draft": {
+      "label": "Draft (3 s)",
+      "description": "The first window only, to check the look and the sync.",
+      "workflow": "short"
+    },
+    "final": {
+      "label": "Final (6 s)",
+      "workflow": "medium"
+    },
+    "long": {
+      "label": "Long (12 s)",
+      "workflow": "long"
+    }
+  },
+  "default_mode": "final",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Takes are 3.2, 6.1 or 11.9 s at 25 fps (81 frames, then 72 more per window); audio longer than the take is cut. Speaker masks are the left and right halves of the frame. Qwen3-TTS makes each line in a cloned voice."
+}

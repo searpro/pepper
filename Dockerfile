@@ -20,7 +20,7 @@
 #
 # Ubuntu 22.04 on purpose: the backend forks are built on 22.04 (glibc 2.35),
 # and upstream builds for 24.04 do not start on it — see DEFAULT_RELEASE_REPOS
-# in server/src/config.ts.
+# in apps/pepper/server/src/config.ts.
 ARG BASE_IMAGE=nvidia/cuda:12.4.1-base-ubuntu22.04
 
 FROM ${BASE_IMAGE} AS builder
@@ -36,18 +36,27 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
-COPY server/package.json ./server/
-COPY web/package.json ./web/
+COPY packages/core/package.json ./packages/core/
+COPY packages/ui/package.json ./packages/ui/
+COPY apps/pepper/server/package.json ./apps/pepper/server/
+COPY apps/pepper/web/package.json ./apps/pepper/web/
+# The lockfile covers every workspace, so npm ci needs Pepper Pro's manifests too.
+COPY apps/pepper-pro/server/package.json ./apps/pepper-pro/server/
+COPY apps/pepper-pro/web/package.json ./apps/pepper-pro/web/
 RUN npm ci --no-audit --no-fund
 
-COPY tsconfig*.json ./
-COPY server ./server
-COPY web ./web
+COPY packages/core ./packages/core
+COPY packages/ui ./packages/ui
+COPY apps/pepper/server ./apps/pepper/server
+COPY apps/pepper/web ./apps/pepper/web
 
-# The web build writes into server/public, which the server serves statically.
-RUN npm run build --workspace web \
-    && npm run build --workspace server \
-    && npm prune --omit=dev --workspace server
+# The web build writes into apps/pepper/server/public, which the server
+# serves statically. The core is built first: the server compiles against its
+# declarations and runs its JavaScript.
+RUN npm run build --workspace @pepper/core \
+    && npm run build --workspace @pepper/web \
+    && npm run build --workspace @pepper/server \
+    && npm prune --omit=dev --workspace @pepper/server --workspace @pepper/core
 
 
 FROM ${BASE_IMAGE}
@@ -70,7 +79,8 @@ RUN curl -fsSL -o /usr/local/bin/cloudflared \
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/server/package.json ./server/package.json
+COPY --from=builder /app/packages/core/package.json ./packages/core/package.json
+COPY --from=builder /app/apps/pepper/server/package.json ./apps/pepper/server/package.json
 
 # The Python runner environment (standalone interpreter, torch, diffusers,
 # spandrel, the SeedVR2 checkout), installed by the server's own installer so
@@ -82,21 +92,23 @@ COPY --from=builder /app/server/package.json ./server/package.json
 #
 # Only the installer's own files and requirements.txt are copied before it
 # runs, so this multi-gigabyte layer is rebuilt when they change and not on
-# every server edit. The list is the installer's import closure; a new import
-# there fails this step loudly rather than silently.
+# every server edit. The list is the installer's import closure, core
+# included; a new import there fails this step loudly rather than silently.
 ENV PYTHON_DIR=/opt/pepper-python
-COPY --from=builder /app/server/dist/scripts/install-python.js ./server/dist/scripts/install-python.js
-COPY --from=builder /app/server/dist/backends/python.js /app/server/dist/backends/python-packages.js ./server/dist/backends/
-COPY --from=builder /app/server/dist/db/settings.js /app/server/dist/db/schema.js ./server/dist/db/
-COPY --from=builder /app/server/dist/errors.js /app/server/dist/paths.js ./server/dist/
-COPY --from=builder /app/server/python/requirements.txt ./server/python/requirements.txt
-RUN PIP_NO_CACHE_DIR=1 node server/dist/scripts/install-python.js \
+COPY --from=builder /app/apps/pepper/server/dist/scripts/install-python.js ./apps/pepper/server/dist/scripts/install-python.js
+COPY --from=builder /app/apps/pepper/server/dist/backends/python.js /app/apps/pepper/server/dist/backends/python-packages.js ./apps/pepper/server/dist/backends/
+COPY --from=builder /app/apps/pepper/server/dist/paths.js ./apps/pepper/server/dist/paths.js
+COPY --from=builder /app/packages/core/dist/db/settings.js /app/packages/core/dist/db/schema.js ./packages/core/dist/db/
+COPY --from=builder /app/packages/core/dist/errors.js /app/packages/core/dist/paths.js /app/packages/core/dist/config.js ./packages/core/dist/
+COPY --from=builder /app/apps/pepper/server/python/requirements.txt ./apps/pepper/server/python/requirements.txt
+RUN PIP_NO_CACHE_DIR=1 node apps/pepper/server/dist/scripts/install-python.js \
     && rm -rf /root/.cache /tmp/*
 
-COPY --from=builder /app/server/dist ./server/dist
-COPY --from=builder /app/server/public ./server/public
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/apps/pepper/server/dist ./apps/pepper/server/dist
+COPY --from=builder /app/apps/pepper/server/public ./apps/pepper/server/public
 # The Python runners' code (their environment is the layer above).
-COPY --from=builder /app/server/python ./server/python
+COPY --from=builder /app/apps/pepper/server/python ./apps/pepper/server/python
 COPY deploy/runpod/entrypoint.mjs ./deploy/runpod/entrypoint.mjs
 
 ENV NODE_ENV=production \
