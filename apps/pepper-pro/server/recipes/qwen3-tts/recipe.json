@@ -852,5 +852,11 @@
     "48gb",
     "96gb"
   ],
-  "notes": "Text is required in every mode; a voice clip is required to clone. The Base checkpoint (cloning, dialogue) is always installed, VoiceDesign and CustomVoice only for their modes. The node pack is Apache-2.0 (its pyproject and README; it has no LICENSE file). Its requirement onnxruntime-openvino is skipped: Intel-only, unused by its code, and it would shadow the onnxruntime LongCat-Avatar needs."
+  "notes": "Text is required in every mode; a voice clip is required to clone. The Base checkpoint (cloning, dialogue) is always installed, VoiceDesign and CustomVoice only for their modes. The node pack is Apache-2.0 (its pyproject and README; it has no LICENSE file). Its requirement onnxruntime-openvino is skipped: Intel-only, unused by its code, and it would shadow the onnxruntime LongCat-Avatar needs.",
+  "verified": {
+    "date": "2026-10-01",
+    "gpu": "RTX PRO 4500 Blackwell 32 GB, 62 GB RAM (32gb tier)",
+    "seconds": 32,
+    "notes": "Voice clone golden shot: Whisper word error rate 8 % (\"ring\" for \"rain\", as on the CPU). Install fetches 13.6 GB with the optional design and preset voices."
+  }
 }

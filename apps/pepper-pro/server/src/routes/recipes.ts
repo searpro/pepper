@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { DownloadManager } from '@pepper/core/downloads/manager.js';
+import type { StorageMonitor } from '@pepper/core/services/storage.js';
 import type { ProConfig } from '../config.js';
 import type { DownloadKind, DownloadSlot } from '../recipes/layout.js';
 import type { Recipe } from '../recipes/schema.js';
@@ -12,6 +13,7 @@ export interface RecipeRoutesOptions {
   config: ProConfig;
   recipes: RecipeStore;
   downloads: DownloadManager<DownloadKind, DownloadSlot>;
+  storage: StorageMonitor;
 }
 
 /** A recipe as the Recipes screen and the MCP tools see it: the definition, minus graph internals, plus its state here. */
@@ -36,6 +38,7 @@ export function recipeSummary(recipe: Recipe, status: RecipeStatus) {
     tier_verified: status.tierVerified,
     licence_block: status.licenceBlock,
     missing_bytes: status.missingBytes,
+    install_bytes: status.installBytes,
     files: status.files.map((f) => ({
       id: f.file.id,
       label: f.file.label,
@@ -52,7 +55,7 @@ export function recipeSummary(recipe: Recipe, status: RecipeStatus) {
 /** Recipes (docs/PEPPER-PRO.md §6): what is available, what is installed, and installing it. */
 export async function recipeRoutes(fastify: FastifyInstance, options: RecipeRoutesOptions): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
-  const { config, recipes, downloads } = options;
+  const { config, recipes, downloads, storage } = options;
 
   const summary = async (recipe: Recipe) =>
     recipeSummary(recipe, await recipes.status(recipe, config.tier, config.licenceMode));
@@ -104,11 +107,28 @@ export async function recipeRoutes(fastify: FastifyInstance, options: RecipeRout
     async (req, reply) => {
       const recipe = recipes.require(req.params.id);
       const files = await recipes.resolveFiles(recipe, config.tier);
+      const active = new Set(
+        downloads.list({ status: ['queued', 'downloading'] }).map((d) => `${d.bundle}/${d.name}`),
+      );
+      const wanted = files.filter((f) => !f.installed && !(f.file.optional && !req.body.optional));
+      // Refused whole, before anything is queued: each download checks its own
+      // room when it starts, but a recipe half installed is no use, and a
+      // full volume crashes the server's database.
+      const bytes = wanted
+        .filter((f) => !active.has(`${f.bundle}/${f.name}`))
+        .reduce((sum, f) => sum + (f.variant.bytes ?? 0), 0);
+      await storage.assertRoom(bytes, downloads.pendingBytes(), `${recipe.name}`);
       const tasks = [];
-      for (const file of files) {
-        if (file.installed || (file.file.optional && !req.body.optional)) continue;
+      for (const file of wanted) {
         tasks.push(
-          await downloads.enqueue({ kind: 'comfy', bundle: file.bundle, slot: 'file', url: file.url, name: file.name }),
+          await downloads.enqueue({
+            kind: 'comfy',
+            bundle: file.bundle,
+            slot: 'file',
+            url: file.url,
+            name: file.name,
+            expectedBytes: file.variant.bytes ?? undefined,
+          }),
         );
       }
       return reply.code(202).send({ recipe: recipe.id, downloads: tasks });
@@ -127,13 +147,18 @@ export async function recipeRoutes(fastify: FastifyInstance, options: RecipeRout
     async (req) => {
       const recipe = recipes.require(req.params.id);
       const mine = await recipes.resolveFiles(recipe, config.tier);
-      // Reference counting from disk: a file stays if any other recipe that
-      // has anything installed resolves to the same folder and name.
+      // Reference counting from disk: a file stays if another recipe that is
+      // in use resolves to the same folder and name. In use means it has an
+      // installed file of its own, not just ones it shares with this recipe:
+      // otherwise the shared files would keep each other alive (H3's text
+      // encoder and VAEs survived deleting h3-video because h3-reference
+      // "had files installed", which were those same files).
+      const mineKeys = new Set(mine.map((f) => f.relPath));
       const kept = new Set<string>();
       for (const other of recipes.list()) {
         if (other.id === recipe.id) continue;
         const files = await recipes.resolveFiles(other, config.tier);
-        if (!files.some((f) => f.installed)) continue;
+        if (!files.some((f) => f.installed && !mineKeys.has(f.relPath))) continue;
         for (const f of files) kept.add(f.relPath);
       }
       const deleted: string[] = [];

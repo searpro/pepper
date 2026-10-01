@@ -137,7 +137,7 @@ function RecipeCard({ recipe, onChanged, onGolden }: { recipe: Recipe; onChanged
           {recipe.state !== 'installed' ? (
             <Button size="sm" disabled={busy} onClick={() => void act(() => api.post(`/v1/recipes/${recipe.id}/install`, {}))}>
               {busy ? <Spinner /> : <Download />}
-              {formatBytes(recipe.missing_bytes)}
+              {formatBytes(recipe.install_bytes)}
             </Button>
           ) : (
             <Button

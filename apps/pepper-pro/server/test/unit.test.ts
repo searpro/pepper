@@ -594,6 +594,47 @@ describe('cut rendering', () => {
   });
 });
 
+describe('recipe uninstall', () => {
+  it('frees files shared only with recipes that use nothing else', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-pro-recipes-'));
+    const audio = JSON.parse(await readFile(join(FIXTURES, 'test-audio', 'recipe.json'), 'utf8'));
+    const variant = (path: string) => [{ repo: 'example/none', path, bytes: 10 }];
+    for (const [id, own] of [['share-a', 'a.safetensors'], ['share-b', 'b.safetensors']]) {
+      await mkdir(join(dir, id), { recursive: true });
+      await writeFile(join(dir, id, 'workflow.json'), await readFile(join(FIXTURES, 'test-audio', 'workflow.json')));
+      const files = [
+        { id: 'shared', folder: 'checkpoints', label: 'Shared', variants: variant('shared.safetensors') },
+        { id: 'own', folder: 'checkpoints', label: 'Own', variants: variant(own) },
+      ];
+      await writeFile(join(dir, id, 'recipe.json'), JSON.stringify({ ...audio, id, files }));
+    }
+    const server = await buildServer(await tempConfig({ RECIPES_DIR: dir }));
+    try {
+      const install = async (id: string, which: string[]) => {
+        for (const f of await server.recipes.resolveFiles(server.recipes.require(id), '32gb')) {
+          if (!which.includes(f.file.id)) continue;
+          await mkdir(join(f.path, '..'), { recursive: true });
+          await writeFile(f.path, 'x');
+        }
+      };
+      // Only A is installed; B merely resolves to the shared file. Deleting A frees both.
+      await install('share-a', ['shared', 'own']);
+      let res = (await server.app.inject({ method: 'DELETE', url: '/v1/recipes/share-a' })).json();
+      expect(res.deleted).toHaveLength(2);
+      expect(res.kept).toEqual([]);
+      // Both installed: deleting A keeps the file B still needs.
+      await install('share-a', ['shared', 'own']);
+      await install('share-b', ['own']);
+      res = (await server.app.inject({ method: 'DELETE', url: '/v1/recipes/share-a' })).json();
+      expect(res.deleted).toEqual(['checkpoints/a.safetensors']);
+      expect(res.kept).toEqual(['checkpoints/shared.safetensors']);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  });
+});
+
 describe('api', () => {
   let server: ProServer;
   beforeAll(async () => {
@@ -647,6 +688,42 @@ describe('api', () => {
     const shot = full.scenes[0].shots[0];
     // The speaker ref became the new asset's id.
     expect(shot.dialogue).toEqual([{ asset_id: full.assets[0].id, line: 'Hello.' }]);
+  });
+
+  it('refuses an install that would not fit, counting queued downloads', async () => {
+    const response = await inject('GET', '/v1/recipes/test-audio');
+    // Its one file is optional: not needed to run, but Install fetches it.
+    expect(response.json()).toMatchObject({ missing_bytes: 0, install_bytes: 10 });
+
+    // A 1 MB volume has no room once 2 GB is held back for the database.
+    const small = await buildServer(await tempConfig({ DATA_VOLUME_GB: '0.001' }));
+    try {
+      const refused = await small.app.inject({ method: 'POST', url: '/v1/recipes/test-audio/install', payload: {} });
+      expect(refused.statusCode).toBeGreaterThanOrEqual(400);
+      expect(refused.json().error.message).toMatch(/Not enough room on the data volume: Test audio needs/);
+      expect(small.downloads.list()).toHaveLength(0);
+    } finally {
+      await small.app.close();
+      small.closeDb();
+    }
+
+    // A queued download's expected size is space already spoken for.
+    const queued = await server.downloads.enqueue({
+      kind: 'comfy',
+      bundle: 'checkpoints',
+      slot: 'file',
+      url: 'https://example.invalid/never.safetensors',
+      name: 'never.safetensors',
+      expectedBytes: 5e9,
+    });
+    expect(server.downloads.pendingBytes()).toBeGreaterThanOrEqual(5e9);
+    expect(server.downloads.pendingBytes(queued.id)).toBeLessThan(5e9);
+    // It can never finish (the host does not exist); stop it if it has not failed already.
+    try {
+      server.downloads.cancel(queued.id);
+    } catch {
+      // already failed
+    }
   });
 
   it('refuses a bad recipe request before queueing', async () => {

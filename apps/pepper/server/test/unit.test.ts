@@ -47,7 +47,7 @@ import { jobsResult, selectFiles, type CatalogueComponent } from '../src/mcp/too
 import { ActivityTracker, isActivity } from '@pepper/core/services/activity.js';
 import { cgroupMemory } from '@pepper/core/services/resources.js';
 import { openDb } from '../src/db/client.js';
-import { StorageMonitor } from '@pepper/core/services/storage.js';
+import { StorageMonitor, volumeBytes } from '@pepper/core/services/storage.js';
 
 describe('config', () => {
   it('defaults OUTPUT_DIR outside DATA_DIR so outputs do not fill the persistent volume', () => {
@@ -2018,6 +2018,9 @@ describe('storage budget', () => {
     const snapshot = storage.snapshot();
     expect(snapshot?.totalBytes).toBe(10 * GB);
     expect(snapshot?.usedBytes).toBeGreaterThan(3 * 1024 * 1024 - 1);
+
+    // RunPod sizes volumes in decimal gigabytes.
+    expect(volumeBytes(100)).toBe(100e9);
 
     // No size configured: no opinion.
     const unlimited = new StorageMonitor(dir, null);

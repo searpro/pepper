@@ -148,5 +148,11 @@
     "32gb",
     "48gb",
     "96gb"
-  ]
+  ],
+  "verified": {
+    "date": "2026-10-01",
+    "gpu": "RTX PRO 4500 Blackwell 32 GB, 62 GB RAM (32gb tier)",
+    "seconds": 4.3,
+    "notes": "4 of 4 golden stills; chalkboard text rendered correctly. The first image after H3 took 76 s, and portraits generated between H3 shots ran at 37 s per step while host RAM was at 92 %."
+  }
 }

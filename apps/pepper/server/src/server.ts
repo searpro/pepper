@@ -27,7 +27,7 @@ import { AudioService } from './services/audio-gen.js';
 import { TextService } from '@pepper/core/services/text-gen.js';
 import { CharacterService } from './services/characters.js';
 import { ResourceMonitor } from '@pepper/core/services/resources.js';
-import { StorageMonitor } from '@pepper/core/services/storage.js';
+import { StorageMonitor, volumeBytes } from '@pepper/core/services/storage.js';
 import { systemRoutes } from '@pepper/core/routes/system.js';
 import { modelRoutes } from './routes/models.js';
 import { downloadRoutes } from '@pepper/core/routes/downloads.js';
@@ -88,7 +88,7 @@ export async function buildServer(config: Config): Promise<BuiltServer> {
 
   const storage = new StorageMonitor(
     paths.dataDir,
-    config.dataVolumeGb ? config.dataVolumeGb * 1024 ** 3 : null,
+    config.dataVolumeGb ? volumeBytes(config.dataVolumeGb) : null,
   );
 
   const downloads = new DownloadManager<ModelKind, ComponentSlot>(config, db, models, app.log, storage, (task) => {

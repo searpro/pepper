@@ -372,5 +372,11 @@
   "continuation": {
     "param": "previous",
     "overlap_s": 0.9167
+  },
+  "verified": {
+    "date": "2026-10-01",
+    "gpu": "RTX PRO 4500 Blackwell 32 GB, 62 GB RAM (32gb tier)",
+    "seconds": 456,
+    "notes": "Draft mode, 1344x768: 10 of 10 golden shots that had their inputs (music-sing skipped: no music recipe installed), about 7.6 min per 5 s shot; a 15 s segment takes about 29 min. A 20 s long take chained 15 s + 5.92 s and joined cleanly: the continuing segment repeats exactly 22 frames (its frame 21 matches the last frame, SSIM 0.94). A retake from 10 s kept the first 10 s and joined without a jump. talk-explainer drifted down and cropped the face."
   }
 }

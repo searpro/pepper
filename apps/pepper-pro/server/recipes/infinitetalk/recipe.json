@@ -416,5 +416,11 @@
     "48gb",
     "96gb"
   ],
-  "notes": "Takes are 3.2, 6.1 or 11.9 s at 25 fps (81 frames, then 72 more per window); audio longer than the take is cut. For two people in one frame, use infinitetalk-duo."
+  "notes": "Takes are 3.2, 6.1 or 11.9 s at 25 fps (81 frames, then 72 more per window); audio longer than the take is cut. For two people in one frame, use infinitetalk-duo.",
+  "verified": {
+    "date": "2026-10-01",
+    "gpu": "RTX PRO 4500 Blackwell 32 GB, 62 GB RAM (32gb tier)",
+    "seconds": 168,
+    "notes": "Draft mode, 832x480: 2 of 2 golden talking shots (3.6 and 2.0 min). Lips follow the speech; the draft clip is 81 frames (3.24 s), so it speaks only the start of a longer line."
+  }
 }
