@@ -535,18 +535,26 @@ Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `ltx23-audio-to-video`,
   generic fields and media by URL, the way hosted services (Higgsfield, fal)
   do, so another project can use Pepper Pro the same way (`docs/MCP.md`).
   Each is short, and none waits past 50 s.
-- **Pepper Pro is RunPod-only.** Kaggle's 16 GB is below every Pro tier.
+- **Pepper Pro runs on RunPod or Vast.ai.** Kaggle's 16 GB is below every
+  Pro tier. Vast runs the same image (`deploy/vastai`), with the models on
+  the instance's own disk, so an idle instance is stopped rather than
+  terminated, and it comes back in seconds.
 
 ### 13.3 Not yet proven or not yet built
 
-- **Six of 19 recipes have run on a GPU** (2026-10-01, an RTX PRO 4500
-  Blackwell, 32 GB, with 62 GB RAM; the 24 GB tier's cards were not
-  available): `h3-video` (10 golden shots in draft, about 7.6 min per 5 s),
-  `zimage-turbo`, `qwen3-tts`, `infinitetalk`, `infinitetalk-duo` and
-  `flux2-klein-edit`, each with a `verified` entry. H3's continuation holds on
-  real footage: a 20 s long take joined two segments with no visible seam,
+- **Eight of 20 recipes have run on a GPU** (2026-10-01), each with a
+  `verified` entry.
+  - On an RTX PRO 4500 Blackwell, 32 GB, with 62 GB RAM (the 24 GB tier's
+    cards were not available on RunPod): `h3-video` (10 golden shots in
+    draft, about 7.6 min per 5 s), `zimage-turbo`, `qwen3-tts`,
+    `infinitetalk`, `infinitetalk-duo`, `flux2-klein-edit` and `krea2-image`.
+  - On a Vast.ai RTX 4090 at the 24gb-64ram tier: `scail2-replace`, at about
+    4 min per 3.4 s draft. It keeps the scene, the motion and the
+    soundtrack, but a character's hair colour changed between seeds.
+
+  H3's continuation holds on real footage: a 20 s long take joined two segments with no visible seam,
   the continuing segment repeating exactly the 22 frames that are trimmed, and
-  a retake from 10 s kept the opening. The other 13 are validated against
+  a retake from 10 s kept the opening. The other 12 are validated against
   ComfyUI's node types (ours and ComfyUI's own `/prompt` check) but not yet
   rendered. Findings: H3 drafts are slow on this card (29 min per 15 s
   segment); switching between H3 and another model on 62 GB of host RAM
