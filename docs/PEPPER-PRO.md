@@ -528,10 +528,13 @@ Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `ltx23-audio-to-video`,
 - **H3 references use the native Ref2VA model**, not the hybrid loader, which
   holds the FL2VA and Ref2VA weights at once; worth measuring on a 48 GB tier
   before adopting.
-- **More MCP tools than three**: `pro_status`, `list_recipes`,
-  `install_recipe`, `generate` and `analyze` beside the trio, because Claude
-  needs to see what is installed, make keyframes outside a project and check
-  takes. Each is short, and none waits past 50 s.
+- **More MCP tools than three**: `pro_status`, `list_models`,
+  `install_model`, `generate_image` / `generate_video` / `generate_audio` and
+  `analyze` beside the trio, because Claude needs to see what is installed,
+  generate outside a project and check takes. The generate tools take
+  generic fields and media by URL, the way hosted services (Higgsfield, fal)
+  do, so another project can use Pepper Pro the same way (`docs/MCP.md`).
+  Each is short, and none waits past 50 s.
 - **Pepper Pro is RunPod-only.** Kaggle's 16 GB is below every Pro tier.
 
 ### 13.3 Not yet proven or not yet built
