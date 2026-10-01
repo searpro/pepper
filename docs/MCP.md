@@ -36,6 +36,39 @@ The endpoint is `https://<PEPPER_HOSTNAME>/mcp`. It accepts the API token
   no header field, such as a claude.ai custom connector. The token is redacted
   from every log line.
 
+### Claude Desktop (and claude.ai)
+
+Claude Desktop adds remote servers as **custom connectors**:
+Settings → Connectors → *Add custom connector*. The form has no header field,
+so put the token in the URL:
+
+```
+https://<PEPPER_HOSTNAME>/mcp/<token, URL-encoded>
+```
+
+URL-encode the token: a base64 token has `/` and `=` in it, which become
+`%2F` and `%3D` (for example
+`python3 -c 'import urllib.parse,os; print(urllib.parse.quote(os.environ["PEPPER_API_TOKEN"], safe=""))'`).
+Since the fix for slashes, the raw token works too, but the encoded one
+works everywhere. Leave the OAuth fields empty. The connector is reached from
+Anthropic's servers, so the hostname must be public (the Cloudflare tunnel
+is).
+
+To keep the token out of the URL, Claude Desktop can also run the server
+locally through `mcp-remote`, in `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "pepper-pro": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://<PEPPER_HOSTNAME>/mcp", "--header", "Authorization:${PEPPER_AUTH}"],
+      "env": { "PEPPER_AUTH": "Bearer <token>" }
+    }
+  }
+}
+```
+
 The server only answers while a pod is running:
 `uv run deploy/runpod/launch.py up --product pro`. A pod stops itself after
 30 idle minutes, and a running generation counts as activity.

@@ -64,7 +64,8 @@ export async function mcpRoutes(fastify: FastifyInstance, options: McpRoutesOpti
     summary: 'Model Context Protocol endpoint (Streamable HTTP, stateless)',
   };
 
-  for (const url of ['/mcp', '/mcp/:token']) {
+  // `*`, not `:token`: a token with `/` in it, pasted unencoded, spans segments.
+  for (const url of ['/mcp', '/mcp/*']) {
     app.post(url, { schema }, handle);
     app.get(url, { schema: { ...schema, hide: true } }, notAllowed);
     app.delete(url, { schema: { ...schema, hide: true } }, notAllowed);
