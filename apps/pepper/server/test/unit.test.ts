@@ -1527,6 +1527,39 @@ describe('auth', () => {
     }
   });
 
+  it('takes a path token containing / and =, raw or encoded, and 404s OAuth discovery', async () => {
+    // Base64 tokens carry `/` and `=`; a connector URL is often pasted unencoded.
+    const token = 'ab/cd+ef=';
+    const { app, closeDb } = await server({ PEPPER_API_TOKEN: token });
+    try {
+      const mcp = (url: string) =>
+        app
+          .inject({
+            method: 'POST',
+            url,
+            headers: { accept: 'application/json, text/event-stream' },
+            payload: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
+          })
+          .then((r) => r.statusCode);
+      expect(await mcp(`/mcp/${token}`)).toBe(200);
+      expect(await mcp(`/mcp/${encodeURIComponent(token)}`)).toBe(200);
+      expect(await mcp('/mcp/ab/cd')).toBe(401);
+      // A malformed escape never gets in (Fastify itself answers 400).
+      expect(await mcp('/mcp/%E0%A4%A')).toBeGreaterThanOrEqual(400);
+      expect(redactTokenPath(`/mcp/${token}`)).toBe('/mcp/[redacted]');
+
+      // Not the SPA: an HTML 200 here reads to a connector as OAuth metadata.
+      for (const url of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server']) {
+        const response = await app.inject({ url });
+        expect(response.statusCode).toBe(404);
+        expect(response.headers['content-type']).toMatch(/json/);
+      }
+    } finally {
+      await app.close();
+      closeDb();
+    }
+  });
+
   it('signs a link to one output that opens that file until it expires, and nothing else', () => {
     const now = Date.UTC(2026, 8, 30);
     const url = signMediaUrl('tok', 'a b.webm', now, 60);

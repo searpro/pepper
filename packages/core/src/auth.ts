@@ -31,8 +31,12 @@ import { errors } from './errors.js';
 export const SESSION_COOKIE = 'pepper_session';
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60;
 
-/** `/mcp/<token>` and anything below it. */
-const MCP_TOKEN_PATH = /^\/mcp\/([^/?#]+)/;
+/**
+ * `/mcp/<token>`. The token is everything after `/mcp/`, slashes included:
+ * a base64 token can contain `/`, and a connector URL pasted with the token
+ * unencoded splits it into several path segments.
+ */
+const MCP_TOKEN_PATH = /^\/mcp\/([^?#]+)/;
 
 /**
  * The cookie holds a value derived from the token rather than the token
@@ -93,9 +97,18 @@ export function isAuthenticated(request: FastifyRequest, token: string): boolean
   if (cookie && secretsMatch(sessionValue(token), cookie)) return true;
 
   const mcp = MCP_TOKEN_PATH.exec(request.url);
-  if (mcp && secretsMatch(token, decodeURIComponent(mcp[1]))) return true;
+  if (mcp && secretsMatch(token, safeDecode(mcp[1]))) return true;
 
   return isSignedMediaRequest(request.method, request.url, token);
+}
+
+/** A malformed escape is simply not the token. */
+function safeDecode(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
 }
 
 /** One output file, nothing beneath it: not `/info`, not the listing. */

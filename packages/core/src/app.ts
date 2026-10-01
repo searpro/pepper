@@ -191,10 +191,15 @@ export async function createCoreApp(options: CoreAppOptions): Promise<CoreApp> {
     // Anything that is not an API call is the SPA's own routing: serve the
     // shell and let the client router resolve it, so a deep link works on a
     // hard refresh.
+    // `/.well-known/` is not the SPA's either: MCP clients probe it for OAuth
+    // metadata, and an HTML page with status 200 there makes Claude's
+    // connector treat the server as OAuth-protected and fail. A 404 tells it
+    // there is no OAuth, so it uses the token in the URL.
     if (
       !request.url.startsWith('/v1') &&
       !request.url.startsWith('/docs') &&
       !request.url.startsWith('/mcp') &&
+      !request.url.startsWith('/.well-known/') &&
       request.method === 'GET'
     ) {
       return reply.sendFile('index.html');
