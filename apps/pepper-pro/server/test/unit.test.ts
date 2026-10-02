@@ -691,9 +691,28 @@ describe('recipe uninstall', () => {
       // Both installed: deleting A keeps the file B still needs.
       await install('share-a', ['shared', 'own']);
       await install('share-b', ['own']);
+      // The plan says so first: which file is shared, with whom, and what each choice frees.
+      const plan = (await server.app.inject({ method: 'GET', url: '/v1/recipes/share-a/delete-plan' })).json();
+      expect(plan.files).toEqual([
+        { path: 'checkpoints/shared.safetensors', label: 'Shared', bytes: 1, shared_with: ['share-b'] },
+        { path: 'checkpoints/a.safetensors', label: 'Own', bytes: 1, shared_with: [] },
+      ]);
+      expect(plan).toMatchObject({ own_bytes: 1, shared_bytes: 1 });
       res = (await server.app.inject({ method: 'DELETE', url: '/v1/recipes/share-a' })).json();
       expect(res.deleted).toEqual(['checkpoints/a.safetensors']);
       expect(res.kept).toEqual(['checkpoints/shared.safetensors']);
+      expect(res).toMatchObject({ freed_bytes: 1, affected: [] });
+      // Asked to, it deletes the shared file too, and names the recipe that loses it.
+      await install('share-a', ['own']);
+      res = (await server.app.inject({ method: 'DELETE', url: '/v1/recipes/share-a?shared=delete' })).json();
+      expect(res.deleted.sort()).toEqual(['checkpoints/a.safetensors', 'checkpoints/shared.safetensors']);
+      expect(res).toMatchObject({ kept: [], freed_bytes: 2, affected: ['share-b'] });
+      expect((await server.app.inject({ method: 'GET', url: '/v1/recipes/share-b' })).json().state).toBe('partial');
+      // The listing carries the storage indicator's figures (the filesystem's, with no volume size set).
+      const list = (await server.app.inject({ method: 'GET', url: '/v1/recipes' })).json();
+      expect(list.storage).toMatchObject({ source: 'filesystem' });
+      expect(list.storage.totalBytes).toBeGreaterThan(0);
+      expect(list.downloading_bytes).toBe(0);
     } finally {
       await server.app.close();
       server.closeDb();
@@ -789,6 +808,11 @@ describe('api', () => {
       server.downloads.cancel(queued.id);
     } catch {
       // already failed
+    }
+    // Wait for it to settle: its runner pumps the queue as it ends, which
+    // after the suite closes the database is an unhandled rejection.
+    for (let i = 0; i < 100 && !['failed', 'cancelled'].includes(server.downloads.get(queued.id)?.status ?? ''); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
   });
 

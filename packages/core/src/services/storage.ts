@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { statfs } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { errors } from '../errors.js';
 
@@ -22,6 +23,16 @@ export interface StorageSnapshot {
   /** Null until the first measurement finishes. */
   usedBytes: number | null;
   totalBytes: number;
+}
+
+/** How full the data volume is, for a storage indicator. */
+export interface StorageUsage {
+  /** Null until the first measurement of a quota finishes. */
+  usedBytes: number | null;
+  totalBytes: number;
+  freeBytes: number | null;
+  /** `quota`: DATA_VOLUME_GB, measured with `du`; `filesystem`: what `statfs` reports. */
+  source: 'quota' | 'filesystem';
 }
 
 /**
@@ -57,6 +68,26 @@ export class StorageMonitor {
     if (this.limitBytes === null) return null;
     if (!this.measured || Date.now() - this.measured.at > MAX_AGE_MS) void this.measure();
     return { usedBytes: this.measured?.bytes ?? null, totalBytes: this.limitBytes };
+  }
+
+  /**
+   * Used, total and free space for display, never waiting on `du`. Without a
+   * configured limit (a local disk, whose size the filesystem does report)
+   * this is `statfs`; null if even that fails.
+   */
+  async usage(): Promise<StorageUsage | null> {
+    const snapshot = this.snapshot();
+    if (snapshot) {
+      const { usedBytes, totalBytes } = snapshot;
+      return { usedBytes, totalBytes, freeBytes: usedBytes === null ? null : Math.max(0, totalBytes - usedBytes), source: 'quota' };
+    }
+    try {
+      const fs = await statfs(this.dir);
+      const totalBytes = fs.blocks * fs.bsize;
+      return { usedBytes: totalBytes - fs.bfree * fs.bsize, totalBytes, freeBytes: fs.bavail * fs.bsize, source: 'filesystem' };
+    } catch {
+      return null;
+    }
   }
 
   /** Forget the measurement: a model was installed or deleted. */
@@ -107,6 +138,7 @@ export class StorageMonitor {
   }
 }
 
+/** Decimal, like the limit itself (`volumeBytes`) and the hosts' own figures. */
 function gb(bytes: number): string {
-  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  return `${(bytes / 1e9).toFixed(1)} GB`;
 }

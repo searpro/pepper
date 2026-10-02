@@ -60,6 +60,32 @@ export async function recipeRoutes(fastify: FastifyInstance, options: RecipeRout
   const summary = async (recipe: Recipe) =>
     recipeSummary(recipe, await recipes.status(recipe, config.tier, config.licenceMode));
 
+  /**
+   * A recipe's installed files and, for each, the other recipes that still
+   * use it. Reference counting from disk: another recipe uses a file if it
+   * resolves to the same folder and name and is in use, meaning it has an
+   * installed file of its own, not just ones it shares with this recipe.
+   * Otherwise shared files would keep each other alive (H3's text encoder and
+   * VAEs survived deleting h3-video because h3-reference "had files
+   * installed", which were those same files).
+   */
+  const deletePlan = async (recipe: Recipe) => {
+    const mine = await recipes.resolveFiles(recipe, config.tier);
+    const mineKeys = new Set(mine.map((f) => f.relPath));
+    const users = new Map<string, string[]>();
+    for (const other of recipes.list()) {
+      if (other.id === recipe.id) continue;
+      const files = await recipes.resolveFiles(other, config.tier);
+      if (!files.some((f) => f.installed && !mineKeys.has(f.relPath))) continue;
+      for (const f of files) {
+        if (mineKeys.has(f.relPath)) users.set(f.relPath, [...(users.get(f.relPath) ?? []), other.id]);
+      }
+    }
+    return mine
+      .filter((f) => f.installed)
+      .map((f) => ({ file: f, path: f.relPath, label: f.file.label, bytes: f.size ?? 0, shared_with: users.get(f.relPath) ?? [] }));
+  };
+
   app.get(
     '/v1/recipes',
     {
@@ -72,6 +98,9 @@ export async function recipeRoutes(fastify: FastifyInstance, options: RecipeRout
     async (req) => ({
       tier: config.tier,
       licence_mode: config.licenceMode,
+      // For the storage indicator: room left, and what queued downloads will still take of it.
+      storage: await storage.usage(),
+      downloading_bytes: downloads.pendingBytes(),
       recipes: await Promise.all(
         recipes
           .list()
@@ -135,45 +164,61 @@ export async function recipeRoutes(fastify: FastifyInstance, options: RecipeRout
     },
   );
 
+  app.get(
+    '/v1/recipes/:id/delete-plan',
+    {
+      schema: {
+        tags: ['recipes'],
+        summary: "What deleting a recipe's files would remove, and which files other recipes share",
+        description:
+          'Each installed file with its size and `shared_with`, the installed recipes that use it too. ' +
+          '`own_bytes` is freed whatever is chosen; `shared_bytes` only with `shared=delete`.',
+        params: idParams,
+      },
+    },
+    async (req) => {
+      const plan = await deletePlan(recipes.require(req.params.id));
+      return {
+        recipe: req.params.id,
+        files: plan.map(({ file: _file, ...rest }) => rest),
+        own_bytes: plan.filter((f) => !f.shared_with.length).reduce((sum, f) => sum + f.bytes, 0),
+        shared_bytes: plan.filter((f) => f.shared_with.length).reduce((sum, f) => sum + f.bytes, 0),
+      };
+    },
+  );
+
   app.delete(
     '/v1/recipes/:id',
     {
       schema: {
         tags: ['recipes'],
-        summary: "Delete a recipe's files, keeping any another installed recipe still uses",
+        summary: "Delete a recipe's files",
+        description:
+          'Files other installed recipes use are kept unless `shared=delete`, which removes them too ' +
+          'and leaves those recipes partly installed (`affected`). GET …/delete-plan shows the choice first.',
         params: idParams,
+        querystring: z.object({ shared: z.enum(['keep', 'delete']).default('keep') }),
       },
     },
     async (req) => {
       const recipe = recipes.require(req.params.id);
-      const mine = await recipes.resolveFiles(recipe, config.tier);
-      // Reference counting from disk: a file stays if another recipe that is
-      // in use resolves to the same folder and name. In use means it has an
-      // installed file of its own, not just ones it shares with this recipe:
-      // otherwise the shared files would keep each other alive (H3's text
-      // encoder and VAEs survived deleting h3-video because h3-reference
-      // "had files installed", which were those same files).
-      const mineKeys = new Set(mine.map((f) => f.relPath));
-      const kept = new Set<string>();
-      for (const other of recipes.list()) {
-        if (other.id === recipe.id) continue;
-        const files = await recipes.resolveFiles(other, config.tier);
-        if (!files.some((f) => f.installed && !mineKeys.has(f.relPath))) continue;
-        for (const f of files) kept.add(f.relPath);
-      }
+      const plan = await deletePlan(recipe);
       const deleted: string[] = [];
-      const shared: string[] = [];
-      for (const file of mine) {
-        const key = file.relPath;
-        if (!file.installed) continue;
-        if (kept.has(key)) {
-          shared.push(key);
+      const kept: string[] = [];
+      const affected = new Set<string>();
+      let freed = 0;
+      for (const entry of plan) {
+        if (entry.shared_with.length && req.query.shared === 'keep') {
+          kept.push(entry.path);
           continue;
         }
-        await rm(file.path, { force: true });
-        deleted.push(key);
+        await rm(entry.file.path, { force: true });
+        deleted.push(entry.path);
+        freed += entry.bytes;
+        for (const id of entry.shared_with) affected.add(id);
       }
-      return { recipe: recipe.id, deleted, kept: shared };
+      storage.invalidate();
+      return { recipe: recipe.id, deleted, kept, freed_bytes: freed, affected: [...affected] };
     },
   );
 

@@ -5,12 +5,17 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-export function formatBytes(bytes: number | null | undefined): string {
+/**
+ * `decimal` counts 1 GB as 10^9 bytes, as volume sizes and hosts do, so a
+ * 100 GB volume reads as 100 GB rather than 93.1.
+ */
+export function formatBytes(bytes: number | null | undefined, { decimal = false }: { decimal?: boolean } = {}): string {
   if (bytes === null || bytes === undefined) return '—';
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  const value = bytes / 1024 ** exponent;
+  const base = decimal ? 1000 : 1024;
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(base)), units.length - 1);
+  const value = bytes / base ** exponent;
   return `${value.toFixed(value >= 100 || exponent === 0 ? 0 : 1)} ${units[exponent]}`;
 }
 
