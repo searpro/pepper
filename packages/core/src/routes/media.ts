@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { copyFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { stat, unlink } from 'node:fs/promises';
 import { extname } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -7,7 +7,8 @@ import { z } from 'zod';
 import { errors } from '../errors.js';
 import type { JobManager } from '../jobs/manager.js';
 import { safeResolve, type Paths } from '../paths.js';
-import { listFiles, uniqueOutputName } from '../util/files.js';
+import { listFiles } from '../util/files.js';
+import { importOutput, storeUpload } from '../util/uploads.js';
 
 /**
  * Outputs and uploads — what the UI's Media page is built from (requirement
@@ -212,12 +213,10 @@ export async function mediaRoutes(fastify: FastifyInstance, options: MediaRoutes
         const ext = extname(file.filename || '').toLowerCase() || '.bin';
         // The client's filename is never used as the stored name: it is
         // attacker-controlled, may collide with an existing upload, and would
-        // let one request overwrite another's reference image.
-        const name = uniqueOutputName(ext.replace(/^\./, ''), 'upload');
-        const path = safeResolve(paths.uploadsDir, name);
-
-        await writeFile(path, await file.toBuffer());
-        const size = (await stat(path)).size;
+        // let one request overwrite another's reference image. The content's
+        // hash is: the same file uploaded again is the same upload.
+        const name = await storeUpload(paths.uploadsDir, await file.toBuffer(), ext);
+        const size = (await stat(safeResolve(paths.uploadsDir, name))).size;
 
         uploaded.push({
           name,
@@ -234,32 +233,25 @@ export async function mediaRoutes(fastify: FastifyInstance, options: MediaRoutes
     },
   );
 
-  /**
-   * Reuse a generated image as an input. It is copied rather than referenced:
-   * outputs are swept by the retention timer, and an edit queued against one
-   * should not fail because the source aged out while it waited.
-   */
+  /** Reuse a generated file as an input, without downloading and uploading it (`importOutput`). */
   app.post(
     '/v1/inputs/from-output',
     {
       schema: {
         tags: ['media'],
-        summary: 'Copy a generated output into uploads, for use as an init or reference image',
+        summary: 'Use a generated output as an input (linked into uploads; picking it again reuses it)',
         body: z.object({ name: z.string().min(1) }),
         response: { 201: z.unknown() },
       },
     },
     async (req, reply) => {
-      const from = safeResolve(paths.outputDir, req.body.name);
       try {
-        await stat(from);
+        await stat(safeResolve(paths.outputDir, req.body.name));
       } catch {
         throw errors.outputNotFound(req.body.name);
       }
-      const ext = extname(req.body.name).toLowerCase() || '.png';
-      const name = uniqueOutputName(ext.replace(/^\./, ''), 'upload');
+      const name = await importOutput(paths.outputDir, paths.uploadsDir, req.body.name);
       const path = safeResolve(paths.uploadsDir, name);
-      await copyFile(from, path);
       return reply.code(201).send({
         name,
         originalName: req.body.name,

@@ -14,6 +14,10 @@ Loaded when working under `apps/pepper-pro/web/`. Root `CLAUDE.md` has commands 
   with other installed recipes; golden shots in `components/Golden.tsx`),
   `Media.tsx` (generated and uploaded files: search, kind/model filters and
   sort, select all and bulk delete, a full-size viewer with arrow keys).
+- Media inputs (`components/inputs.tsx` `MediaField`) take a file from the
+  computer or one from the library: an earlier upload is reused as is, a
+  generated file is linked in through `POST /v1/inputs/from-output`. Uploads
+  are named by content (core's `util/uploads.ts`), so nothing is stored twice.
 - A recipe whose licence has a `ui_notice` (MiniMax H3) must show it where its
   output is shown: use `LicenceNotice`.
 - `npm run build` writes to `../server/public`. Develop with
