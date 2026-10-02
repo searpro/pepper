@@ -12,7 +12,8 @@ Loaded when working under `apps/pepper-pro/web/`. Root `CLAUDE.md` has commands 
   `components/inputs.tsx`), `Recipes.tsx` (storage bar, status and kind
   filters, install, and a delete dialog that keeps or removes files shared
   with other installed recipes; golden shots in `components/Golden.tsx`),
-  `Media.tsx`.
+  `Media.tsx` (generated and uploaded files: search, kind/model filters and
+  sort, select all and bulk delete, a full-size viewer with arrow keys).
 - A recipe whose licence has a `ui_notice` (MiniMax H3) must show it where its
   output is shown: use `LicenceNotice`.
 - `npm run build` writes to `../server/public`. Develop with
