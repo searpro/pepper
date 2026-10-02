@@ -28,7 +28,7 @@ Configuration comes from `deploy/vastai/.env` (git-ignored), falling back to
 `deploy/runpod/.env` and `deploy/kaggle/.env` for the PEPPER_* values they
 share, and the process environment beats all three:
 
-    VAST_API_KEY=...          cloud.vast.ai → Account → Keys (or the CLI's ~/.config/vastai/vast_api_key)
+    VAST_API_KEY=...          cloud.vast.ai → Account → Keys (or VAST_AI_API_KEY, or the CLI's ~/.config/vastai/vast_api_key)
     PEPPER_API_TOKEN=...      required
     PEPPER_TUNNEL_TOKEN=...   with PEPPER_HOSTNAME: serve at a fixed hostname
     PEPPER_HOSTNAME=...
@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import threading
 import time
@@ -49,6 +50,8 @@ from pathlib import Path
 import requests
 
 API = "https://console.vast.ai/api/v0"
+# Listing instances moved to v1 (v0 answers 410); everything else is still v0.
+API_V1 = "https://console.vast.ai/api/v1"
 HERE = Path(__file__).resolve().parent
 ENV_FILES = [HERE / ".env", HERE.parent / "runpod" / ".env", HERE.parent / "kaggle" / ".env"]
 KEY_FILES = [Path.home() / ".config" / "vastai" / "vast_api_key", Path.home() / ".vast_api_key"]
@@ -91,6 +94,9 @@ def load_env() -> dict[str, str]:
     for key in ("VAST_API_KEY", *SECRET_KEYS, "PEPPER_HOSTNAME"):
         if os.environ.get(key):
             values[key] = os.environ[key]
+    # Both spellings are in use; VAST_API_KEY is the one Vast's own docs give.
+    if not values.get("VAST_API_KEY"):
+        values["VAST_API_KEY"] = os.environ.get("VAST_AI_API_KEY") or values.get("VAST_AI_API_KEY", "")
     if not values.get("VAST_API_KEY"):
         for path in KEY_FILES:
             if path.exists() and path.read_text().strip():
@@ -105,8 +111,8 @@ class Vast:
         if key:
             self.session.headers["Authorization"] = f"Bearer {key}"
 
-    def call(self, method: str, path: str, **kwargs):
-        r = self.session.request(method, f"{API}{path}", timeout=60, **kwargs)
+    def call(self, method: str, path: str, base: str = API, **kwargs):
+        r = self.session.request(method, f"{base}{path}", timeout=60, **kwargs)
         if r.status_code >= 400:
             raise RuntimeError(f"{method} {path} → {r.status_code}: {r.text[:500]}")
         body = r.json() if r.content else None
@@ -115,7 +121,7 @@ class Vast:
         return body
 
     def instances(self) -> list[dict]:
-        listed = self.call("GET", "/instances/", params={"owner": "me"})
+        listed = self.call("GET", "/instances/", base=API_V1)
         return [i for i in listed.get("instances", []) if i.get("label") == LABEL]
 
     def instance(self, instance_id: int) -> dict | None:
@@ -150,6 +156,12 @@ class Vast:
         return listed.get("offers", []) if isinstance(listed, dict) else listed
 
 
+# Vast's status message follows the image pull layer by layer; only the
+# "Pulling from" and "Status:" lines say anything.
+PULL_NOISE = re.compile(r"^[0-9a-f]{12}: (Pulling fs layer|Waiting|Downloading|Verifying Checksum|"
+                        r"Download complete|Extracting|Pull complete|Already exists)")
+
+
 def healthy(url: str | None) -> bool:
     if not url:
         return False
@@ -170,11 +182,16 @@ def public_url(env: dict[str, str], inst: dict | None = None) -> str | None:
 
 
 def describe(inst: dict) -> str:
-    ram = inst.get("cpu_ram")
+    # The container's limit, not the host's: cpu_ram is the whole machine.
+    ram = inst.get("mem_limit") or (inst.get("cpu_ram") or 0) / 1000
+    # dph_total stays the running price; a stopped instance pays for its disk only.
+    stopped = inst.get("intended_status") == "stopped"
+    cost = (f"${inst.get('storage_total_cost') or 0:.3f}/h for the disk while stopped" if stopped
+            else f"${inst.get('dph_total', 0):.3f}/h")
     return (f"{inst['id']}: {inst.get('actual_status') or 'starting'} (wants {inst.get('intended_status')}), "
             f"{inst.get('gpu_name')} {round((inst.get('gpu_ram') or 0) / 1000)} GB, "
-            f"{round(ram / 1000) if ram else '?'} GB RAM, {inst.get('geolocation') or '?'}, "
-            f"${inst.get('dph_total', 0):.3f}/h, {inst.get('disk_space', '?')} GB disk")
+            f"{round(ram) if ram else '?'} GB RAM, {inst.get('geolocation') or '?'}, "
+            f"{cost}, {inst.get('disk_space', '?')} GB disk")
 
 
 # --- Commands -------------------------------------------------------------------
@@ -213,6 +230,9 @@ def follow_logs(vast: Vast, instance_id: int, stop: threading.Event, tail: int =
                 r = requests.get(url, timeout=30)
                 if r.ok:
                     lines = r.text.splitlines()
+                    # Docker's answer while the image is still being pulled, not a log.
+                    if any("No such container" in line for line in lines[:2]):
+                        lines = None
                     break
                 time.sleep(1)
             if lines is not None:
@@ -284,9 +304,18 @@ def cmd_up(vast: Vast, env: dict, a) -> None:
         # A stopped instance comes back on the same machine with its disk, so
         # its models are already there. Its GPU may be rented by someone else
         # meanwhile; Vast then holds it until the GPU frees up.
-        vast.call("PUT", f"/instances/{inst['id']}/", json={"state": "running"})
         instance_id = inst["id"]
         print(f"starting the stopped instance {describe(inst)}", flush=True)
+        try:
+            vast.call("PUT", f"/instances/{inst['id']}/", json={"state": "running"})
+        except RuntimeError as exc:
+            # Vast refuses with "state change queued" when the GPU is taken, and
+            # starts the instance by itself once it frees up.
+            if "queued" not in str(exc):
+                raise
+            print("its GPU is rented by someone else right now; Vast has queued the start and will run it "
+                  "when the GPU frees up. `down` cancels that, `up --fresh` rents another machine "
+                  "(models download again).", flush=True)
         print("its environment is the one it was created with; `up --fresh` to change image, tier or tokens", flush=True)
     else:
         inst_env = {
@@ -311,6 +340,7 @@ def cmd_up(vast: Vast, env: dict, a) -> None:
     threading.Thread(target=follow_logs, args=(vast, instance_id, stop), daemon=True).start()
     deadline = time.time() + a.wait * 60
     last_msg = None
+    exited_since: float | None = None
     try:
         while time.time() < deadline:
             inst = vast.instance(instance_id)
@@ -321,12 +351,19 @@ def cmd_up(vast: Vast, env: dict, a) -> None:
             if healthy(url):
                 break
             msg = (inst.get("status_msg") or "").strip()
-            if msg and msg != last_msg:
+            if msg and msg != last_msg and not PULL_NOISE.match(msg):
                 print(f"[vast] {inst.get('actual_status') or 'starting'}: {msg[:200]}", flush=True)
                 last_msg = msg
+            # actual_status lags: a restarted instance reads "exited" for a while
+            # after its container is back (Pepper answered at once in testing).
+            # Only an exit that lasts is a crash.
             if inst.get("actual_status") == "exited" and inst.get("intended_status") == "running":
-                stop.set()
-                sys.exit("the container exited; see the log above (`down --destroy` to remove it)")
+                exited_since = exited_since or time.time()
+                if time.time() - exited_since > 300:
+                    stop.set()
+                    sys.exit("the container exited; see the log above (`down --destroy` to remove it)")
+            else:
+                exited_since = None
             time.sleep(10)
         else:
             stop.set()

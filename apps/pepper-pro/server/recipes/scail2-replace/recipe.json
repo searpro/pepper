@@ -500,5 +500,11 @@
     "48gb",
     "96gb"
   ],
+  "verified": {
+    "date": "2026-10-01",
+    "gpu": "RTX 4090 24 GB, 90 GB RAM (24gb-64ram tier, Vast.ai)",
+    "seconds": 248,
+    "notes": "Draft mode, 896x512, 81 frames (3.4 s at the driving video's 24 fps): Wan-Animate's replace example re-cast with a Z-Image character, twice (252 s with the model load, 245 s warm). The scene, camera, motion, timing and soundtrack were kept and the outfit carried through; the hair colour held in one seed and turned blonde in the other, so try a few seeds."
+  },
   "notes": "Frames are the driving video's, at its frame rate (81, 157 or 309: windows of 81 overlapping by 5). A driving video shorter than the mode repeats its last frames. Distilled, 6 steps."
 }

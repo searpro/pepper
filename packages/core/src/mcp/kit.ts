@@ -1,4 +1,4 @@
-import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { readFile, stat, unlink } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { FastifyInstance } from 'fastify';
@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { signMediaUrl } from '../auth.js';
 import { safeResolve } from '../paths.js';
 import { contentType } from '../routes/media.js';
-import { uniqueOutputName } from '../util/files.js';
+import { storeUpload } from '../util/uploads.js';
 import { ffmpegAvailable, runFfmpeg } from '../util/ffmpeg.js';
 import { JOB_KINDS, type Job, type JobManager } from '../jobs/manager.js';
 import { MEDIA_VIEW_HTML, MEDIA_VIEW_MIME, MEDIA_VIEW_URI, mediaViewMeta } from './media-view.js';
@@ -444,9 +444,8 @@ export function registerInputTool(server: McpServer, ctx: ToolContext): void {
 
       // Written directly rather than through POST /v1/inputs: that route is
       // multipart, which app.inject cannot build without a form library. The
-      // naming mirrors it — never the caller's filename.
-      const name = uniqueOutputName(ext.replace(/^\./, '').toLowerCase(), 'upload');
-      await writeFile(safeResolve(ctx.uploadsDir, name), data);
+      // naming mirrors it (by content, never the caller's filename).
+      const name = await storeUpload(ctx.uploadsDir, data, ext);
       return { content: [json({ name, size: data.length, url: `${ctx.baseUrl}/v1/inputs/${name}` })] };
     },
   );

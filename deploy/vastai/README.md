@@ -16,7 +16,7 @@ and the storage model differ.
 | | RunPod | Vast.ai |
 | --- | --- | --- |
 | Hosts | Secure data centers | A marketplace: data centers and individual hosts, verified or not |
-| Price | RTX 4090 ≈ $0.6–0.7/h | RTX 4090 ≈ $0.3–0.5/h; disk included in the offer price |
+| Price | RTX 4090 ≈ $0.6–0.7/h | RTX 4090 ≈ $0.3–0.5/h, disk included; downloads are billed per TB (below) |
 | Models | A network volume, kept between pods on any machine in its data center | The instance's own disk, kept while the instance is stopped, on that one machine |
 | `down` / idle | Terminate (the volume stays) | Stop (the disk stays; only storage is billed) |
 | Restart | Any free GPU in the volume's data center | The same machine, once its GPU is free; `up --fresh` rents another |
@@ -28,7 +28,8 @@ volume.
 ## One-time setup
 
 1. **API key**: cloud.vast.ai → Account → Keys. Put it in
-   `deploy/vastai/.env` (git-ignored), or export `VAST_API_KEY`. A key saved
+   `deploy/vastai/.env` (git-ignored), or export `VAST_API_KEY` (or
+   `VAST_AI_API_KEY`). A key saved
    by the `vastai` CLI (`~/.config/vastai/vast_api_key`) also works:
 
    ```bash
@@ -68,7 +69,9 @@ uv run deploy/vastai/launch.py up
   once `/health` answers.
 
 The first boot downloads the image (several GB for Pro) and then the
-backends or models. A restart skips both.
+backends or models. A restart skips both. Measured for Pepper Pro on an
+RTX 4090 in Romania, it took 8 minutes from renting to `Pepper is up`, most
+of it pulling the image.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -93,7 +96,7 @@ uv run deploy/vastai/launch.py down --destroy  # delete the instance and its dis
 - Ctrl-C during `up` only detaches. The instance keeps running, and billing.
 - A stopped instance keeps the environment it was created with. Changing
   the image, tier or tokens takes `up --fresh`.
-- Restarting a stopped instance can wait: someone else may have rented its
+- Restarting a stopped instance can wait (Vast answers "state change queued"): someone else may have rented its
   GPU in the meantime. Vast then holds the instance until the GPU frees up.
   If you don't want to wait, run `up --fresh`, which rents a new machine;
   the models download again.
@@ -113,6 +116,18 @@ the tier's GPUs and host RAM, and tells the server its tier:
 For example, `gpus --product pro --tier 32gb` shows what is on offer right
 now. Give a Pro tier a larger `--disk`: H3, InfiniteTalk and Z-Image
 together are about 95 GB.
+
+## Costs besides the GPU
+
+A host sets its own prices, and `status` shows the total per hour. For
+the 4090 host used in the first test:
+
+- **Disk:** $0.20 per GB per month. That is in the hourly price while the
+  instance runs, and it is all you pay while it is stopped: 150 GB costs
+  about $0.04/h, or $30 a month. `down --destroy` ends it.
+- **Downloads:** $2.67 per TB. Installing Z-Image (21 GB) costs about
+  $0.05, and H3 plus InfiniteTalk plus Z-Image (about 95 GB) about $0.25. A
+  restart re-downloads nothing.
 
 ## Storage
 

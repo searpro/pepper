@@ -126,7 +126,11 @@ as the 4090 numbers below were for Pepper.
   would not fit is refused up front, with the numbers; a Pepper Pro recipe
   install is refused whole, counting its optional files and the downloads
   already queued. Sizes are decimal gigabytes, as RunPod counts them.
-  `pepper_status` and `/v1/system/status` show `storage` (used / total). If
+  `pepper_status` and `/v1/system/status` show `storage` (used / total), and
+  Pepper Pro's Recipes screen shows a storage bar and disables an install
+  that would not fit. Its delete button lists what a recipe's delete would
+  remove: files another installed recipe uses are kept unless you choose to
+  delete them too (`DELETE /v1/recipes/:id?shared=delete`). If
   the volume fills anyway, the entrypoint deletes unfinished downloads
   (`.part` files) at the next boot so the server can start; Pepper also falls
   back to a temporary in-memory database and says so in the log. Delete a

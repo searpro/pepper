@@ -1,8 +1,8 @@
-import { copyFile, stat, writeFile } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { extname } from 'node:path';
 import { errors } from '@pepper/core/errors.js';
 import { safeResolve } from '@pepper/core/paths.js';
-import { uniqueOutputName } from '@pepper/core/util/files.js';
+import { importOutput, storeUpload } from '@pepper/core/util/uploads.js';
 import { sizeFor } from './projects/derive.js';
 import type { Recipe, RecipeParam } from './recipes/schema.js';
 import type { RecipeStatus } from './recipes/store.js';
@@ -296,26 +296,18 @@ export async function resolveMedia(value: string, dirs: { uploadsDir: string; ou
     const type = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() ?? '';
     const ext = extname(new URL(value).pathname).replace(/^\./, '').toLowerCase() || EXT_BY_TYPE[type];
     if (!ext) throw errors.validation(`Cannot tell what kind of file ${value} is (content-type "${type}")`);
-    const name = uniqueOutputName(ext, 'upload');
-    await writeFile(safeResolve(dirs.uploadsDir, name), data);
-    return name;
+    return storeUpload(dirs.uploadsDir, data, ext);
   }
   const dataUri = /^data:([^;,]+);base64,(.*)$/s.exec(value);
   if (dataUri) {
     const ext = EXT_BY_TYPE[dataUri[1].toLowerCase()];
     if (!ext) throw errors.validation(`Unsupported data URI type ${dataUri[1]}`);
-    const name = uniqueOutputName(ext, 'upload');
-    await writeFile(safeResolve(dirs.uploadsDir, name), Buffer.from(dataUri[2], 'base64'));
-    return name;
+    return storeUpload(dirs.uploadsDir, Buffer.from(dataUri[2], 'base64'), ext);
   }
   // A signed or plain link to one of our own outputs or uploads, by its last segment.
   const bare = decodeURIComponent(value.split('?')[0].split('/').pop() ?? value);
   if (await exists(safeResolve(dirs.uploadsDir, bare))) return bare;
-  if (await exists(safeResolve(dirs.outputDir, bare))) {
-    const name = uniqueOutputName(extname(bare).replace(/^\./, '') || 'bin', 'upload');
-    await copyFile(safeResolve(dirs.outputDir, bare), safeResolve(dirs.uploadsDir, name));
-    return name;
-  }
+  if (await exists(safeResolve(dirs.outputDir, bare))) return importOutput(dirs.outputDir, dirs.uploadsDir, bare);
   throw errors.validation(`"${value}" is not a URL, a data URI, an upload or an output name`);
 }
 

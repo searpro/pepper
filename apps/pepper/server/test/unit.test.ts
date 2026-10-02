@@ -2055,10 +2055,17 @@ describe('storage budget', () => {
     // RunPod sizes volumes in decimal gigabytes.
     expect(volumeBytes(100)).toBe(100e9);
 
-    // No size configured: no opinion.
+    // The indicator's figures: the quota's, with free space derived from it.
+    expect(await storage.usage()).toMatchObject({ totalBytes: 10 * GB, source: 'quota' });
+    expect((await storage.usage())?.freeBytes).toBe(10 * GB - (snapshot?.usedBytes ?? 0));
+
+    // No size configured: no opinion on room, but the filesystem's own figures to show.
     const unlimited = new StorageMonitor(dir, null);
     await expect(unlimited.assertRoom(1e15)).resolves.toBeUndefined();
     expect(unlimited.snapshot()).toBeNull();
+    const disk = await unlimited.usage();
+    expect(disk).toMatchObject({ source: 'filesystem' });
+    expect(disk!.totalBytes).toBeGreaterThan(disk!.freeBytes!);
   });
 });
 

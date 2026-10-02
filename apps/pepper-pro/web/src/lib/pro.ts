@@ -59,6 +59,18 @@ export interface RecipeList {
   licence_mode: 'personal' | 'commercial';
   recipes: Recipe[];
   broken: { id: string; error: string }[];
+  /** The data volume: its configured size (`quota`) or, locally, the disk's. */
+  storage: { usedBytes: number | null; totalBytes: number; freeBytes: number | null; source: 'quota' | 'filesystem' } | null;
+  /** What queued and running downloads have still to write. */
+  downloading_bytes: number;
+}
+
+/** GET /v1/recipes/:id/delete-plan: the installed files, and the other recipes sharing each. */
+export interface DeletePlan {
+  recipe: string;
+  files: { path: string; label: string; bytes: number; shared_with: string[] }[];
+  own_bytes: number;
+  shared_bytes: number;
 }
 
 export const ASPECTS = ['9:16', '16:9', '1:1', '4:5', '4:3', '3:4', '21:9'] as const;

@@ -691,9 +691,28 @@ describe('recipe uninstall', () => {
       // Both installed: deleting A keeps the file B still needs.
       await install('share-a', ['shared', 'own']);
       await install('share-b', ['own']);
+      // The plan says so first: which file is shared, with whom, and what each choice frees.
+      const plan = (await server.app.inject({ method: 'GET', url: '/v1/recipes/share-a/delete-plan' })).json();
+      expect(plan.files).toEqual([
+        { path: 'checkpoints/shared.safetensors', label: 'Shared', bytes: 1, shared_with: ['share-b'] },
+        { path: 'checkpoints/a.safetensors', label: 'Own', bytes: 1, shared_with: [] },
+      ]);
+      expect(plan).toMatchObject({ own_bytes: 1, shared_bytes: 1 });
       res = (await server.app.inject({ method: 'DELETE', url: '/v1/recipes/share-a' })).json();
       expect(res.deleted).toEqual(['checkpoints/a.safetensors']);
       expect(res.kept).toEqual(['checkpoints/shared.safetensors']);
+      expect(res).toMatchObject({ freed_bytes: 1, affected: [] });
+      // Asked to, it deletes the shared file too, and names the recipe that loses it.
+      await install('share-a', ['own']);
+      res = (await server.app.inject({ method: 'DELETE', url: '/v1/recipes/share-a?shared=delete' })).json();
+      expect(res.deleted.sort()).toEqual(['checkpoints/a.safetensors', 'checkpoints/shared.safetensors']);
+      expect(res).toMatchObject({ kept: [], freed_bytes: 2, affected: ['share-b'] });
+      expect((await server.app.inject({ method: 'GET', url: '/v1/recipes/share-b' })).json().state).toBe('partial');
+      // The listing carries the storage indicator's figures (the filesystem's, with no volume size set).
+      const list = (await server.app.inject({ method: 'GET', url: '/v1/recipes' })).json();
+      expect(list.storage).toMatchObject({ source: 'filesystem' });
+      expect(list.storage.totalBytes).toBeGreaterThan(0);
+      expect(list.downloading_bytes).toBe(0);
     } finally {
       await server.app.close();
       server.closeDb();
@@ -721,6 +740,38 @@ describe('api', () => {
     const audio = body.recipes.find((r: { id: string }) => r.id === 'test-audio');
     expect(audio).toMatchObject({ state: 'installed', licence: { commercial: 'no' } });
     expect(audio.files[0]).toMatchObject({ folder: 'checkpoints', installed: false, optional: true });
+  });
+
+  it('keeps one upload per distinct input, and links generated files rather than copying them', async () => {
+    const multipart = (bytes: string) => {
+      const boundary = 'pepperboundary';
+      return {
+        method: 'POST' as const,
+        url: '/v1/inputs',
+        headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+        payload: `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="ref.png"\r\nContent-Type: image/png\r\n\r\n${bytes}\r\n--${boundary}--\r\n`,
+      };
+    };
+    const first = (await server.app.inject(multipart('same bytes'))).json();
+    const again = (await server.app.inject(multipart('same bytes'))).json();
+    const other = (await server.app.inject(multipart('other bytes'))).json();
+    expect(again.name).toBe(first.name);
+    expect(other.name).not.toBe(first.name);
+    expect(first.name).toMatch(/^upload-[0-9a-f]{20}\.png$/);
+
+    // A generated file picked as an input twice is one upload, sharing the output's bytes on disk.
+    const output = 'test-video-2026-10-02T00-00-00-000Z-abcd1234.mp4';
+    await writeFile(join(server.paths.outputDir, output), 'video bytes');
+    const picked = (await inject('POST', '/v1/inputs/from-output', { name: output })).json();
+    const pickedAgain = (await inject('POST', '/v1/inputs/from-output', { name: output })).json();
+    expect(picked.name).toBe(`from-${output}`);
+    expect(pickedAgain.name).toBe(picked.name);
+    const [source, linked] = await Promise.all([stat(join(server.paths.outputDir, output)), stat(join(server.paths.uploadsDir, picked.name))]);
+    expect(linked.ino).toBe(source.ino);
+    // It outlives the output, which the retention timer sweeps.
+    await inject('DELETE', `/v1/outputs/${output}`);
+    expect((await inject('GET', `/v1/inputs/${picked.name}`)).statusCode).toBe(200);
+    expect((await inject('POST', '/v1/inputs/from-output', { name: 'missing.png' })).statusCode).toBe(404);
   });
 
   it('plans a project from its script with a local model', async () => {
@@ -789,6 +840,11 @@ describe('api', () => {
       server.downloads.cancel(queued.id);
     } catch {
       // already failed
+    }
+    // Wait for it to settle: its runner pumps the queue as it ends, which
+    // after the suite closes the database is an unhandled rejection.
+    for (let i = 0; i < 100 && !['failed', 'cancelled'].includes(server.downloads.get(queued.id)?.status ?? ''); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
   });
 
