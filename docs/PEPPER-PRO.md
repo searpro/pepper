@@ -505,8 +505,8 @@ proven.
 | 6. Specialists | InfiniteTalk (one and two speakers), LongCat-Avatar, Wan-Animate 2, Wan-Dancer, SCAIL-2 character replacement, Qwen3-TTS (cloned, designed, preset and multi-voice speech), two-image try-on; `analyze` jobs (beats, stems, Whisper transcription against the line, a vision model's check of a take); cuts that land on the beat; golden shots with a blind A/B per recipe version, speech results checked by ear automatically |
 | Long takes | A shot longer than its recipe renders at once becomes chained segments that continue each other through H3's `previous` input, joined with the overlap cut out; any finished take can be retaken from a second on (`src/projects/chain.ts`) |
 
-Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `ltx23-audio-to-video`,
-`infinitetalk`, `infinitetalk-duo`, `longcat-avatar`, `wan-animate2`,
+Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `wan22-video`,
+`ltx23-audio-to-video`, `infinitetalk`, `infinitetalk-duo`, `longcat-avatar`, `wan-animate2`,
 `wan-dancer`, `scail2-replace`, `seedvr2-upscale-video`, `krea2-image`,
 `zimage-turbo`, `qwen-image-edit`, `flux2-klein-edit`,
 `seedvr2-upscale-image`, `ace-step-music`, `minimax-music-3`, `qwen3-tts`.

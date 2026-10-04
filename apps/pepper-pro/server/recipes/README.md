@@ -18,6 +18,7 @@ recipes/<id>/
 | `h3-video` | video | Video + sound from a prompt, first/last frame, driving audio (lip-sync) or a clip to continue | MiniMax H3 (under $20M; not US/EU/UK/KR) |
 | `h3-reference` | video | A recurring cast from reference pictures and voice clips; dialogue scenes | MiniMax H3 |
 | `ltx25-video` | video | Fast b-roll and transitions between two keyframes | LTX-2.x (under $10M) |
+| `wan22-video` | video | A keyframe brought to life, or a move between a first and a last frame; silent, high detail | Apache 2.0 |
 | `ltx23-audio-to-video` | video | One image performing to a finished track or recorded line | LTX-2 (under $10M) |
 | `seedvr2-upscale-video` | video | Finishing: restore and upscale a chosen take | Apache 2.0 |
 | `infinitetalk` | video | A portrait lip-synced to a voice recording, 3-12 s | Apache 2.0 |

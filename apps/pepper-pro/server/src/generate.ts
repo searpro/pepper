@@ -157,7 +157,7 @@ export function mismatch(model: ModelDescription, request: GenericRequest): stri
  * which puts the best general model of each kind first.
  */
 const PREFERENCE: Record<string, string[]> = {
-  video: ['h3-video', 'h3-reference', 'ltx25-video', 'infinitetalk', 'infinitetalk-duo', 'longcat-avatar', 'ltx23-audio-to-video', 'wan-animate2', 'scail2-replace', 'wan-dancer', 'seedvr2-upscale-video'],
+  video: ['h3-video', 'h3-reference', 'ltx25-video', 'wan22-video', 'infinitetalk', 'infinitetalk-duo', 'longcat-avatar', 'ltx23-audio-to-video', 'wan-animate2', 'scail2-replace', 'wan-dancer', 'seedvr2-upscale-video'],
   image: ['krea2-image', 'zimage-turbo', 'flux2-klein-edit', 'qwen-image-edit', 'seedvr2-upscale-image'],
   audio: ['qwen3-tts', 'ace-step-music', 'minimax-music-3'],
 };

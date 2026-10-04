@@ -1,0 +1,334 @@
+{
+  "schema": 1,
+  "id": "wan22-video",
+  "version": 1,
+  "kind": "video",
+  "name": "Wan 2.2 — image to video, first and last frame",
+  "description": "Animates a keyframe, or moves between a first and a last frame, with Wan 2.2's two 14B experts. Permissive (Apache 2.0) and strong on detail and physical motion; silent, 16 fps.",
+  "family": "wan-2.2-i2v",
+  "capabilities": [
+    "first-frame",
+    "last-frame"
+  ],
+  "licence": {
+    "id": "apache-2.0",
+    "name": "Apache 2.0 (Wan 2.2 and the LightX2V LoRAs)",
+    "url": "https://www.apache.org/licenses/LICENSE-2.0",
+    "commercial": "yes"
+  },
+  "files": [
+    {
+      "id": "high_noise",
+      "folder": "diffusion_models",
+      "label": "Wan 2.2 I2V A14B, high-noise expert",
+      "description": "Lays out composition and motion in the first, noisy steps.",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+          "path": "split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+          "bytes": 14294742832,
+          "sha256": "6122e79d55e0f235698d11d657f3b196c5273c830da00b2b013c5a048d5e6a42"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+          "path": "split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp16.safetensors",
+          "bytes": 28577914792,
+          "sha256": "c21c21efa368d529a982a7d89dd11d86608b5937cae9a125d0ffe5491918a100"
+        }
+      ]
+    },
+    {
+      "id": "low_noise",
+      "folder": "diffusion_models",
+      "label": "Wan 2.2 I2V A14B, low-noise expert",
+      "description": "Refines texture and detail in the last steps.",
+      "variants": [
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+          "path": "split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+          "bytes": 14294742832,
+          "sha256": "5471a457b6ac404202a5fbe6c11595a3d5641fc766b00f38763f72303fffc21e"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+          "path": "split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp16.safetensors",
+          "bytes": 28577914792,
+          "sha256": "edb89340c8a6fbf1a70e76a839ae01eaf7d289f05ea1ebd6b1a3fc6f533826e9"
+        }
+      ]
+    },
+    {
+      "id": "lora_high",
+      "folder": "loras",
+      "label": "LightX2V 4-step LoRA (high noise)",
+      "description": "Draft and fast modes only.",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+          "path": "split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+          "bytes": 1226977424,
+          "sha256": "d176c808d6fc461999b68e321efcb7501b20b8c3797523ed0df14f7d1deff11e"
+        }
+      ]
+    },
+    {
+      "id": "lora_low",
+      "folder": "loras",
+      "label": "LightX2V 4-step LoRA (low noise)",
+      "description": "Draft and fast modes only.",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+          "path": "split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+          "bytes": 1226977424,
+          "sha256": "024f21de095bc8fad9809ded3e9e49a2e170dcf27075da8145ba7d60d8aab7f9"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "umT5 XXL (fp8)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+          "path": "split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+          "bytes": 6735906897,
+          "sha256": "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "Wan 2.1 VAE",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Wan_2.2_ComfyUI_Repackaged",
+          "path": "split_files/vae/wan_2.1_vae.safetensors",
+          "bytes": 253815318,
+          "sha256": "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Prompt",
+      "required": true,
+      "description": "What happens from the first frame on: motion, camera, light. The picture itself comes from the frame."
+    },
+    {
+      "name": "first_frame",
+      "type": "image",
+      "label": "First frame",
+      "required": true
+    },
+    {
+      "name": "last_frame",
+      "type": "image",
+      "label": "Last frame",
+      "description": "Optional; the clip ends on it."
+    },
+    {
+      "name": "duration",
+      "type": "int",
+      "label": "Seconds",
+      "default": 5,
+      "min": 1,
+      "max": 7,
+      "description": "At 16 fps; Wan is trained on 5 s (81 frames) and drifts past 7."
+    },
+    {
+      "name": "width",
+      "type": "int",
+      "label": "Width",
+      "default": 1280,
+      "min": 256,
+      "max": 1920
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "label": "Height",
+      "default": 720,
+      "min": 256,
+      "max": 1920
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "22",
+          "input": "value"
+        },
+        {
+          "param": "width",
+          "node": "30",
+          "input": "value"
+        },
+        {
+          "param": "height",
+          "node": "31",
+          "input": "value"
+        },
+        {
+          "param": "duration",
+          "node": "32",
+          "input": "value"
+        },
+        {
+          "param": "seed",
+          "node": "41",
+          "input": "noise_seed"
+        },
+        {
+          "param": "first_frame",
+          "nodes": [
+            {
+              "node": "1",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "last_frame",
+          "nodes": [
+            {
+              "node": "2",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "file": "high_noise",
+          "node": "10",
+          "input": "unet_name"
+        },
+        {
+          "file": "low_noise",
+          "node": "11",
+          "input": "unet_name"
+        },
+        {
+          "file": "lora_high",
+          "node": "12",
+          "input": "lora_name"
+        },
+        {
+          "file": "lora_low",
+          "node": "13",
+          "input": "lora_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "20",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "21",
+          "input": "vae_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "52",
+          "kind": "video"
+        }
+      ],
+      "progress": {
+        "41": 1,
+        "42": 1
+      }
+    }
+  },
+  "modes": {
+    "draft": {
+      "label": "Draft (480p, 4 steps)",
+      "workflow": "main",
+      "defaults": {
+        "width": 832,
+        "height": 480
+      }
+    },
+    "fast": {
+      "label": "Fast (720p, 4 steps)",
+      "description": "The LightX2V LoRAs at full size: most of the detail at a fifth of the time, with flatter light and less motion than final.",
+      "workflow": "main"
+    },
+    "final": {
+      "label": "Final (720p, 20 steps)",
+      "description": "The experts on their own, 10 steps each with CFG 3.5: the most detail and motion.",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "14",
+          "input": "model",
+          "value": [
+            "10",
+            0
+          ]
+        },
+        {
+          "node": "15",
+          "input": "model",
+          "value": [
+            "11",
+            0
+          ]
+        },
+        {
+          "node": "34",
+          "input": "value",
+          "value": 20
+        },
+        {
+          "node": "35",
+          "input": "value",
+          "value": 10
+        },
+        {
+          "node": "36",
+          "input": "value",
+          "value": 3.5
+        }
+      ]
+    }
+  },
+  "default_mode": "draft",
+  "tiers": [
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Native ComfyUI nodes, following Comfy-Org's Wan 2.2 14B first-last-frame template. The high-noise expert runs the first half of the steps and the low-noise expert the rest; ComfyUI swaps them, so only one is in VRAM at a time. Final skips the LoRA loaders, which the build then drops."
+}
