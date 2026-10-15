@@ -1,6 +1,6 @@
 ---
 name: pepper-dev
-description: Develop and verify a Pepper feature end to end — change the code, check it locally, then run it on a GPU (a RunPod pod, a Vast.ai instance, or a free Kaggle kernel) and exercise it through the Pepper MCP tools. Use when implementing or debugging anything in Pepper that needs real generation (sd-cli, llama.cpp, audio.cpp, Python runners) to prove it works.
+description: Develop and verify a Pepper feature end to end — change the code, check it locally, then run it on a GPU (a RunPod pod, a Vast.ai instance, the home GPU box, or a free Kaggle kernel) and exercise it through the Pepper MCP tools. Use when implementing or debugging anything in Pepper that needs real generation (sd-cli, llama.cpp, audio.cpp, Python runners) to prove it works.
 ---
 
 # Pepper development loop
@@ -82,6 +82,16 @@ shutdown *stop* the instance, keeping that disk, and the next `up` restarts
 it on the same machine. `up --fresh` rents another machine (models download
 again); `down --destroy` deletes the instance and its disk. Its README has
 the details.
+
+### Home
+
+`deploy/home/launch.py` takes the same `up`, `status`, `logs` and `down` on
+the user's own GPU machine over SSH, as a Compose stack in `/srv/<product>`
+whose `data/` folder holds the models. Nothing bills, so it stays up until
+`down`, holding the hostname. `up --build` builds the checkout, uncommitted
+changes included, on the host: the quickest way to put a change on a real
+GPU. Its card is 16 GB with 32 GB of RAM, so judge large video recipes on a
+cloud tier.
 
 ### Kaggle
 

@@ -4,7 +4,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { proErrors } from '../errors.js';
 import { safeResolve, safeResolveNested } from '@pepper/core/paths.js';
 import type { Prompt } from '../comfy/client.js';
-import type { LicenceMode, Tier } from '../config.js';
+import { TIERS, type LicenceMode, type Tier } from '../config.js';
 import type { ProPaths } from '../paths.js';
 import { recipeSchema, type FileVariant, type Licence, type Recipe, type RecipeFile } from './schema.js';
 
@@ -61,13 +61,20 @@ export function variantName(variant: FileVariant): string {
   return decodeURIComponent(basename(variant.path ?? new URL(variant.url!).pathname));
 }
 
-/** The variant of a file for a tier: one listing the tier, else one listing none. */
+/**
+ * The variant of a file for a tier: one listing the tier, else one listing
+ * none, else the one for the nearest larger tier. A tier no recipe names yet
+ * (16gb) thereby gets the smallest file written for a bigger card, rather
+ * than whichever variant happens to come first.
+ */
 export function variantFor(file: RecipeFile, tier: Tier): FileVariant {
-  return (
-    file.variants.find((variant) => variant.tiers?.includes(tier)) ??
-    file.variants.find((variant) => !variant.tiers) ??
-    file.variants[0]
-  );
+  const exact = file.variants.find((variant) => variant.tiers?.includes(tier)) ?? file.variants.find((variant) => !variant.tiers);
+  if (exact) return exact;
+  for (const larger of TIERS.slice(TIERS.indexOf(tier) + 1)) {
+    const variant = file.variants.find((v) => v.tiers?.includes(larger));
+    if (variant) return variant;
+  }
+  return file.variants[0];
 }
 
 /** Why a licence rules a recipe out for a licence mode, or undefined when it does not. */
