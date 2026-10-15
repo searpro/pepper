@@ -132,9 +132,11 @@ class Host:
                              f"{(done.stderr or done.stdout).strip()[-1500:]}")
         return done.stdout
 
-    def stream(self, script: str, stdin=None) -> int:
-        """Run a snippet with its output going straight to the terminal (pulls, builds)."""
-        return subprocess.run(self.argv(script), stdin=stdin).returncode
+    def stream(self, script: str, stdin=None, tty: bool = False) -> int:
+        """Run a snippet with its output going straight to the terminal (pulls, builds).
+        `tty` gives the far end a terminal, so Docker draws its progress bars;
+        never with piped stdin, which a terminal would mangle."""
+        return subprocess.run(self.argv(script, tty=tty), stdin=stdin).returncode
 
 
 def healthy(url: str | None) -> bool:
@@ -254,9 +256,11 @@ def cmd_up(host: Host, env: dict, a) -> None:
     neighbours = gpu_neighbours(host, name)
     if neighbours:
         used = host.run("nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader", check=False).strip()
-        print(f"note: {', '.join(neighbours)} also use the GPU ({used} in use). {name} may run out of VRAM; "
-              f"stop them (Portainer, or `docker compose stop` in {STACKS_DIR}/<name>) if a job fails for memory.",
-              flush=True)
+        used = " of ".join(part.strip() for part in used.split(","))
+        print(f"note: {', '.join(neighbours)} {'is' if len(neighbours) == 1 else 'are'} using the GPU ({used} taken), "
+              f"so {name} may run out of VRAM. If a job fails for memory, stop "
+              f"{'it' if len(neighbours) == 1 else 'them'} in Portainer or with `docker compose stop` in "
+              f"{STACKS_DIR}/<name>.", flush=True)
 
     image = a.image or (build_on_host(host, a.product) if a.build else spec["image"])
     settings = {
@@ -274,7 +278,10 @@ def cmd_up(host: Host, env: dict, a) -> None:
     local = image.endswith(":local")
     if not local:
         print(f"pulling {image} (the first pull of Pepper Pro is many GB)", flush=True)
-        if host.stream(f"cd {q} && docker compose pull --quiet") != 0:
+        # Progress bars in a terminal; without one, Compose's line-per-update
+        # output would run to thousands of lines, so stay quiet instead.
+        interactive = sys.stdout.isatty()
+        if host.stream(f"cd {q} && docker compose pull{'' if interactive else ' --quiet'}", tty=interactive) != 0:
             sys.exit("the pull failed; see above")
     since = int(host.run("date +%s").strip())
     host.run(f"cd {q} && docker compose up -d --remove-orphans{' --pull never' if local else ''} 2>&1")
