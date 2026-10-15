@@ -24,9 +24,11 @@ export { publicConfig } from '@pepper/core/config.js';
  * Hardware classes recipes are tested against (docs/PEPPER-PRO.md §9.1). A
  * recipe's files and defaults are chosen per tier, so an install never puts a
  * Q4 file on a card that could run INT8, or an INT8 file on a host whose RAM
- * cannot hold it.
+ * cannot hold it. Smallest first: a file with no variant for a tier takes the
+ * next larger tier's (`variantFor`), so a new small tier needs no recipe edits
+ * to install, only a golden run to be marked verified.
  */
-export const TIERS = ['24gb-64ram', '32gb', '48gb', '96gb'] as const;
+export const TIERS = ['16gb', '24gb-64ram', '32gb', '48gb', '96gb'] as const;
 export type Tier = (typeof TIERS)[number];
 
 export const LICENCE_MODES = ['personal', 'commercial'] as const;

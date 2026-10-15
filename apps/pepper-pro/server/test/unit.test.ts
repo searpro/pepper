@@ -116,6 +116,23 @@ describe('recipes', () => {
     expect(variantUrl(variantFor(file, '32gb'))).toBe('https://huggingface.co/Org/Model/resolve/main/dm/model%20int8.safetensors');
   });
 
+  it('gives a tier with no variant of its own the nearest larger tier\'s', () => {
+    const file = {
+      id: 'dit',
+      folder: 'diffusion_models' as const,
+      label: 'DiT',
+      optional: false,
+      // Largest listed first, so falling back to variants[0] would be wrong.
+      variants: [
+        { tiers: ['96gb' as const], repo: 'Org/Model', path: 'dm/model_bf16.safetensors', revision: 'main' },
+        { tiers: ['48gb' as const], repo: 'Org/Model', path: 'dm/model_fp8.safetensors', revision: 'main' },
+        { tiers: ['24gb-64ram' as const, '32gb' as const], repo: 'Org/Model', path: 'dm/model_q4.gguf', revision: 'main' },
+      ],
+    };
+    expect(variantName(variantFor(file, '16gb'))).toBe('model_q4.gguf');
+    expect(variantName(variantFor(file, '48gb'))).toBe('model_fp8.safetensors');
+  });
+
   it('blocks non-commercial recipes in commercial mode only', () => {
     const licence = { id: 'x', name: 'Research licence', commercial: 'no' as const, excluded_territories: [], obligations: [] };
     expect(licenceBlock(licence, 'personal')).toBeUndefined();
