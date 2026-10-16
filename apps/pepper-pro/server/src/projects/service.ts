@@ -115,8 +115,19 @@ export interface TakeReview {
   at: number;
 }
 
-export interface TakeView extends Omit<TakeRow, 'chain'> {
+/** A take mastered for delivery (see `masterTake`). */
+export interface TakeMaster {
+  jobId: string;
+  recipe: string;
+  state: 'rendering' | 'done' | 'failed';
+  /** The mastered file, in the project's files. */
+  file?: string;
+  error?: string;
+}
+
+export interface TakeView extends Omit<TakeRow, 'chain' | 'master'> {
   chain: TakeChain | null;
+  master: (TakeMaster & { url?: string; status?: Job['status']; progress?: number }) | null;
   status: Job['status'] | 'missing';
   progress: number;
   error?: Job['error'];
@@ -555,6 +566,7 @@ export class ProjectService {
           review: null,
           // Every segment of a long take renders with the first one's seed.
           chain: chain ? { ...chain.chain, next: { ...chain.chain.next, ...(seed !== null ? { seed } : {}) }, segments: chain.chain.segments.map((s, k) => (k === 0 ? { ...s, jobId: job.id } : { ...s })) } : null,
+          master: null,
           createdAt: Date.now(),
         };
         this.db.insert(takes).values(row).run();
@@ -704,6 +716,7 @@ export class ProjectService {
       notes: `Retake of ${source.id} from ${from.toFixed(1)} s`,
       review: null,
       chain,
+      master: null,
       createdAt: Date.now(),
     };
     this.db.insert(takes).values(row).run();
@@ -825,6 +838,7 @@ export class ProjectService {
       return {
         ...take,
         chain,
+        master: null,
         status: chain.state === 'failed' ? (job?.status === 'cancelled' ? 'cancelled' : 'failed') : job && !settled ? job.status : 'running',
         progress: chain.state === 'joining' ? 0.99 : (chain.index + (settled ? 1 : (job?.progress ?? 0))) / n,
         error: chain.state === 'failed' ? (job?.error ?? { code: 'GENERATION_FAILED', message: chain.error ?? 'The long take failed' }) : undefined,
@@ -836,6 +850,7 @@ export class ProjectService {
     return {
       ...take,
       chain,
+      master: this.viewMaster(take),
       status: chain ? 'completed' : (job?.status ?? (take.file ? 'completed' : 'missing')),
       progress: chain ? 1 : (job?.progress ?? (take.file ? 1 : 0)),
       error: chain ? undefined : job?.error,
@@ -877,6 +892,8 @@ export class ProjectService {
     const job = this.deps.jobs.get(take.jobId);
     if (job && (job.status === 'queued' || job.status === 'running')) this.deps.jobs.cancel(job.id);
     if (take.file) await rm(this.takeFile(take.projectId, take.file), { force: true });
+    const master = take.master as TakeMaster | null;
+    if (master?.file) await rm(this.takeFile(take.projectId, master.file), { force: true });
     const chain = take.chain as TakeChain | null;
     for (const upload of [chain?.head, ...(chain?.segments ?? []).map((s) => s.upload)]) {
       if (upload) await rm(safeResolve(this.deps.paths.uploadsDir, upload), { force: true });
@@ -898,6 +915,7 @@ export class ProjectService {
     if (!take) return;
     const result = (job.result ?? {}) as Record<string, unknown>;
     const path = (result.video_path ?? result.image_path ?? result.audio_path) as string | undefined;
+    if ((job.params as { master?: boolean }).master) return this.settleMaster(take, job, path);
     if (take.chain) return this.advanceChain(take, job, path);
     if (!path || job.status !== 'completed') return;
     try {
@@ -909,6 +927,131 @@ export class ProjectService {
     } catch (err) {
       this.deps.log.warn({ take: take.id, err: (err as Error).message }, 'could not keep a take in its project');
     }
+  }
+
+  // --- Mastering -------------------------------------------------------------
+
+  /**
+   * Master a finished video take for delivery: upscale it with a finishing
+   * recipe (SeedVR2 by default) and keep its own soundtrack. Drafting at
+   * the card's comfortable size and mastering only what makes the cut is
+   * how a 16 GB box delivers 1080p: the cut otherwise stretches a 0.5 MP
+   * render with ffmpeg. The take's file is untouched; the cut uses the
+   * master once it is done.
+   */
+  async masterTake(takeId: string, options: { recipe?: string; scale?: number } = {}): Promise<TakeView> {
+    const take = this.requireTake(takeId);
+    if (!take.file || kindOf(take.file) !== 'video') throw errors.validation(`Take ${takeId} has no finished video to master`);
+    const current = take.master as TakeMaster | null;
+    if (current?.state === 'rendering') {
+      const job = this.deps.jobs.get(current.jobId);
+      if (job && (job.status === 'queued' || job.status === 'running')) return this.viewTake(take);
+    }
+    const recipe = await this.masterRecipe(options.recipe);
+    const scale = recipe.params.find((p) => p.name === 'scale');
+    // The recipe reads its input from uploads, like any other.
+    const upload = `master-src-${take.id}${extname(take.file)}`;
+    await copyFile(this.takeFile(take.projectId, take.file), safeResolve(this.deps.paths.uploadsDir, upload));
+    const prepared = await this.deps.comfy.prepareRequest(
+      {
+        recipe: recipe.id,
+        params: { video: upload, ...(scale && options.scale !== undefined ? { scale: options.scale } : {}) },
+        shot_id: take.shotId,
+      },
+      { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
+    );
+    const job = this.deps.jobs.create(prepared.recipe.kind, {
+      recipe: prepared.recipe.id,
+      mode: prepared.mode,
+      params: prepared.values,
+      shot_id: take.shotId,
+      take_id: take.id,
+      master: true,
+    });
+    if (current?.file) await rm(this.takeFile(take.projectId, current.file), { force: true });
+    const master: TakeMaster = { jobId: job.id, recipe: recipe.id, state: 'rendering' };
+    this.db.update(takes).set({ master }).where(eq(takes.id, take.id)).run();
+    this.touch(take.projectId);
+    return this.viewTake(this.requireTake(take.id));
+  }
+
+  /** Master each shot's chosen take. Shots with no finished chosen take are skipped, and listed. */
+  async masterChosen(shotIds: string[], options: { recipe?: string; scale?: number } = {}): Promise<{ takes: TakeView[]; skipped: string[] }> {
+    const out: TakeView[] = [];
+    const skipped: string[] = [];
+    for (const shotId of shotIds) {
+      const shot = this.requireShot(shotId);
+      const take = shot.chosenTakeId ? this.db.select().from(takes).where(eq(takes.id, shot.chosenTakeId)).get() : undefined;
+      if (!take?.file) {
+        skipped.push(shotId);
+        continue;
+      }
+      out.push(await this.masterTake(take.id, options));
+    }
+    return { takes: out, skipped };
+  }
+
+  /** The finishing recipe a master uses: the one asked for, else the first installed video upscaler. */
+  private async masterRecipe(id?: string): Promise<Recipe> {
+    if (id) return this.deps.recipes.require(id);
+    for (const recipe of this.deps.recipes.list()) {
+      if (recipe.kind !== 'video' || !recipe.capabilities.includes('upscale') || !recipe.params.some((p) => p.name === 'video')) continue;
+      const status = await this.deps.recipes.status(recipe, this.deps.config.tier, this.deps.config.licenceMode);
+      if (status.state === 'installed') return recipe;
+    }
+    throw errors.validation('No video upscaler is installed to master with; install SeedVR2 (seedvr2-upscale-video) from Recipes');
+  }
+
+  /**
+   * A master job settled: keep its output in the project with the take's
+   * soundtrack laid back under it, since an upscaler returns pictures only.
+   */
+  private async settleMaster(take: TakeRow, job: Job, path: string | undefined): Promise<void> {
+    const master = take.master as TakeMaster | null;
+    if (!master || master.jobId !== job.id) return;
+    const source = safeResolve(this.deps.paths.uploadsDir, `master-src-${take.id}${extname(take.file ?? '.mp4')}`);
+    try {
+      if (job.status !== 'completed' || !path) {
+        this.db.update(takes).set({ master: { ...master, state: 'failed', error: job.error?.message ?? `The master ${job.status}` } }).where(eq(takes.id, take.id)).run();
+        return;
+      }
+      const name = `${take.id}-master.mp4`;
+      const target = this.takeFile(take.projectId, name);
+      const [upscaled, original] = await Promise.all([probeMedia(path), take.file ? probeMedia(this.takeFile(take.projectId, take.file)) : null]);
+      if (original?.hasAudio && !upscaled.hasAudio && take.file) {
+        await runFfmpeg(
+          ['-i', path, '-i', this.takeFile(take.projectId, take.file), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'copy', '-shortest', '-movflags', '+faststart', target],
+          300_000,
+        );
+      } else {
+        await copyFile(path, target);
+      }
+      this.db.update(takes).set({ master: { ...master, state: 'done', file: name } }).where(eq(takes.id, take.id)).run();
+    } catch (err) {
+      const message = (err as Error).message;
+      this.deps.log.warn({ take: take.id, err: message }, 'could not keep a master');
+      this.db.update(takes).set({ master: { ...master, state: 'failed', error: message } }).where(eq(takes.id, take.id)).run();
+    } finally {
+      await rm(source, { force: true });
+    }
+  }
+
+  private viewMaster(take: TakeRow): TakeView['master'] {
+    const master = take.master as TakeMaster | null;
+    if (!master) return null;
+    const job = this.deps.jobs.get(master.jobId);
+    return {
+      ...master,
+      status: master.state === 'done' ? 'completed' : master.state === 'failed' ? 'failed' : job?.status,
+      progress: master.state === 'done' ? 1 : (job?.progress ?? 0),
+      url: master.file ? `/v1/projects/${encodeURIComponent(take.projectId)}/files/${encodeURIComponent(master.file)}` : undefined,
+    };
+  }
+
+  /** The file a cut plays for a take: its master once done, else the take as rendered. */
+  deliveryFile(take: TakeRow): string | null {
+    const master = take.master as TakeMaster | null;
+    return master?.state === 'done' && master.file ? master.file : take.file;
   }
 
   // --- Cuts ------------------------------------------------------------------

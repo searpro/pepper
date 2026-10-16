@@ -41,6 +41,8 @@ export interface RecipeJobParams {
   take_id?: string;
   /** Which segment of a long take or retake (projects/chain.ts). */
   segment?: number;
+  /** The job masters its take (upscales it for delivery) rather than rendering it. */
+  master?: boolean;
 }
 
 export interface ComfyEngineDeps {

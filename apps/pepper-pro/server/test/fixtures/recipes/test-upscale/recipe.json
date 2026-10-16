@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "id": "test-upscale",
+  "version": 1,
+  "kind": "video",
+  "name": "Test upscale",
+  "description": "Loads a clip and writes a silent solid one twice its size, as an upscaler returns pictures only. Model-free, for master tests.",
+  "family": "test",
+  "capabilities": ["upscale"],
+  "licence": { "id": "test", "name": "Test", "commercial": "yes" },
+  "files": [],
+  "params": [
+    { "name": "video", "type": "video", "label": "Video", "required": true },
+    { "name": "scale", "type": "float", "label": "Scale", "default": 2, "min": 1, "max": 4 },
+    { "name": "seed", "type": "seed", "label": "Seed" }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [{ "param": "video", "node": "5", "input": "file" }],
+      "outputs": [{ "node": "4", "kind": "video" }]
+    }
+  },
+  "modes": { "final": { "label": "Final", "workflow": "main" } },
+  "default_mode": "final",
+  "tiers": ["32gb"]
+}

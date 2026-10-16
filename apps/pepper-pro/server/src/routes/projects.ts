@@ -114,6 +114,8 @@ export const renderSchema = z.object({
   from_take: z.string().optional(),
   /** With from_take: keep that take up to this second and re-render the rest. */
   retake_from: z.number().positive().optional(),
+  /** Master each shot's chosen take for delivery (upscale it) instead of rendering new takes. */
+  master: z.boolean().optional(),
 });
 
 const cutItem = z.object({
@@ -290,12 +292,17 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
           'Queues `count` takes per shot in `mode`, each with its own seed. `from_take` re-renders that ' +
           "take's seed, which is how a chosen draft is finished. With `retake_from` as well, that take is " +
           'kept up to that second and only the rest is rendered again, as a new take. A shot longer than ' +
-          'its recipe renders at once is rendered in segments that continue each other.',
+          'its recipe renders at once is rendered in segments that continue each other. `master: true` ' +
+          "masters each shot's chosen take for delivery (upscales it) instead.",
         body: renderSchema,
       },
     },
     async (req, reply) => {
       const { retake_from, from_take } = req.body;
+      if (req.body.master) {
+        const { takes, skipped } = await projects.masterChosen(req.body.shot_ids);
+        return reply.code(202).send({ takes, skipped });
+      }
       if (retake_from !== undefined) {
         if (!from_take) throw errors.validation('retake_from needs from_take: the take to keep the start of');
         const take = await projects.retake(from_take, { from: retake_from, mode: req.body.mode, seed: req.body.seed });
@@ -349,6 +356,22 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
       },
     },
     async (req, reply) => reply.code(202).send(projects.viewTake(await projects.retake(req.params.id, req.body))),
+  );
+
+  app.post(
+    '/v1/takes/:id/master',
+    {
+      schema: {
+        tags,
+        summary: 'Master a take for delivery',
+        description:
+          'Upscales a finished video take with a finishing recipe (the installed SeedVR2 video upscaler unless ' +
+          '`recipe` names one), keeping its soundtrack. The take is unchanged; a cut uses the master once it is done.',
+        params: id,
+        body: z.object({ recipe: z.string().optional(), scale: z.number().min(1).max(4).optional() }).default({}),
+      },
+    },
+    async (req, reply) => reply.code(202).send(await projects.masterTake(req.params.id, req.body)),
   );
 
   app.post(

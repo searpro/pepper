@@ -137,6 +137,12 @@ export const takes = sqliteTable(
      * (see chain.ts). `jobId` is then the segment rendering now.
      */
     chain: text('chain', { mode: 'json' }),
+    /**
+     * The take mastered for delivery: upscaled by a finishing recipe
+     * (SeedVR2) with its own soundtrack kept, `{ jobId, recipe, state, file?, error? }`.
+     * The cut uses it in place of the take's file once it is done.
+     */
+    master: text('master', { mode: 'json' }),
     createdAt: integer('created_at').notNull(),
   },
   (t) => ({
@@ -275,4 +281,5 @@ export const PRO_MIGRATIONS: string[] = [
   'ALTER TABLE cuts ADD COLUMN beat_sync INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE golden_results ADD COLUMN review TEXT',
   'ALTER TABLE takes ADD COLUMN chain TEXT',
+  'ALTER TABLE takes ADD COLUMN master TEXT',
 ];

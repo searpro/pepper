@@ -69,7 +69,7 @@ const OBJECT_INFO: ObjectInfo = {
 describe('recipes', () => {
   it('loads the fixture recipes and their workflows', async () => {
     const store = await loadStore();
-    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-video']);
+    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-upscale', 'test-video']);
     expect(store.broken).toEqual([]);
     expect(Object.keys(store.workflow(store.require('test-image'), 'main'))).toContain('4');
   });
@@ -1313,4 +1313,64 @@ describe.skipIf(!haveComfy)('comfyui end to end', () => {
     const done = await settle(job.id);
     expect(['cancelled', 'completed']).toContain(done.status);
   }, 120_000);
+});
+
+describe('mastering', () => {
+  it('masters a chosen take with its own soundtrack, and the cut plays the master', async () => {
+    if (!haveFfmpeg) return;
+    const server = await buildServer(await tempConfig());
+    try {
+      // Stand-ins for ComfyUI: a render leaves a small clip with sound, an
+      // upscale a silent one twice its size, as SeedVR2 returns pictures only.
+      const dir = await mkdtemp(join(tmpdir(), 'pepper-master-'));
+      const rendered = join(dir, 'rendered.mp4');
+      const upscaled = join(dir, 'upscaled.mp4');
+      spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:d=1:r=24', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-shortest', '-pix_fmt', 'yuv420p', rendered]);
+      spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=128x128:d=1:r=24', '-pix_fmt', 'yuv420p', upscaled]);
+      const seen: Record<string, unknown>[] = [];
+      server.jobs.registerExecutor('video', async ({ job }) => {
+        seen.push(job.params);
+        return { video_path: (job.params as { master?: boolean }).master ? upscaled : rendered };
+      });
+      const settleTake = async (id: string, done: (view: ReturnType<typeof server.projects.viewTake>) => boolean) => {
+        for (let i = 0; i < 400; i++) {
+          const view = server.projects.viewTake(server.projects.requireTake(id));
+          if (done(view)) return view;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        throw new Error(`take ${id} did not settle`);
+      };
+
+      const project = server.projects.createProject({ name: 'Master' });
+      const scene = server.projects.createScene(project.id);
+      const shot = server.projects.createShot(scene.id, { prompt: 'blue', recipeId: 'test-video' });
+      await expect(server.projects.masterChosen([shot.id])).resolves.toMatchObject({ takes: [], skipped: [shot.id] });
+
+      const [take] = await server.projects.renderShots([shot.id], { count: 1 });
+      await settleTake(take.id, (v) => Boolean(v.file));
+      server.projects.chooseTake(take.id);
+      const { takes, skipped } = await server.projects.masterChosen([shot.id]);
+      expect(skipped).toEqual([]);
+      expect(takes[0].master).toMatchObject({ recipe: 'test-upscale', state: 'rendering' });
+      // The upscaler was handed the take, through uploads.
+      expect((seen.at(-1) as { params: { video: string } }).params.video).toBe(`master-src-${take.id}.mp4`);
+
+      const mastered = await settleTake(take.id, (v) => v.master?.state === 'done' || v.master?.state === 'failed');
+      expect(mastered.master).toMatchObject({ state: 'done', file: `${take.id}-master.mp4`, status: 'completed' });
+      expect(mastered.master!.url).toContain(`${take.id}-master.mp4`);
+      const info = await probeMedia(server.projects.takeFile(project.id, mastered.master!.file!));
+      expect(info).toMatchObject({ width: 128, height: 128, hasAudio: true });
+      // The take itself is unchanged; the cut plays the master.
+      const row = server.projects.requireTake(take.id);
+      expect(row.file).toBe(`${take.id}.mp4`);
+      expect(server.projects.deliveryFile(row)).toBe(`${take.id}-master.mp4`);
+      expect(existsSync(join(server.paths.uploadsDir, `master-src-${take.id}.mp4`))).toBe(false);
+
+      await server.projects.deleteTake(take.id);
+      expect(existsSync(server.projects.takeFile(project.id, `${take.id}-master.mp4`))).toBe(false);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  }, 60_000);
 });
