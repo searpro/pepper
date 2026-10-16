@@ -75,6 +75,10 @@ ENV COMFY_DIR=/opt/comfy/ComfyUI \
 # TORCH_INDEX=https://download.pytorch.org/whl/cpu builds a CPU-only image,
 # a few GB smaller, for checking the build itself where there is no GPU.
 ARG TORCH_INDEX=https://download.pytorch.org/whl/cu128
+# uv gives up on a download that stalls for 30 s, which a home connection
+# shared with model downloads did on one of torch's multi-GB CUDA wheels.
+# An ARG is in the environment of the RUN steps below it.
+ARG UV_HTTP_TIMEOUT=300
 COPY apps/pepper-pro/server/scripts/install-comfy.sh ./apps/pepper-pro/server/scripts/install-comfy.sh
 RUN mkdir -p /tmp/no-recipes \
     && TORCH_INDEX=$TORCH_INDEX RECIPES_DIR=/tmp/no-recipes apps/pepper-pro/server/scripts/install-comfy.sh \
