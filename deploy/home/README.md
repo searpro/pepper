@@ -18,7 +18,7 @@ entrypoint; only the launcher differs.
 | Cost | Per second | Electricity |
 | GPU | Your choice per run | Yours; the first box is an RTX 5060 Ti, 16 GB |
 | Models | Network volume / instance disk | A folder on the host, `/srv/<product>/data` |
-| Code that runs | The published image: push, and wait for CI | The published image, or `--build`: this checkout, uncommitted changes too |
+| Code that runs | The published image: push, and wait for CI | The published image (Pepper Pro's `:cu130` when the driver supports CUDA 13), or `--build`: this checkout, uncommitted changes too |
 | `down` | Terminate / stop | Remove the container; the data folder stays |
 
 ## One-time host setup
@@ -84,7 +84,7 @@ uv run deploy/home/launch.py down --product pro          # remove the container;
 | `--tier T` | `16gb` | Pepper Pro's tier: which file variants recipes install. |
 | `--build` | off | Build `Dockerfile` / `Dockerfile.pro` on the host from this checkout (tracked and untracked files, not ignored ones). |
 | `--build-arg K=V` | none | With `--build`, a Dockerfile ARG (repeatable). `TORCH_INDEX=https://download.pytorch.org/whl/cu130` gives a Blackwell card the CUDA 13 torch its NVFP4 kernels need; the published image is CUDA 12.8, where NVFP4 falls back to slow, memory-hungry code. |
-| `--image REF` | the published image | For example `ghcr.io/searpro/pepper-pro:sha-abc1234`. |
+| `--image REF` | the published image | For example `ghcr.io/searpro/pepper-pro:sha-abc1234` (or `…:sha-abc1234-cu130`). For Pepper Pro the default is `:cu130` when the host's driver supports CUDA 13, else `:latest`. |
 | `--catalogue-branch B` | none | Serve the catalogue from a pepper-catalogue branch. |
 | `--wait N` | `20` | Minutes to wait for `/health` after the container starts. |
 | `--force` | off | Start even if the hostname already answers. |
@@ -125,11 +125,19 @@ off the public tunnel, since controlling Docker is root on the host.
 ## The 16gb tier
 
 The first home box has an RTX 5060 Ti (16 GB) and 32 GB of RAM, below every
-cloud tier. `16gb` installs, for each file, the variant written for the
-next tier up (`24gb-64ram`, the smallest files), and no recipe lists it as
-verified yet, so the Recipes screen flags each one until a golden run on
-the card fills that in. As on a 24 GB pod, system RAM rather than VRAM is
-what limits a model set: weights not on the GPU wait in RAM. Image, audio
-and upscaling recipes (Z-Image, Flux2 Klein, Qwen Image Edit, Qwen3-TTS,
-ACE-Step, SeedVR2) are the ones to try first; video recipes whose files
-total 40 GB or more need a bigger host.
+cloud tier. `16gb` installs a recipe's own `16gb` variant of a file where it
+has one, and otherwise the variant for the next tier up (`24gb-64ram`, the
+smallest files). The Recipes screen flags a recipe until a golden run on the
+card lists `16gb` among its tiers. As on a 24 GB pod, system RAM rather than
+VRAM is what limits a model set: weights not on the GPU wait in RAM.
+
+The `16gb` variants are NVFP4 where one exists (SCAIL-2's is 11 GB against
+16.7 GB of int8, the same quality, and 8 GB less RAM at peak). NVFP4 needs
+torch built for CUDA 13: CI publishes that build as `pepper-pro:cu130`,
+which `up` pulls when the host's driver supports CUDA 13 (driver 580 or
+later). On the CUDA 12.8 `latest`, comfy_kitchen has no FP4 kernels and
+its fallback runs a 16 GB card out of memory.
+
+Verified on the 5060 Ti: Z-Image Turbo, FLUX.2 klein, Qwen-Image Edit and
+SCAIL-2 (an 81-frame draft in about 6 min). Video recipes whose files total
+40 GB or more need a bigger host.

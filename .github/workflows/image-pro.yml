@@ -2,6 +2,11 @@
 # ghcr.io/<owner>/pepper-pro, which `launch.py up --product pro` pulls. The
 # build itself validates every recipe against the ComfyUI it installs, so a
 # red build here is usually a recipe that no longer matches its nodes.
+#
+# Two builds, one per torch CUDA line. CUDA 12.8 is `latest`, for cloud hosts
+# whose drivers stop short of CUDA 13. CUDA 13 is `cu130` (and `sha-…-cu130`):
+# only there does comfy_kitchen have NVFP4 kernels, which the 16gb tier's
+# files need on a Blackwell card (deploy/home picks it when the driver can).
 name: image-pro
 
 on:
@@ -30,6 +35,16 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - cuda: cu128
+            suffix: ''
+            moving_tag: latest
+          - cuda: cu130
+            suffix: -cu130
+            moving_tag: cu130
     steps:
       - uses: actions/checkout@v4
 
@@ -53,9 +68,9 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}-pro
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=sha,format=short
-            type=ref,event=branch
+            type=raw,value=${{ matrix.moving_tag }},enable={{is_default_branch}}
+            type=sha,format=short,suffix=${{ matrix.suffix }}
+            type=ref,event=branch,suffix=${{ matrix.suffix }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -65,5 +80,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: TORCH_INDEX=https://download.pytorch.org/whl/${{ matrix.cuda }}
+          # One cache per CUDA line: they share no torch layers.
+          cache-from: type=gha,scope=pro-${{ matrix.cuda }}
+          cache-to: type=gha,mode=max,scope=pro-${{ matrix.cuda }}
