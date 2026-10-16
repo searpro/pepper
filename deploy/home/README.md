@@ -81,6 +81,7 @@ uv run deploy/home/launch.py down --product pro          # remove the container;
 | `--product pro` | `pepper` | Pepper Pro instead of Pepper. |
 | `--tier T` | `16gb` | Pepper Pro's tier: which file variants recipes install. |
 | `--build` | off | Build `Dockerfile` / `Dockerfile.pro` on the host from this checkout (tracked and untracked files, not ignored ones). |
+| `--build-arg K=V` | none | With `--build`, a Dockerfile ARG (repeatable). `TORCH_INDEX=https://download.pytorch.org/whl/cu130` gives a Blackwell card the CUDA 13 torch its NVFP4 kernels need; the published image is CUDA 12.8, where NVFP4 falls back to slow, memory-hungry code. |
 | `--image REF` | the published image | For example `ghcr.io/searpro/pepper-pro:sha-abc1234`. |
 | `--catalogue-branch B` | none | Serve the catalogue from a pepper-catalogue branch. |
 | `--wait N` | `20` | Minutes to wait for `/health` after the container starts. |

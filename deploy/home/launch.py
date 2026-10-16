@@ -190,12 +190,14 @@ def check_host(host: Host) -> None:
                  "(deploy/home/README.md)")
 
 
-def build_on_host(host: Host, product: str) -> str:
+def build_on_host(host: Host, product: str, build_args: list[str]) -> str:
     """Send this checkout to the host and build the product's image there.
 
     Like Kaggle's launcher this runs uncommitted changes, with no push and no
     wait for CI. The context is what git lists under BUILD_PATHS, so models
-    and node_modules never leave this machine.
+    and node_modules never leave this machine. `build_args` are the
+    Dockerfile's ARGs as KEY=VALUE, e.g. a CUDA 13 TORCH_INDEX, which a
+    Blackwell card needs for NVFP4 kernels and the published image lacks.
     """
     spec = PRODUCTS[product]
     listed = subprocess.run(["git", "ls-files", "-z", "-co", "--exclude-standard", "--", *BUILD_PATHS, spec["dockerfile"]],
@@ -212,7 +214,8 @@ def build_on_host(host: Host, product: str) -> str:
     assert tar.stdin and tar.stdout
     tar.stdin.write("\0".join(files).encode())
     tar.stdin.close()
-    code = host.stream(f"docker build --progress=plain -f {shlex.quote(spec['dockerfile'])} -t {tag} -", stdin=tar.stdout)
+    args = "".join(f" --build-arg {shlex.quote(arg)}" for arg in build_args)
+    code = host.stream(f"docker build --progress=plain{args} -f {shlex.quote(spec['dockerfile'])} -t {tag} -", stdin=tar.stdout)
     tar.wait()
     if code != 0 or tar.returncode != 0:
         sys.exit(f"the build failed (docker build {code}, tar {tar.returncode}); see above")
@@ -242,6 +245,8 @@ def cmd_up(host: Host, env: dict, a) -> None:
         sys.exit("no PEPPER_API_TOKEN in deploy/home/.env, the other launchers' .env files or the environment")
     if bool(env.get("PEPPER_TUNNEL_TOKEN")) != bool(env.get("PEPPER_HOSTNAME")):
         sys.exit("set both PEPPER_TUNNEL_TOKEN and PEPPER_HOSTNAME, or neither")
+    if a.build_arg and not a.build:
+        sys.exit("--build-arg only applies with --build")
     spec = PRODUCTS[a.product]
     name, directory = spec["name"], stack_dir(a.product)
     check_host(host)
@@ -267,7 +272,7 @@ def cmd_up(host: Host, env: dict, a) -> None:
               f"{'it' if len(neighbours) == 1 else 'them'} in Portainer or with `docker compose stop` in "
               f"{STACKS_DIR}/<name>.", flush=True)
 
-    image = a.image or (build_on_host(host, a.product) if a.build else spec["image"])
+    image = a.image or (build_on_host(host, a.product, a.build_arg) if a.build else spec["image"])
     settings = {
         **{key: env[key] for key in SECRET_KEYS if env.get(key)},
         **({"PEPPER_HOSTNAME": env["PEPPER_HOSTNAME"]} if url else {}),
@@ -398,6 +403,9 @@ def main() -> None:
     src = u.add_mutually_exclusive_group()
     src.add_argument("--image", help="image to run; default the product's published image")
     src.add_argument("--build", action="store_true", help="build this checkout on the host and run that")
+    u.add_argument("--build-arg", action="append", default=[], metavar="KEY=VALUE",
+                   help="with --build: a Dockerfile ARG (repeatable), e.g. "
+                        "TORCH_INDEX=https://download.pytorch.org/whl/cu130")
     u.add_argument("--catalogue-branch", metavar="BRANCH", help="serve the catalogue from this pepper-catalogue branch")
     u.add_argument("--wait", type=int, default=20, help="minutes to wait for Pepper to answer once started")
     u.add_argument("--force", action="store_true", help="start even if the hostname already answers")
