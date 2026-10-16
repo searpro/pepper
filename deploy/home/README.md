@@ -71,6 +71,8 @@ uv run deploy/home/launch.py down --product pro          # remove the container;
 - It refuses if the other product is running here: both use port 3000.
 - It warns when another container holds the GPU (a `llama-server`, say),
   since a 16 GB card has little to share.
+- Before replacing a running container it waits for its queued and running
+  jobs, since replacing it kills a render; `--force` skips the wait.
 - It writes `/srv/pepper-pro/compose.yaml` and `.env`, pulls the image,
   starts the stack, follows the log, and prints `Pepper is up: https://…`
   once `/health` answers. On your network Pepper also answers at
@@ -100,7 +102,7 @@ Each product is one folder, which is the whole story of what it stores:
 /srv/pepper-pro/
   compose.yaml   how the container runs (rewritten by every `up`)
   .env           the tokens, mode 600
-  data/          /data in the container: models, database, outputs
+  data/          /data in the container: models, database, uploads, projects, outputs/
 ```
 
 | You want | Run |
@@ -109,6 +111,11 @@ Each product is one folder, which is the whole story of what it stores:
 | The image gone too | `down --product pro --delete-image` |
 | Everything gone | `down --product pro --delete-data` (asks you to type the name) |
 | What uses space | `status`, or `du -sh /srv/*/data` on the host |
+
+Outputs go to `data/outputs` (`OUTPUT_DIR`), not the container's `/tmp` as on
+a pod, so an update keeps them. The retention sweep still removes outputs
+older than a day (`OUTPUT_RETENTION_MS`); takes copied into a project, and
+outputs used as inputs, are kept apart from it.
 
 The container writes as root, so `down --delete-data` removes the folder
 through a throwaway container rather than needing sudo. Portainer, or

@@ -180,6 +180,19 @@ def gpu_neighbours(host: Host, mine: str) -> list[str]:
     return names
 
 
+def busy_jobs(host: Host, name: str) -> int:
+    """Jobs the running container has queued or running. The token stays in
+    the container: curl runs there, with its own environment."""
+    out = host.run(
+        f"docker exec {shlex.quote(name)} sh -c "
+        "'curl -fsS -H \"Authorization: Bearer $PEPPER_API_TOKEN\" "
+        "\"localhost:3000/v1/jobs?status=running&status=queued&limit=100\"' 2>/dev/null"
+        " | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get(\"jobs\", [])))' 2>/dev/null || echo 0",
+        check=False,
+    ).strip()
+    return int(out) if out.isdigit() else 0
+
+
 def check_host(host: Host) -> None:
     runtimes = host.run("docker info --format '{{json .Runtimes}}'", check=False)
     if not runtimes:
@@ -278,6 +291,10 @@ def cmd_up(host: Host, env: dict, a) -> None:
         **({"PEPPER_HOSTNAME": env["PEPPER_HOSTNAME"]} if url else {}),
         **({"PEPPER_TIER": a.tier} if a.product == "pro" else {}),
         **({"CATALOGUE_URL": CATALOGUE_RAW.format(branch=a.catalogue_branch)} if a.catalogue_branch else {}),
+        # Outputs default to the container's /tmp, which every `up` that
+        # replaces the container wiped. Here they live with the rest of the
+        # data, so only the retention sweep removes them.
+        "OUTPUT_DIR": "/data/outputs",
     }
     q = shlex.quote(directory)
     # umask 077: the .env is created readable by its owner only.
@@ -293,6 +310,19 @@ def cmd_up(host: Host, env: dict, a) -> None:
         interactive = sys.stdout.isatty()
         if host.stream(f"cd {q} && docker compose pull{'' if interactive else ' --quiet'}", tty=interactive) != 0:
             sys.exit("the pull failed; see above")
+    # Replacing the container kills whatever it is rendering, and a build or
+    # pull before this can take an hour, so look now, just before.
+    if mine_running and not a.force:
+        waiting = False
+        try:
+            while (busy := busy_jobs(host, name)) > 0:
+                if not waiting:
+                    print(f"waiting for {busy} queued or running job{'s' if busy > 1 else ''} to finish before "
+                          f"replacing {name} (Ctrl-C leaves it running as it is; --force does not wait)", flush=True)
+                    waiting = True
+                time.sleep(15)
+        except KeyboardInterrupt:
+            sys.exit(f"\nleft {name} running unchanged; the new image is ready for the next `up`")
     since = int(host.run("date +%s").strip())
     host.run(f"cd {q} && docker compose up -d --remove-orphans{' --pull never' if local else ''} 2>&1")
     print(f"{'updated' if mine_running else 'started'} {name} on {host.name}: {image}, data in {directory}/data", flush=True)
@@ -408,7 +438,7 @@ def main() -> None:
                         "TORCH_INDEX=https://download.pytorch.org/whl/cu130")
     u.add_argument("--catalogue-branch", metavar="BRANCH", help="serve the catalogue from this pepper-catalogue branch")
     u.add_argument("--wait", type=int, default=20, help="minutes to wait for Pepper to answer once started")
-    u.add_argument("--force", action="store_true", help="start even if the hostname already answers")
+    u.add_argument("--force", action="store_true", help="start even if the hostname already answers, and replace the container without waiting for its jobs")
 
     sub.add_parser("status", help="containers, GPU, RAM, disk, and whether Pepper answers")
     lg = sub.add_parser("logs", help="follow the container's log")
