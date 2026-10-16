@@ -136,6 +136,15 @@ export interface Take {
     sourceTakeId?: string;
     error?: string;
   } | null;
+  /** The take upscaled for delivery (SeedVR2), which a cut plays in its place once done. */
+  master: {
+    recipe: string;
+    state: 'rendering' | 'done' | 'failed';
+    status?: Job['status'];
+    progress?: number;
+    url?: string;
+    error?: string;
+  } | null;
 }
 
 export interface Shot {

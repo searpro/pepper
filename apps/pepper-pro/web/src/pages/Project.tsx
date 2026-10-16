@@ -41,7 +41,7 @@ export function ProjectPage() {
   React.useEffect(() => {
     if (!data) return;
     const rendering =
-      data.scenes.some((s) => s.shots.some((shot) => shot.takes.some((t) => isActive(t.status)))) ||
+      data.scenes.some((s) => s.shots.some((shot) => shot.takes.some((t) => isActive(t.status) || t.master?.state === 'rendering'))) ||
       data.cuts.some((c) => c.export && isActive(c.export.status));
     setFast(rendering);
   }, [data]);

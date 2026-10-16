@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Eye, Plus, Scissors, ScanEye, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
+import { Check, Eye, Gem, Plus, Scissors, ScanEye, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -325,6 +325,15 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
               from {take.chain.from?.toFixed(1)} s
             </Badge>
           ) : null}
+          {take.master ? (
+            <Badge
+              variant={take.master.state === 'done' ? 'success' : take.master.state === 'failed' ? 'destructive' : 'outline'}
+              className="whitespace-nowrap"
+              title={take.master.error ?? `Upscaled for delivery with ${take.master.recipe}; the cut plays it in place of the take`}
+            >
+              {take.master.state === 'done' ? 'mastered' : take.master.state === 'failed' ? 'master failed' : `mastering ${Math.round((take.master.progress ?? 0) * 100)}%`}
+            </Badge>
+          ) : null}
         </div>
         <span className="truncate font-mono text-muted-foreground" title="Seed">
           {take.seed ?? ''}
@@ -332,8 +341,14 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
       </div>
       {isActive(take.status) ? <Progress value={take.progress} indeterminate={take.status === 'queued'} /> : null}
       <div ref={media}>
-        <TakeMedia take={take} />
+        {/* A mastered take plays its master, which is what the cut will show. */}
+        <TakeMedia take={take.master?.url ? { ...take, url: take.master.url } : take} />
       </div>
+      {take.master?.url ? (
+        <a href={take.url} target="_blank" rel="noreferrer" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+          Open the take as rendered
+        </a>
+      ) : null}
       {take.error ? <ErrorNote>{take.error.message}</ErrorNote> : null}
       {take.review ? (
         <div className="flex flex-col gap-1 text-[11px]" title={`Checked by ${take.review.model}`}>
@@ -399,7 +414,19 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
               <Scissors />
             </Button>
           ) : null}
-                    <Button size="icon-sm" variant="ghost" aria-label="Delete take" onClick={() => run(() => api.delete(`/v1/takes/${take.id}`))}>
+          {take.kind === 'video' ? (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Master for delivery"
+              title="Upscale this take for delivery (SeedVR2), keeping its sound; the cut plays the master"
+              disabled={take.status !== 'completed' || take.master?.state === 'rendering'}
+              onClick={() => run(() => api.post(`/v1/takes/${take.id}/master`, {}))}
+            >
+              {take.master?.state === 'rendering' ? <Spinner /> : <Gem />}
+            </Button>
+          ) : null}
+          <Button size="icon-sm" variant="ghost" aria-label="Delete take" onClick={() => run(() => api.delete(`/v1/takes/${take.id}`))}>
             <Trash2 />
           </Button>
         </div>
