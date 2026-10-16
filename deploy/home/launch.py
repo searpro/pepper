@@ -122,7 +122,12 @@ class Host:
         self.name = dest.rsplit("@", 1)[-1]
 
     def argv(self, script: str, tty: bool = False) -> list[str]:
-        return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", *(["-tt"] if tty else []), self.dest, script]
+        # Keepalives: a connection lost to a sleeping laptop or a dropped
+        # network otherwise hangs a quiet command (a --quiet pull) forever;
+        # with them it fails after about a minute.
+        return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
+                *(["-tt"] if tty else []), self.dest, script]
 
     def run(self, script: str, input: str | None = None, check: bool = True) -> str:
         """Run a shell snippet on the host and return its output."""
