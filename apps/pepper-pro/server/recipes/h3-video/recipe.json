@@ -17,6 +17,7 @@
     "native-audio",
     "product"
   ],
+  "prompt_format": "h3-base",
   "licence": {
     "id": "minimax-h3-community",
     "name": "MiniMax H3 Community Licence",

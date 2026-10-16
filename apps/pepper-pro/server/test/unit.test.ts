@@ -501,6 +501,80 @@ describe('shots to recipe parameters', () => {
     expect(deriveParams({ project, shot: shot(), assets: [], recipe: sized, mode: 'draft' })).toMatchObject({ width: 384, height: 672 });
     expect(sizeFor('1:1', 1024, 1024)).toEqual({ width: 1024, height: 1024 });
   });
+
+  const h3 = (format: 'h3-base' | 'h3-reference', params: Recipe['params']) =>
+    ({ params, capabilities: [], prompt_format: format }) as unknown as Recipe;
+  const baseParams: Recipe['params'] = [
+    { name: 'prompt', type: 'text', label: '', required: true },
+    { name: 'first_frame', type: 'image', label: '', required: false },
+    { name: 'last_frame', type: 'image', label: '', required: false },
+    { name: 'duration', type: 'float', label: '', required: false, min: 1, max: 15 },
+  ];
+
+  it('writes H3 base prompts in the official three-field format', () => {
+    const voiced = asset('a1', 'Mei', { voice: { description: 'a quiet, breathy young voice' } });
+    const text = composePrompt({
+      project,
+      shot: shot({ assetIds: ['a1', 'a2'], sound: 'rain on the umbrella. Music: sparse piano at a slow tempo', dialogue: [{ asset_id: 'a1', line: 'You lied to me' }, { asset_id: 'a2', line: 'I had to.', language: 'French' }, { asset_id: 'a1', line: 'Go.' }] }),
+      assets: [voiced, asset('a2', 'Jun')],
+      recipe: h3('h3-base', baseParams),
+    });
+    const [instruction, blank] = text.split('\n');
+    // The first asset's image becomes the opening frame, so the prompt has to say so.
+    expect(instruction).toBe('For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.');
+    expect(blank).toBe('');
+    expect(text).toContain('integrated_multimodal_description: [Shot 1] Warm film look.');
+    expect(text).toContain('Medium two-shot. Camera: slow push-in.');
+    // Stable speaker IDs in speaking order, voice described, words verbatim inside <d>.
+    expect(text).toContain('Mei with a quiet, breathy young voice (S1) says: <d>[English] You lied to me</d>');
+    expect(text).toContain('Jun (S2) says: <d>[French] I had to.</d>');
+    expect(text).toContain('Mei with a quiet, breathy young voice (S1) says: <d>[English] Go.</d>');
+    expect(text).toContain('\n\noverall_soundscape: Rain on the umbrella.');
+    expect(text).toContain('\n\nnon_diegetic_music: Sparse piano at a slow tempo.');
+  });
+
+  it('aligns first and last frames to the shot length, and leaves structured prompts alone', () => {
+    const both = composePrompt({
+      project,
+      shot: shot({ durationS: 8, keyframes: { first: 'f.png', last: 'l.png' }, dialogue: [], sound: '', prompt: 'She opens the umbrella. [Shot 2] At 00:04.000, the camera cuts to her hand.' }),
+      assets: [],
+      recipe: h3('h3-base', baseParams),
+    });
+    expect(both.split('\n')[0]).toBe(
+      'How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 2) aligns with the 8.00-second mark of the target video.',
+    );
+    expect(both).toContain('By the end of [Shot 2], the shot settles into the composition, poses and lighting established by <Picture 2>.');
+    expect(both).toContain('non_diegetic_music: N/A');
+    const lastOnly = composePrompt({ project, shot: shot({ durationS: 6, keyframes: { last: 'l.png' }, assetIds: [] }), assets: [], recipe: h3('h3-base', baseParams) });
+    expect(lastOnly.split('\n')[0]).toBe('How the reference pictures align with the target video — <Picture 1> (from [Shot 1]) aligns with the 6.00-second mark of the target video.');
+    const written = 'integrated_multimodal_description: [Shot 1] A lighthouse at dusk.\n\noverall_soundscape: Waves.\n\nnon_diegetic_music: N/A';
+    expect(composePrompt({ project, shot: shot({ prompt: written }), assets: [], recipe: h3('h3-base', baseParams) })).toBe(written);
+  });
+
+  it('writes H3 reference prompts with every picture and voice bound to its label', () => {
+    const text = composePrompt({
+      project,
+      shot: shot({ prompt: 'Mei turns away from Jun in the rain.' }),
+      assets: [asset('a1', 'Mei', { images: ['m1.png', 'm2.png'] }), asset('a2', 'Jun')],
+      recipe: h3('h3-reference', [
+        { name: 'prompt', type: 'text', label: '', required: true },
+        { name: 'refs', type: 'images', label: '', required: false, max_items: 9 },
+        { name: 'voice_refs', type: 'audios', label: '', required: false, max_items: 3 },
+      ]),
+    });
+    const sections = ['subject_definitions:', 'summary:', 'retention_analysis:', 'detailed_description:', 'overall_soundscape:', 'non_diegetic_music:'];
+    expect(sections.map((s) => text.indexOf(`${s}\n`))).toEqual([...sections.map((s) => text.indexOf(`${s}\n`))].sort((a, b) => a - b));
+    expect(sections.every((s) => text.includes(`${s}\n`))).toBe(true);
+    expect(text).toContain('<Subject 1> is Mei in <Picture 1>, <Picture 2>, mei description.');
+    expect(text).toContain('<Subject 2> is Jun in <Picture 3>, jun description.');
+    expect(text).toContain('<Audio 1> is the voice-timbre reference for <Subject 1> (S1).');
+    expect(text).toContain('<Audio 2> is the voice-timbre reference for <Subject 2> (S2).');
+    expect(text).toContain('[reference generation + audio reference] The target video shows <Subject 1> and <Subject 2>: <Subject 1> turns away from <Subject 2> in the rain.');
+    expect(text).toContain('<Subject 1> (S1) says: <d>[English] You lied to me</d>');
+    // The labels match what deriveParams hands the recipe.
+    const params = deriveParams({ project, shot: shot(), assets: [asset('a1', 'Mei', { images: ['m1.png', 'm2.png'] }), asset('a2', 'Jun')], recipe: h3('h3-reference', [{ name: 'refs', type: 'images', label: '', required: false, max_items: 9 }, { name: 'voice_refs', type: 'audios', label: '', required: false, max_items: 3 }]) });
+    expect(params).toMatchObject({ refs: ['m1.png', 'm2.png', 'a2.png'], voice_refs: ['a1.wav', 'a2.wav'] });
+  });
 });
 
 describe('long takes', () => {
