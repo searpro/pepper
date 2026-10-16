@@ -1374,3 +1374,52 @@ describe('mastering', () => {
     }
   }, 60_000);
 });
+
+describe('continuing shots', () => {
+  it("renders a shot from the previous shot's chosen take, and the cut trims the overlap", async () => {
+    if (!haveFfmpeg) return;
+    const server = await buildServer(await tempConfig());
+    try {
+      const dir = await mkdtemp(join(tmpdir(), 'pepper-continue-'));
+      const clip = join(dir, 'clip.mp4');
+      spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=64x64:d=1:r=24', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=1', '-shortest', '-pix_fmt', 'yuv420p', clip]);
+      const seen: Record<string, unknown>[] = [];
+      server.jobs.registerExecutor('video', async ({ job }) => {
+        seen.push((job.params as { params: Record<string, unknown> }).params);
+        return { video_path: clip };
+      });
+      const settle = async (id: string) => {
+        for (let i = 0; i < 400; i++) {
+          const view = server.projects.viewTake(server.projects.requireTake(id));
+          if (view.file) return view;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        throw new Error(`take ${id} did not settle`);
+      };
+
+      const project = server.projects.createProject({ name: 'One take' });
+      const scene = server.projects.createScene(project.id);
+      const first = server.projects.createShot(scene.id, { prompt: 'She walks in', recipeId: 'test-continue', durationS: 1 });
+      const second = server.projects.createShot(scene.id, { prompt: 'She sits down', recipeId: 'test-continue', durationS: 1, continues: true });
+      const lone = server.projects.createShot(server.projects.createScene(project.id).id, { prompt: 'x', recipeId: 'test-continue', continues: true });
+      await expect(server.projects.renderShots([lone.id], {})).rejects.toThrow(/first of its scene/);
+      await expect(server.projects.renderShots([second.id], {})).rejects.toThrow(/choose a finished video take/);
+
+      const [opening] = await server.projects.renderShots([first.id], {});
+      await settle(opening.id);
+      server.projects.chooseTake(opening.id);
+      const [carried] = await server.projects.renderShots([second.id], {});
+      expect(seen.at(-1)!.previous).toBe(`cont-${opening.id}.mp4`);
+      expect(existsSync(join(server.paths.uploadsDir, `cont-${opening.id}.mp4`))).toBe(true);
+      await settle(carried.id);
+      server.projects.chooseTake(carried.id);
+
+      // test-continue repeats 0.25 s of what it continues: the cut starts the second shot after it.
+      const cut = server.projects.createCut(project.id);
+      expect(cut.items).toEqual([{ take_id: opening.id }, { take_id: carried.id, in: 0.25 }]);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  }, 60_000);
+});

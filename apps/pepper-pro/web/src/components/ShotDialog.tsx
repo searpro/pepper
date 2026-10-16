@@ -86,6 +86,7 @@ function ShotForm({ shot, assets, recipes, onSaved }: { shot: Shot; assets: Asse
     keyframes: shot.keyframes,
     audioAssetId: shot.audioAssetId,
     recipeId: shot.recipeId,
+    continues: shot.continues,
   }));
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
@@ -137,9 +138,16 @@ function ShotForm({ shot, assets, recipes, onSaved }: { shot: Shot; assets: Asse
           <Input value={draft.framing} placeholder="Medium close-up" onChange={(e) => set('framing', e.target.value)} />
         </Field>
         <Field label="Camera">
-          <Input value={draft.camera} placeholder="Slow push-in" onChange={(e) => set('camera', e.target.value)} />
+          <Input value={draft.camera} placeholder="The camera pushes in slowly toward her face" onChange={(e) => set('camera', e.target.value)} />
         </Field>
       </div>
+      <label className="flex items-start gap-2 text-xs" title="Rendered continuing the previous shot's chosen take, so motion, light and voices run on; the cut trims the frames it repeats">
+        <input type="checkbox" className="mt-0.5" checked={draft.continues} onChange={(e) => set('continues', e.target.checked)} />
+        <span>
+          Carries on from the previous shot of the scene, as one continuous take
+          <span className="block text-muted-foreground">Choose a take of the previous shot first. H3 only.</span>
+        </span>
+      </label>
       <Field label="Action" hint="What happens and how it looks; the project's look and the cast are added for you.">
         <Textarea rows={4} value={draft.prompt} onChange={(e) => set('prompt', e.target.value)} />
       </Field>
@@ -188,8 +196,8 @@ function ShotForm({ shot, assets, recipes, onSaved }: { shot: Shot; assets: Asse
         </div>
       </Field>
 
-      <Field label="Sound" hint="Ambience and effects the recipe generates with the picture.">
-        <Input value={draft.sound} onChange={(e) => set('sound', e.target.value)} />
+      <Field label="Sound" hint={'Ambience and effects the recipe generates with the picture; then "Music: …" for a score only the audience hears.'}>
+        <Input value={draft.sound} placeholder="Rain on the shelter roof, tyres hissing past. Music: a low cello note" onChange={(e) => set('sound', e.target.value)} />
       </Field>
 
       <div className="grid gap-3 sm:grid-cols-2">

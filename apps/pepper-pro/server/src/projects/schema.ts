@@ -105,6 +105,12 @@ export const shots = sqliteTable(
     recipeId: text('recipe_id'),
     /** Recipe parameters that override what the shot derives. */
     params: text('params', { mode: 'json' }).notNull().default({}),
+    /**
+     * The shot carries straight on from the previous shot of its scene: it is
+     * rendered continuing that shot's chosen take (H3's continuation), and the
+     * cut trims the frames it repeats, so the two play as one take.
+     */
+    continues: integer('continues', { mode: 'boolean' }).notNull().default(false),
     chosenTakeId: text('chosen_take_id'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
@@ -282,4 +288,5 @@ export const PRO_MIGRATIONS: string[] = [
   'ALTER TABLE golden_results ADD COLUMN review TEXT',
   'ALTER TABLE takes ADD COLUMN chain TEXT',
   'ALTER TABLE takes ADD COLUMN master TEXT',
+  'ALTER TABLE shots ADD COLUMN continues INTEGER NOT NULL DEFAULT 0',
 ];

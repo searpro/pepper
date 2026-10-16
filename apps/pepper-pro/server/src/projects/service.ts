@@ -73,6 +73,7 @@ export type ShotInput = Partial<
     | 'audioAssetId'
     | 'recipeId'
     | 'params'
+    | 'continues'
   >
 >;
 export type CutInput = Partial<Pick<CutRow, 'name' | 'items' | 'music' | 'subtitles' | 'beatSync'>>;
@@ -94,13 +95,14 @@ export interface PlanInput {
       camera?: string;
       prompt: string;
       /** `speaker` is an asset ref, an existing asset id, or a name. */
-      dialogue?: { speaker: string; line: string }[];
+      dialogue?: { speaker: string; line: string; language?: string }[];
       sound?: string;
       /** Asset refs or ids. */
       assets?: string[];
       audio?: string;
       recipe?: string;
       params?: Record<string, unknown>;
+      continues?: boolean;
     }[];
   }[];
 }
@@ -344,6 +346,7 @@ export class ProjectService {
       audioAssetId: input.audioAssetId ?? null,
       recipeId: input.recipeId ?? null,
       params: input.params ?? {},
+      continues: input.continues ?? false,
       chosenTakeId: null,
       createdAt: now,
       updatedAt: now,
@@ -448,9 +451,10 @@ export class ProjectService {
       const scene = this.createScene(projectId, { title: sceneInput.title, notes: sceneInput.notes });
       newScenes.push(scene);
       for (const s of sceneInput.shots) {
-        const dialogue = (s.dialogue ?? []).map((d) => {
+        const dialogue = (s.dialogue ?? []).map((d): { asset_id?: string; speaker?: string; line: string; language?: string } => {
           const asset = resolve(d.speaker);
-          return asset ? { asset_id: asset.id, line: d.line } : { speaker: d.speaker, line: d.line };
+          const language = d.language ? { language: d.language } : {};
+          return asset ? { asset_id: asset.id, line: d.line, ...language } : { speaker: d.speaker, line: d.line, ...language };
         });
         const assetIds = (s.assets ?? []).map((ref) => resolve(ref)?.id).filter((id): id is string => Boolean(id));
         // A speaker is in the shot even if the plan forgot to list them.
@@ -468,6 +472,7 @@ export class ProjectService {
             audioAssetId: s.audio ? (resolve(s.audio)?.id ?? null) : null,
             recipeId: s.recipe ?? null,
             params: s.params ?? {},
+            continues: s.continues ?? false,
           }),
         );
       }
@@ -530,6 +535,8 @@ export class ProjectService {
     const created: TakeRow[] = [];
     for (const shotId of shotIds) {
       const request = await this.requestFor(shotId, options.mode);
+      const continuing = this.requireShot(shotId);
+      if (continuing.continues) request.params = await this.continueFrom(continuing, this.deps.recipes.require(request.recipe), request.params ?? {});
       if (options.fromTake) {
         const take = this.requireTake(options.fromTake);
         if (take.seed !== null) request.params = { ...request.params, seed: take.seed };
@@ -539,7 +546,7 @@ export class ProjectService {
       const count = options.fromTake ? 1 : (options.count ?? 1);
       const shot = this.requireShot(shotId);
       const recipe = this.deps.recipes.require(request.recipe);
-      const chain = this.longTakePlan(shot, recipe, request.mode ?? recipe.default_mode, request.params ?? {});
+      const chain = this.longTakePlan(shot, recipe, request.mode ?? recipe.default_mode, request.params ?? {}, shot.continues);
       for (let i = 0; i < count; i++) {
         const takeId = newId('tak');
         const prepared = await this.deps.comfy.prepareRequest(chain ? { ...request, params: chain.first } : request, {
@@ -577,6 +584,45 @@ export class ProjectService {
     return created;
   }
 
+  /**
+   * A shot that carries on from the one before it: the previous shot's
+   * chosen take goes to the recipe's continuation input (H3 pins its last
+   * frames, so motion, light and voices run on), and the opening frame is
+   * dropped, since the take now opens on that tail. This is how a scene of
+   * several directed shots plays as one continuous take, each shot with its
+   * own action and lines; the cut trims what the continuation repeats.
+   */
+  private async continueFrom(shot: ShotRow, recipe: Recipe, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (!recipe.continuation) {
+      throw errors.validation(`${recipe.name} cannot continue a clip, so shot ${shot.id} cannot carry on from the one before it`);
+    }
+    const siblings = this.listShots(shot.projectId, shot.sceneId).sort((a, b) => a.position - b.position);
+    const previous = siblings[siblings.findIndex((s) => s.id === shot.id) - 1];
+    if (!previous) throw errors.validation(`Shot ${shot.id} is the first of its scene, so there is nothing for it to continue`);
+    const take = previous.chosenTakeId ? this.db.select().from(takes).where(eq(takes.id, previous.chosenTakeId)).get() : undefined;
+    if (!take?.file || kindOf(take.file) !== 'video') {
+      throw errors.validation(`Shot ${shot.id} continues the shot before it: choose a finished video take of that shot first`);
+    }
+    // The take as rendered, not its master: the continuation works at the model's own size.
+    const upload = `cont-${take.id}${extname(take.file)}`;
+    await copyFile(this.takeFile(take.projectId, take.file), safeResolve(this.deps.paths.uploadsDir, upload));
+    const out = { ...params, [recipe.continuation.param]: upload };
+    for (const name of ['first_frame', 'image']) delete out[name];
+    return out;
+  }
+
+  /** Seconds a continuing shot's take repeats of the shot before it, which the cut trims. */
+  private continuedOverlap(shot: ShotRow, take: TakeRow): number {
+    if (!shot.continues) return 0;
+    const job = this.deps.jobs.get(take.jobId);
+    const id = (job?.params as RecipeJobParams | undefined)?.recipe ?? shot.recipeId;
+    try {
+      return id ? (this.deps.recipes.require(id).continuation?.overlap_s ?? 0) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
   /** A recipe's length input, and the continuation it chains with, if it has both. */
   private chainable(recipe: Recipe): { duration: RecipeParam & { max: number }; param: string; overlapS: number } | null {
     const duration = recipe.params.find((p) => (p.name === 'duration' || p.name === 'seconds') && (p.type === 'float' || p.type === 'int'));
@@ -593,6 +639,7 @@ export class ProjectService {
     recipe: Recipe,
     mode: string,
     params: Record<string, unknown>,
+    continuing = false,
   ): { first: Record<string, unknown>; chain: TakeChain } | null {
     const spec = this.chainable(recipe);
     // A length pinned in the shot's own parameters is taken as asked.
@@ -600,7 +647,8 @@ export class ProjectService {
     if (shot.durationS <= spec.duration.max + 0.05) return null;
     let durations: number[];
     try {
-      durations = planSegments(shot.durationS, { max: spec.duration.max, min: spec.duration.min, overlap: spec.overlapS });
+      // A shot that continues the one before it repeats that shot's tail in its first segment too.
+      durations = planSegments(shot.durationS, { max: spec.duration.max, min: spec.duration.min, overlap: spec.overlapS, continuing });
     } catch (err) {
       throw errors.validation(`Shot ${shot.id}: ${(err as Error).message}; shorten it or split it into shots`);
     }
@@ -1074,7 +1122,12 @@ export class ProjectService {
       this.listShots(projectId)
         .sort((a, b) => this.sceneOrder(a) - this.sceneOrder(b) || a.position - b.position)
         .filter((s) => s.chosenTakeId)
-        .map((s) => ({ take_id: s.chosenTakeId as string }));
+        .map((s) => {
+          const take = this.db.select().from(takes).where(eq(takes.id, s.chosenTakeId as string)).get();
+          const overlap = take ? this.continuedOverlap(s, take) : 0;
+          // A continuing shot opens on the frames it repeats of the shot before; the cut starts after them.
+          return { take_id: s.chosenTakeId as string, ...(overlap > 0 ? { in: Math.round(overlap * 1000) / 1000 } : {}) };
+        });
     const now = Date.now();
     const row: CutRow = {
       id: newId('cut'),

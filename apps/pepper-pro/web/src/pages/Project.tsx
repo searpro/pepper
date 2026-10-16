@@ -240,7 +240,13 @@ function ShotCard({ shot, onOpen }: { shot: Shot; onOpen: () => void }) {
       <div className="flex flex-wrap items-center gap-1">
         <Badge variant="outline">{shot.kind}</Badge>
         <Badge>{shot.durationS}s</Badge>
+        {shot.continues ? (
+          <Badge variant="outline" title="Carries on from the previous shot as one continuous take">
+            continues
+          </Badge>
+        ) : null}
         {chosen ? <Badge variant="primary">{chosen.mode}</Badge> : null}
+        {chosen?.master?.state === 'done' ? <Badge variant="success">mastered</Badge> : null}
         {running ? <Badge variant="warning">{running} rendering</Badge> : null}
         {failed ? <Badge variant="destructive">{failed} failed</Badge> : null}
       </div>

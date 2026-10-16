@@ -41,6 +41,8 @@ const dialogueLine = z.object({
   asset_id: z.string().optional(),
   speaker: z.string().optional(),
   line: z.string().max(2000),
+  /** The spoken language, for H3's dialogue tags; English when absent. */
+  language: z.string().max(40).optional(),
 });
 
 const shotBody = z.object({
@@ -56,6 +58,8 @@ const shotBody = z.object({
   audioAssetId: z.string().nullable().optional(),
   recipeId: z.string().nullable().optional(),
   params: z.record(z.unknown()).optional(),
+  /** Carry straight on from the previous shot of the scene (its chosen take), as one continuous take. */
+  continues: z.boolean().optional(),
 });
 
 /** The plan `plan_project` sends; see `PlanInput` in projects/service.ts. */
@@ -89,12 +93,14 @@ export const planSchema = z.object({
               framing: z.string().optional(),
               camera: z.string().optional(),
               prompt: z.string().min(1),
-              dialogue: z.array(z.object({ speaker: z.string(), line: z.string() })).optional(),
+              dialogue: z.array(z.object({ speaker: z.string(), line: z.string(), language: z.string().optional() })).optional(),
               sound: z.string().optional(),
               assets: z.array(z.string()).optional(),
               audio: z.string().optional(),
               recipe: z.string().optional(),
               params: z.record(z.unknown()).optional(),
+              /** Carries straight on from the shot before it, as one continuous take. */
+              continues: z.boolean().optional(),
             }),
           )
           .max(200),

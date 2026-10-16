@@ -163,6 +163,8 @@ export interface Shot {
   audioAssetId: string | null;
   recipeId: string | null;
   params: Record<string, unknown>;
+  /** Carries straight on from the previous shot of its scene, as one continuous take. */
+  continues: boolean;
   chosenTakeId: string | null;
   takes: Take[];
 }
