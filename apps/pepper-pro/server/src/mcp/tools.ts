@@ -203,7 +203,9 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         '(characters, locations, props, products, voices, audio — each with a `ref` the plan uses), ' +
         'then scenes of shots (prompt, framing, camera, duration_s, dialogue as {speaker: ref, line}, ' +
         'sound, assets as refs, optional recipe). Returns the project with shot ids to render. ' +
-        'Short-drama shots are 3–8 s; a line or two of dialogue per 5 s. ' +
+        'Short-drama shots are 3–8 s; a line or two of dialogue per 5 s; faces hold best in close and ' +
+        'medium shots. Give recurring characters a fixed visual description (and a voice description) ' +
+        'and reference images, so every shot binds the same person. ' +
         PROMPTING,
       inputSchema: {
         project_id: z.string().optional(),

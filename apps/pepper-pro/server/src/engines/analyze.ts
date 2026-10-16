@@ -142,9 +142,15 @@ const PLAN_SYSTEM =
   'You are a director breaking a script into a shot list for an AI video generator. List the recurring ' +
   'characters, locations and products as assets, each with a visual description (age, build, hair, ' +
   'clothes; or materials, light, layout) that stays the same in every shot. Then write scenes of shots, ' +
-  '3-15 seconds each. A shot prompt describes what is seen and how it moves, in present tense, without ' +
-  "naming the camera; framing and camera go in their own fields. Put spoken lines in dialogue with the " +
-  "speaker's asset ref, and ambient sound or music in sound. List the refs of the assets in each shot.";
+  '3-15 seconds each. A shot prompt describes what is seen and how it moves, in present tense, along the ' +
+  'whole shot: how it opens, the action as it unfolds, and how it ends, so nothing is left for the model ' +
+  'to improvise. A later beat inside one shot starts "[Shot 2] At 00:04.000, the camera cuts to ...". ' +
+  'Framing goes in framing ("A medium close-up at eye level"). Camera goes in camera as one sentence with ' +
+  'the move, its amplitude and speed, and where it ends ("The camera pushes in with small amplitude at slow ' +
+  'speed toward her hands", "The camera holds a static shot"); a move with no destination overshoots. Put ' +
+  "spoken lines in dialogue with the speaker's asset ref, word for word. Put ambience and physical sounds " +
+  'in sound, then "Music: ..." for any score only the audience hears (instruments, tempo, dynamics). ' +
+  'Faces hold best in close and medium shots. List the refs of the assets in each shot.';
 
 export class AnalyzeEngine implements Engine {
   readonly id = 'analyze';
