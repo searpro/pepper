@@ -122,7 +122,12 @@ class Host:
         self.name = dest.rsplit("@", 1)[-1]
 
     def argv(self, script: str, tty: bool = False) -> list[str]:
-        return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", *(["-tt"] if tty else []), self.dest, script]
+        # Keepalives: a connection lost to a sleeping laptop or a dropped
+        # network otherwise hangs a quiet command (a --quiet pull) forever;
+        # with them it fails after about a minute.
+        return ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4",
+                *(["-tt"] if tty else []), self.dest, script]
 
     def run(self, script: str, input: str | None = None, check: bool = True) -> str:
         """Run a shell snippet on the host and return its output."""
@@ -175,6 +180,19 @@ def gpu_neighbours(host: Host, mine: str) -> list[str]:
     return names
 
 
+def busy_jobs(host: Host, name: str) -> int:
+    """Jobs the running container has queued or running. The token stays in
+    the container: curl runs there, with its own environment."""
+    out = host.run(
+        f"docker exec {shlex.quote(name)} sh -c "
+        "'curl -fsS -H \"Authorization: Bearer $PEPPER_API_TOKEN\" "
+        "\"localhost:3000/v1/jobs?status=running&status=queued&limit=100\"' 2>/dev/null"
+        " | python3 -c 'import json,sys; print(len(json.load(sys.stdin).get(\"jobs\", [])))' 2>/dev/null || echo 0",
+        check=False,
+    ).strip()
+    return int(out) if out.isdigit() else 0
+
+
 def check_host(host: Host) -> None:
     runtimes = host.run("docker info --format '{{json .Runtimes}}'", check=False)
     if not runtimes:
@@ -185,12 +203,14 @@ def check_host(host: Host) -> None:
                  "(deploy/home/README.md)")
 
 
-def build_on_host(host: Host, product: str) -> str:
+def build_on_host(host: Host, product: str, build_args: list[str]) -> str:
     """Send this checkout to the host and build the product's image there.
 
     Like Kaggle's launcher this runs uncommitted changes, with no push and no
     wait for CI. The context is what git lists under BUILD_PATHS, so models
-    and node_modules never leave this machine.
+    and node_modules never leave this machine. `build_args` are the
+    Dockerfile's ARGs as KEY=VALUE, e.g. a CUDA 13 TORCH_INDEX, which a
+    Blackwell card needs for NVFP4 kernels and the published image lacks.
     """
     spec = PRODUCTS[product]
     listed = subprocess.run(["git", "ls-files", "-z", "-co", "--exclude-standard", "--", *BUILD_PATHS, spec["dockerfile"]],
@@ -207,7 +227,8 @@ def build_on_host(host: Host, product: str) -> str:
     assert tar.stdin and tar.stdout
     tar.stdin.write("\0".join(files).encode())
     tar.stdin.close()
-    code = host.stream(f"docker build --progress=plain -f {shlex.quote(spec['dockerfile'])} -t {tag} -", stdin=tar.stdout)
+    args = "".join(f" --build-arg {shlex.quote(arg)}" for arg in build_args)
+    code = host.stream(f"docker build --progress=plain{args} -f {shlex.quote(spec['dockerfile'])} -t {tag} -", stdin=tar.stdout)
     tar.wait()
     if code != 0 or tar.returncode != 0:
         sys.exit(f"the build failed (docker build {code}, tar {tar.returncode}); see above")
@@ -237,6 +258,8 @@ def cmd_up(host: Host, env: dict, a) -> None:
         sys.exit("no PEPPER_API_TOKEN in deploy/home/.env, the other launchers' .env files or the environment")
     if bool(env.get("PEPPER_TUNNEL_TOKEN")) != bool(env.get("PEPPER_HOSTNAME")):
         sys.exit("set both PEPPER_TUNNEL_TOKEN and PEPPER_HOSTNAME, or neither")
+    if a.build_arg and not a.build:
+        sys.exit("--build-arg only applies with --build")
     spec = PRODUCTS[a.product]
     name, directory = spec["name"], stack_dir(a.product)
     check_host(host)
@@ -262,12 +285,16 @@ def cmd_up(host: Host, env: dict, a) -> None:
               f"{'it' if len(neighbours) == 1 else 'them'} in Portainer or with `docker compose stop` in "
               f"{STACKS_DIR}/<name>.", flush=True)
 
-    image = a.image or (build_on_host(host, a.product) if a.build else spec["image"])
+    image = a.image or (build_on_host(host, a.product, a.build_arg) if a.build else spec["image"])
     settings = {
         **{key: env[key] for key in SECRET_KEYS if env.get(key)},
         **({"PEPPER_HOSTNAME": env["PEPPER_HOSTNAME"]} if url else {}),
         **({"PEPPER_TIER": a.tier} if a.product == "pro" else {}),
         **({"CATALOGUE_URL": CATALOGUE_RAW.format(branch=a.catalogue_branch)} if a.catalogue_branch else {}),
+        # Outputs default to the container's /tmp, which every `up` that
+        # replaces the container wiped. Here they live with the rest of the
+        # data, so only the retention sweep removes them.
+        "OUTPUT_DIR": "/data/outputs",
     }
     q = shlex.quote(directory)
     # umask 077: the .env is created readable by its owner only.
@@ -283,6 +310,19 @@ def cmd_up(host: Host, env: dict, a) -> None:
         interactive = sys.stdout.isatty()
         if host.stream(f"cd {q} && docker compose pull{'' if interactive else ' --quiet'}", tty=interactive) != 0:
             sys.exit("the pull failed; see above")
+    # Replacing the container kills whatever it is rendering, and a build or
+    # pull before this can take an hour, so look now, just before.
+    if mine_running and not a.force:
+        waiting = False
+        try:
+            while (busy := busy_jobs(host, name)) > 0:
+                if not waiting:
+                    print(f"waiting for {busy} queued or running job{'s' if busy > 1 else ''} to finish before "
+                          f"replacing {name} (Ctrl-C leaves it running as it is; --force does not wait)", flush=True)
+                    waiting = True
+                time.sleep(15)
+        except KeyboardInterrupt:
+            sys.exit(f"\nleft {name} running unchanged; the new image is ready for the next `up`")
     since = int(host.run("date +%s").strip())
     host.run(f"cd {q} && docker compose up -d --remove-orphans{' --pull never' if local else ''} 2>&1")
     print(f"{'updated' if mine_running else 'started'} {name} on {host.name}: {image}, data in {directory}/data", flush=True)
@@ -393,9 +433,12 @@ def main() -> None:
     src = u.add_mutually_exclusive_group()
     src.add_argument("--image", help="image to run; default the product's published image")
     src.add_argument("--build", action="store_true", help="build this checkout on the host and run that")
+    u.add_argument("--build-arg", action="append", default=[], metavar="KEY=VALUE",
+                   help="with --build: a Dockerfile ARG (repeatable), e.g. "
+                        "TORCH_INDEX=https://download.pytorch.org/whl/cu130")
     u.add_argument("--catalogue-branch", metavar="BRANCH", help="serve the catalogue from this pepper-catalogue branch")
     u.add_argument("--wait", type=int, default=20, help="minutes to wait for Pepper to answer once started")
-    u.add_argument("--force", action="store_true", help="start even if the hostname already answers")
+    u.add_argument("--force", action="store_true", help="start even if the hostname already answers, and replace the container without waiting for its jobs")
 
     sub.add_parser("status", help="containers, GPU, RAM, disk, and whether Pepper answers")
     lg = sub.add_parser("logs", help="follow the container's log")
