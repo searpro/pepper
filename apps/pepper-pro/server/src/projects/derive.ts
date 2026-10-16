@@ -32,6 +32,12 @@ export interface DeriveInput {
   recipe: Recipe;
   /** The mode the take renders in; a draft mode's smaller default size sets the pixel count. */
   mode?: string;
+  /**
+   * The take continues earlier footage (a long take's later segment, or a
+   * shot that carries on from the one before): it opens on that footage, so
+   * it gets no opening frame and its prompt says it carries on.
+   */
+  continuing?: boolean;
 }
 
 interface DialogueLine {
@@ -130,7 +136,7 @@ function framesFor(input: DeriveInput): { first?: string; last?: string } {
   const keyframes = shot.keyframes as { first?: string; last?: string };
   const images = shotAssets(shot, assets).flatMap((a) => a.images as string[]);
   const takesRefs = Boolean(has(recipe, 'refs', ['images']) || has(recipe, 'reference_images', ['images']));
-  const first = keyframes.first ?? (takesRefs ? undefined : images[0]);
+  const first = input.continuing ? undefined : (keyframes.first ?? (takesRefs ? undefined : images[0]));
   const takesFirst = Boolean(has(recipe, 'first_frame', ['image']) || has(recipe, 'image', ['image']));
   return {
     first: first && takesFirst ? first : undefined,
@@ -282,7 +288,11 @@ export function composeH3Prompt(input: DeriveInput, format: 'h3-base' | 'h3-refe
     const { first, last } = framesFor(input);
     const seconds = durationFor(recipe, shot.durationS).toFixed(2);
     const cast = inShot.filter((a) => describe(a)).map((a) => `${a.name}: ${describe(a)}.`);
-    const opening = first ? ['The scene begins exactly as shown in <Picture 1>, preserving its subjects, appearance, clothing and setting.'] : [];
+    const opening = first
+      ? ['The scene begins exactly as shown in <Picture 1>, preserving its subjects, appearance, clothing and setting.']
+      : input.continuing
+        ? ['The shot carries straight on from the footage before it, keeping the same subjects, clothing, setting, light and camera position.']
+        : [];
     const body = [`[Shot 1] ${sentence(style)}`, ...opening, ...cast, direction, sentence(action), ...lines]
       .filter(Boolean)
       .join(' ');

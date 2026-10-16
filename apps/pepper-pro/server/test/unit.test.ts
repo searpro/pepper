@@ -1423,3 +1423,27 @@ describe('continuing shots', () => {
     }
   }, 60_000);
 });
+
+describe('continuation prompts', () => {
+  it('drops the opening-frame line when a take continues earlier footage', () => {
+    const project = { style: '', aspect: '16:9' } as ProjectRow;
+    const mei = { id: 'a1', name: 'Mei', description: 'short black bob', images: ['mei.png'], voice: null } as unknown as AssetRow;
+    const shot = { assetIds: ['a1'], framing: '', camera: '', prompt: 'She boards the bus.', dialogue: [], sound: '', durationS: 6, keyframes: {}, params: {} } as unknown as ShotRow;
+    const recipe = {
+      params: [
+        { name: 'prompt', type: 'text' },
+        { name: 'first_frame', type: 'image' },
+      ],
+      capabilities: [],
+      prompt_format: 'h3-base',
+    } as unknown as Recipe;
+    const opening = deriveParams({ project, shot, assets: [mei], recipe });
+    expect(opening.first_frame).toBe('mei.png');
+    expect(opening.prompt).toMatch(/^For the target video, at 0.00 seconds/);
+    const continued = deriveParams({ project, shot, assets: [mei], recipe, continuing: true });
+    expect(continued.first_frame).toBeUndefined();
+    expect(continued.prompt).toMatch(/^integrated_multimodal_description: \[Shot 1\]/);
+    expect(continued.prompt).toContain('carries straight on from the footage before it');
+    expect(continued.prompt).not.toContain('<Picture 1>');
+  });
+});

@@ -15,7 +15,7 @@ import { probeMedia, runFfmpeg } from '@pepper/core/util/ffmpeg.js';
 import type { Recipe, RecipeParam } from '../recipes/schema.js';
 import type { RecipeStore } from '../recipes/store.js';
 import { joinArgs, planSegments, type JoinPart, type TakeChain } from './chain.js';
-import { deriveParams } from './derive.js';
+import { composePrompt, deriveParams } from './derive.js';
 import {
   assets,
   cuts,
@@ -608,6 +608,11 @@ export class ProjectService {
     await copyFile(this.takeFile(take.projectId, take.file), safeResolve(this.deps.paths.uploadsDir, upload));
     const out = { ...params, [recipe.continuation.param]: upload };
     for (const name of ['first_frame', 'image']) delete out[name];
+    // The prompt was written for an opening frame the take no longer has.
+    if (typeof out.prompt === 'string' && !(shot.params as Record<string, unknown>).prompt) {
+      const project = this.requireProject(shot.projectId);
+      out.prompt = composePrompt({ project, shot, assets: this.listAssets(project.id), recipe, continuing: true });
+    }
     return out;
   }
 
@@ -689,6 +694,7 @@ export class ProjectService {
       assets: this.listAssets(project.id),
       recipe,
       mode,
+      continuing: true,
     });
     for (const name of ['first_frame', 'image', 'audio', 'last_frame']) delete next[name];
     return { next, last: params.last_frame !== undefined ? { last_frame: params.last_frame } : {} };
