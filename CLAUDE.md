@@ -126,7 +126,8 @@ The `pepper-dev` skill has the full loop. In short:
 - `uv run deploy/home/launch.py up | status | logs | down` — the user's own
   GPU box over SSH (`PEPPER_HOME_HOST`): no billing, so no idle shutdown,
   and `up --build` runs the checkout. `--product pro` defaults to the
-  `16gb` tier. It holds the hostname until `down`: run `down` here before
+  `16gb` tier and to the `pepper-pro:cu130` image (CUDA 13, which NVFP4
+  files need; CI builds it beside `latest`). It holds the hostname until `down`: run `down` here before
   any cloud `up`. `down --delete-data` deletes models and outputs: ask first.
 - All of them serve one hostname through one named tunnel; never run two at once.
 - The `pepper` MCP server (`.mcp.json`) reaches whichever is running. Its

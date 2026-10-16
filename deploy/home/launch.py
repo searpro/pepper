@@ -61,7 +61,9 @@ PORT = 3000
 # name of its stack folder, container and locally built image.
 PRODUCTS = {
     "pepper": {"image": "ghcr.io/searpro/pepper:latest", "dockerfile": "Dockerfile", "name": "pepper"},
-    "pro": {"image": "ghcr.io/searpro/pepper-pro:latest", "dockerfile": "Dockerfile.pro", "name": "pepper-pro"},
+    "pro": {"image": "ghcr.io/searpro/pepper-pro:latest", "dockerfile": "Dockerfile.pro", "name": "pepper-pro",
+            # CI's CUDA 13 build: NVFP4 kernels, which the 16gb tier's files need.
+            "image_cu13": "ghcr.io/searpro/pepper-pro:cu130"},
 }
 # What the Dockerfiles copy. `--build` sends these, as git sees them (tracked
 # and untracked files, without ignored ones such as data/ and node_modules/).
@@ -193,6 +195,30 @@ def busy_jobs(host: Host, name: str) -> int:
     return int(out) if out.isdigit() else 0
 
 
+def driver_cuda(host: Host) -> float | None:
+    """The newest CUDA the host's NVIDIA driver supports, as nvidia-smi reports it."""
+    out = host.run("nvidia-smi 2>/dev/null | grep -o 'CUDA Version: [0-9.]*' | cut -d' ' -f3", check=False).strip()
+    try:
+        return float(".".join(out.split(".")[:2]))
+    except ValueError:
+        return None
+
+
+def published_image(host: Host, product: str) -> str:
+    """The product's published image for this host: Pepper Pro's CUDA 13 build
+    where the driver runs it, so NVFP4 files run on their kernels rather than
+    a fallback that ran a 16 GB card out of memory."""
+    spec = PRODUCTS[product]
+    if "image_cu13" not in spec:
+        return spec["image"]
+    cuda = driver_cuda(host)
+    if cuda is not None and cuda >= 13.0:
+        return spec["image_cu13"]
+    print(f"note: the driver on {host.name} supports CUDA {cuda or '?'}, below 13, so {spec['image']} it is; "
+          "NVFP4 files (the 16gb tier's) need a newer driver", flush=True)
+    return spec["image"]
+
+
 def check_host(host: Host) -> None:
     runtimes = host.run("docker info --format '{{json .Runtimes}}'", check=False)
     if not runtimes:
@@ -285,7 +311,7 @@ def cmd_up(host: Host, env: dict, a) -> None:
               f"{'it' if len(neighbours) == 1 else 'them'} in Portainer or with `docker compose stop` in "
               f"{STACKS_DIR}/<name>.", flush=True)
 
-    image = a.image or (build_on_host(host, a.product, a.build_arg) if a.build else spec["image"])
+    image = a.image or (build_on_host(host, a.product, a.build_arg) if a.build else published_image(host, a.product))
     settings = {
         **{key: env[key] for key in SECRET_KEYS if env.get(key)},
         **({"PEPPER_HOSTNAME": env["PEPPER_HOSTNAME"]} if url else {}),
@@ -431,7 +457,8 @@ def main() -> None:
     product(u)
     u.add_argument("--tier", default="16gb", choices=TIERS, help="Pepper Pro's hardware tier (default 16gb)")
     src = u.add_mutually_exclusive_group()
-    src.add_argument("--image", help="image to run; default the product's published image")
+    src.add_argument("--image", help="image to run; default the product's published image "
+                                     "(Pepper Pro: :cu130 when the host's driver supports CUDA 13)")
     src.add_argument("--build", action="store_true", help="build this checkout on the host and run that")
     u.add_argument("--build-arg", action="append", default=[], metavar="KEY=VALUE",
                    help="with --build: a Dockerfile ARG (repeatable), e.g. "
