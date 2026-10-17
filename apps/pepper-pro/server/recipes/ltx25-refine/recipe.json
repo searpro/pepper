@@ -303,5 +303,11 @@
     "48gb",
     "96gb"
   ],
-  "notes": "Settings from the MiniMax × LTXV low-VRAM workflow (SonicLoops v3): spatial upscaler ×2, 3 steps linear_quadratic at denoise 0.3, CFG 1.1, euler, CQ enhancer 1.0 + Crisp Enhance 0.8, its refine prompts verbatim. Frames are padded to LTX's 1+8k grid and trimmed back, so picture and sound keep their length. On 16 GB it runs as its own job: transformer and encoder together are about 30 GB, which only fits 32 GB of RAM with nothing else loaded."
+  "notes": "Settings from the MiniMax × LTXV low-VRAM workflow (SonicLoops v3): spatial upscaler ×2, 3 steps linear_quadratic at denoise 0.3, CFG 1.1, euler, CQ enhancer 1.0 + Crisp Enhance 0.8, its refine prompts verbatim. Frames are padded to LTX's 1+8k grid and trimmed back, so picture and sound keep their length. On 16 GB it runs as its own job: transformer and encoder together are about 30 GB, which only fits 32 GB of RAM with nothing else loaded.",
+  "verified": {
+    "date": "2026-10-17",
+    "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier, cu130 image, Kitchen attention, driver 595)",
+    "seconds": 89,
+    "notes": "x2 mode on h3-video half takes, 5 s (124 frames): 672x384 -> 1344x768 in 89 s with the model load (peak 15.2 GB VRAM, 21.1 GB RAM, no swap); 576x1024 -> 1152x2048 in 205 s (15.2 GB VRAM, 23.5 GB RAM, 4.2 GB pushed to swap, GPU held 180 W, so no paging stall). First frame pinned; identity, freckles and eye colour held, and it cleaned up H3 half-size artefacts (teal irises, glittering lashes) while adding eyelid, lash, tooth and earring detail. H3 audio kept."
+  }
 }
