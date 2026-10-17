@@ -4,7 +4,47 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-17.
+Last updated: 2026-10-17 (resume steps for the home-box run added).
+
+## Resume here: run the finishing chain on the home box
+
+A cloud session can't do this: it has no `deploy/home/.env` and can't reach
+the box over SSH. Run it from a local session on the laptop, where
+`deploy/home/.env` (`PEPPER_HOME_HOST` and the tokens) lives.
+
+1. `git checkout main && git pull` to get the merged chain, #14 and #15.
+2. `uv run deploy/home/launch.py status`. If anything else (RunPod, Vast)
+   holds the hostname, `down` it first.
+3. `uv run deploy/home/launch.py up --product pro`. This uses the `16gb`
+   tier and pulls `ghcr.io/searpro/pepper-pro:cu130` built from `6fc4186`.
+   Wait for "Pepper is up".
+4. Start Claude Code in the checkout. The `pepper` MCP server connects
+   through the tunnel; if it was down at start, reconnect it from `/mcp`.
+   Then tell it:
+
+   > Read docs/STATUS.md. Run the MiniMax × LTXV finishing chain on the home
+   > box: install ltx25-refine and rtx-master, render an h3-video take in
+   > `half` mode, master it, measure each step, and compare against the
+   > Civitai samples.
+
+What that session does (`pepper-dev` skill, Pepper Pro section):
+
+1. Install `ltx25-refine` and `rtx-master` (about 30 GB of downloads),
+   plus h3-video's turbo v4 LoRA if it is missing.
+2. Render one shot in `h3-video` `half` mode at a close-up or medium shot,
+   from a first frame.
+3. Master the take. It runs `ltx25-refine` (×2, 3 steps, denoise 0.3),
+   then `rtx-master` (×1.5 ULTRA).
+4. Record the seconds and peak VRAM and RAM for each step
+   (`nvidia-smi`, `free -g` over SSH). Watch for paging: a flat ~35 W at
+   "99 %" GPU.
+5. Look at the result for faces at half size, and compare it with the
+   samples.
+6. If it holds up, fill in `verified` on the three recipes, add the numbers
+   to `docs/H3-16GB.md` §6 and to this file, and commit.
+
+If RTX VFX fails to import in the container, check the driver: the pack
+wants 580.82+, and the box has 595.
 
 ## Standing directions from the user
 
