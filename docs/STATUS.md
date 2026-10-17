@@ -4,23 +4,25 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-17 (finishing chain verified on the home box).
+Last updated: 2026-10-17 (finishing chain verified and A/B'd on the home box).
 
 ## Resume here
 
-The MiniMax × LTXV finishing chain is verified on the home box (below, and
-`docs/H3-16GB.md` §6). Next, in order of value:
+The MiniMax × LTXV finishing chain is verified on the home box and A/B'd
+against a draft mastered with SeedVR2 (`docs/H3-16GB.md` §6). Results:
+denoise 0.3 and RTX ULTRA stay as they are, `smooth` works, and **the base
+size is what decides quality**. Next:
 
-1. **Make the samples' size the default for `half`.** Their H3 stage is
-   about 575×1027; ours is half of the derived 1344×768 (672×384 at 16:9,
-   384×672 at 9:16), which ends visibly softer. Passing `width`/`height`
-   1152×2048 matched them. Raising the pixel count `half` derives from
-   (with a check that 16:9 at that size fits the refine's RAM) is the fix.
-2. **`rtx-master` `smooth` mode** (RTX Frame Generation ×2): not run yet.
-3. **A longer take through the refine at 1152×2048:** a 5 s one already
-   used 23.5 GB of RAM plus 4.2 GB of swap.
-4. The A/B of RTX quality ULTRA against HIGHBITRATE_ULTRA, LTX's IC-LoRA
-   Refine-Details, and the VFX runtime's licence (below).
+1. **Raise the size `half` derives.** At 0.5× of 1344×768 the master is
+   softer than a plain draft. At the samples' size (H3 at 1024×576 for
+   16:9, a 3072×1728 master) it matches the SeedVR2 baseline in 4.7 min
+   against 14.4. The refine then peaks at 25.8 GB of RAM for 5 s, so check
+   a 10 s take before making it the default. 0.6× (800×448, 24.1 GB) is
+   the safer middle.
+2. **Keep the chain as the default master**; SeedVR2 for damaged takes.
+3. CQ-only against CQ + Crisp needs a LoRA parameter on `ltx25-refine`.
+   LTX's IC-LoRA Refine-Details and the VFX runtime's licence are still
+   open.
 
 `deploy/home/.env` does not exist on the laptop: pass
 `--host lijin@lk-gpu-server` or add `PEPPER_HOME_HOST` there. The launcher
@@ -93,7 +95,6 @@ faults. The 16:9 default size is softer (Resume here, item 1).
 
 Open:
 
-- `smooth` mode, and an A/B of RTX quality ULTRA against HIGHBITRATE_ULTRA.
 - Whether LTX's IC-LoRA Refine-Details is worth adding.
 - Whether NVIDIA's VFX runtime may be redistributed in the image
   (`rtx-master` licence note).
