@@ -130,6 +130,12 @@ chain, which Pepper Pro runs as separate jobs so each fits a 16 GB card and
 32 GB of RAM: `h3-video` in `half` mode renders motion, faces and sound at
 half the size (turbo v4 LoRA, 4 steps, beta, CFG 1, sigma shift 12);
 `ltx25-refine` re-renders it at twice that size in three steps at denoise
-0.3 (spatial upscaler, CQ + Crisp LoRAs, the take's first frame pinned);
-`rtx-master` upscales on the card with RTX Video. Mastering a take runs the
-refine and then the upscale by default (`masterTake`).
+0.3 (spatial upscaler, the Crisp LoRA, the take's first frame pinned, one
+untiled decode);
+`rtx-master` upscales on the card with RTX Video, ×2.5 as the samples do
+(a master is capped at 4K). Mastering a take runs the refine and then the
+upscale by default (`masterTake`). On `16gb` H3 must be the pruned **int8**
+model, as in the workflow: the NVFP4 build washed out contrast and changed
+faces at the same seed (`docs/H3-16GB.md` §6). The samples' MP4s carry the
+workflow and API prompt that made them (ffprobe tags `workflow`, `prompt`),
+which is the way to rerun one and compare.

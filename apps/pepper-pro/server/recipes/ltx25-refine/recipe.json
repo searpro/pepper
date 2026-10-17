@@ -126,19 +126,6 @@
       ]
     },
     {
-      "id": "cq_lora",
-      "folder": "loras",
-      "label": "CQ video enhancer LoRA (rank 128)",
-      "variants": [
-        {
-          "repo": "CQdesign/LTX-2.5-CQ-Video-and-Image-Enhancer-LoRAs",
-          "path": "ltx2.5-CQ-enhancer-lora-for-videos-rank128.safetensors",
-          "bytes": 1323282248,
-          "sha256": "cbd721d4e462832977f0d23a533fdf998016b63608820424f993a2ed9e21aa10"
-        }
-      ]
-    },
-    {
       "id": "crisp_lora",
       "folder": "loras",
       "label": "Crisp Enhance LoRA",
@@ -239,11 +226,6 @@
           "input": "model_name"
         },
         {
-          "file": "cq_lora",
-          "node": "11",
-          "input": "lora_name"
-        },
-        {
           "file": "crisp_lora",
           "node": "12",
           "input": "lora_name"
@@ -303,5 +285,11 @@
     "48gb",
     "96gb"
   ],
-  "notes": "Settings from the MiniMax × LTXV low-VRAM workflow (SonicLoops v3): spatial upscaler ×2, 3 steps linear_quadratic at denoise 0.3, CFG 1.1, euler, CQ enhancer 1.0 + Crisp Enhance 0.8, its refine prompts verbatim. Frames are padded to LTX's 1+8k grid and trimmed back, so picture and sound keep their length. On 16 GB it runs as its own job: transformer and encoder together are about 30 GB, which only fits 32 GB of RAM with nothing else loaded."
+  "notes": "Settings from the MiniMax × LTXV low-VRAM workflow (SonicLoops v3): spatial upscaler ×2, 3 steps linear_quadratic at denoise 0.3, CFG 1.0, euler, Crisp Enhance 0.8 alone, LTXVPreprocess compression 18 on the take and the first frame, a plain VAE decode, its refine prompts verbatim (as the SonicLoops v3 sample that carries its workflow ran it). The tiled decode it replaced (64-frame chunks, 8 overlapping) smeared the frames where chunks met (frames 56, 112, 168). The refine invents rough skin on a hand H3 left motion-blurred, with or without the CQ enhancer: avoid fast gestures across the face. Frames are padded to LTX's 1+8k grid and trimmed back, so picture and sound keep their length. On 16 GB it runs as its own job: transformer and encoder together are about 30 GB, which only fits 32 GB of RAM with nothing else loaded.",
+  "verified": {
+    "date": "2026-10-17",
+    "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier: LTX 2.5 22B NVFP4, Gemma 4 12B NVFP4, cu130 image)",
+    "seconds": 124,
+    "notes": "x2 mode on int8 h3-video half takes, untiled decode, Crisp alone: 576x1024 -> 1152x2048, 5 s in 124-131 s (15.2 GB VRAM, 26.1 GB RAM, no swap), no seams; 448x576 -> 896x1152, 7 s in 125 s. With the earlier tiled decode the same 1152x2048 refine took 195 s and smeared frames 56 and 112. First frame pinned; identity held through a calm 5 s portrait. Rough skin appears on a hand H3 left motion-blurred."
+  }
 }

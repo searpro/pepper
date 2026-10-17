@@ -58,7 +58,7 @@
         0
       ],
       "resize_type": "scale by multiplier",
-      "resize_type.scale": 1.5,
+      "resize_type.scale": 2.5,
       "quality": "ULTRA",
       "strength": 1.0,
       "image_encoding": "8-bit RGB"

@@ -4,47 +4,39 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-17 (resume steps for the home-box run added).
+Last updated: 2026-10-17 (H3 on 16gb back to int8: NVFP4 was the quality gap).
 
-## Resume here: run the finishing chain on the home box
+## Resume here
 
-A cloud session can't do this: it has no `deploy/home/.env` and can't reach
-the box over SSH. Run it from a local session on the laptop, where
-`deploy/home/.env` (`PEPPER_HOME_HOST` and the tokens) lives.
+**Our H3 takes fell short of the MiniMax × LTXV Civitai samples because of
+the NVFP4 H3 model on `16gb`.** Rerunning one sample exactly (its MP4
+carries its workflow and prompt) and swapping our files in one at a time:
+NVFP4 washed out contrast and changed the face; int8 is as fast. `h3-video`
+on `16gb` now uses the pruned int8 model, the fp16 VAE and the workflow's
+EMA turbo v4 LoRA; RTX ×2.5 is the master default, capped at 4K; the
+refine decodes untiled (the tiled decode smeared frames 56, 112, 168) and
+runs Crisp alone, as the sample does. Through
+Pepper the sample's own shot now comes out close to the sample
+(`docs/H3-16GB.md` §6). Next:
 
-1. `git checkout main && git pull` to get the merged chain, #14 and #15.
-2. `uv run deploy/home/launch.py status`. If anything else (RunPod, Vast)
-   holds the hostname, `down` it first.
-3. `uv run deploy/home/launch.py up --product pro`. This uses the `16gb`
-   tier and pulls `ghcr.io/searpro/pepper-pro:cu130` built from `6fc4186`.
-   Wait for "Pepper is up".
-4. Start Claude Code in the checkout. The `pepper` MCP server connects
-   through the tunnel; if it was down at start, reconnect it from `/mcp`.
-   Then tell it:
+1. **Merge, then let `image-pro` rebuild.** The box runs the recipes
+   hot-patched into its container; the 4K cap is server code and only
+   arrives with the image. Then rerun a master to see the cap.
+2. **Check the other NVFP4 files against int8 at the same seed:**
+   `scail2-replace` (verified on NVFP4), the LTX refine (it looked fine
+   against the sample; the int8 files are on the box to A/B), and
+   anything else with a `16gb` NVFP4 variant.
+3. **Shot direction:** H3 at 4 steps fumbles gestures across the face
+   (a hand sweeps over it, then overacting and drift); calm actions are
+   clean in our structured prompt and the author's short one alike. Say so
+   in `plan_project`'s guidance, or render such shots in `draft` (8 steps).
+4. Rerun the base-size A/B with int8 (the earlier one used NVFP4).
+5. `h3-reference` is not on `16gb`; its NVFP4 variant there is unused.
 
-   > Read docs/STATUS.md. Run the MiniMax × LTXV finishing chain on the home
-   > box: install ltx25-refine and rtx-master, render an h3-video take in
-   > `half` mode, master it, measure each step, and compare against the
-   > Civitai samples.
-
-What that session does (`pepper-dev` skill, Pepper Pro section):
-
-1. Install `ltx25-refine` and `rtx-master` (about 30 GB of downloads),
-   plus h3-video's turbo v4 LoRA if it is missing.
-2. Render one shot in `h3-video` `half` mode at a close-up or medium shot,
-   from a first frame.
-3. Master the take. It runs `ltx25-refine` (×2, 3 steps, denoise 0.3),
-   then `rtx-master` (×1.5 ULTRA).
-4. Record the seconds and peak VRAM and RAM for each step
-   (`nvidia-smi`, `free -g` over SSH). Watch for paging: a flat ~35 W at
-   "99 %" GPU.
-5. Look at the result for faces at half size, and compare it with the
-   samples.
-6. If it holds up, fill in `verified` on the three recipes, add the numbers
-   to `docs/H3-16GB.md` §6 and to this file, and commit.
-
-If RTX VFX fails to import in the container, check the driver: the pack
-wants 580.82+, and the box has 595.
+`deploy/home/.env` does not exist on the laptop: pass
+`--host lijin@lk-gpu-server` or add `PEPPER_HOME_HOST` there. The launcher
+now forwards `HF_TOKEN` (or the `hf auth login` token), which LTX-2.5's
+gated repo needs.
 
 ## Standing directions from the user
 
@@ -58,7 +50,9 @@ wants 580.82+, and the box has 595.
   or workflow. DO NOT STICK WITH SOMETHING JUST BECAUSE WE HAVE DONE THE
   GROUNDWORK ALREADY." (`.claude/skills/workflow-to-recipe`.)
 - **Use the NVIDIA GPU fully.** Prefer NVFP4 files, Kitchen attention and
-  NVIDIA's own VFX where they help.
+  NVIDIA's own VFX where they help. H3's NVFP4 build did not: it cost
+  quality at no gain in speed (2026-10-17), so compare any NVFP4 file with
+  int8 at the same seed before adopting it.
 - **Keep both products and Kaggle support.**
 
 ## The home box
@@ -83,13 +77,16 @@ none is, its tools are missing.
 | `h3-video` | draft (8-step turbo) | 1344×768, 6 s in 390 s; 15.7 GB VRAM / 18.5 GB RAM. Continuing take 445 s; seam invisible. |
 | `scail2-replace` | draft | 640×640, 81 frames in 335–397 s (NVFP4) |
 | `seedvr2-upscale-video` | 2× | 640² → 1280², 81 frames in 247 s |
+| `h3-video` | half (int8, EMA turbo v4, 4 steps) | the Civitai sample's shot 448×576, 7 s in 69 s; 672×384, 5 s in 46 s |
+| `ltx25-refine` | x2 | 672×384 → 1344×768 in 89 s cold; 576×1024 → 1152×2048 in 205 s, 23.5 GB RAM + 4.2 GB swap |
+| `rtx-master` | upscale ×2.5 ULTRA | 2240×2880 in 26 s; 3360×1920 in 15 s; driver 595 fine |
 | `zimage-turbo`, `flux2-klein-edit`, `qwen-image-edit` | — | Rendered correctly, checked by eye, with the `24gb-64ram` files (no 16gb variants); not timed |
 
 Details and the rest of the measurements are in `docs/H3-16GB.md` §6.
 `krea2-image`, `infinitetalk`, `infinitetalk-duo` and `qwen3-tts` were
 verified on a 32 GB cloud card only.
 
-### The MiniMax × LTXV finishing chain (merged in #14, not yet run on a GPU)
+### The MiniMax × LTXV finishing chain (verified 2026-10-17)
 
 This reproduces the Civitai "MiniMax x LTXV Low VRAM" workflow (SonicLoops
 v3, model 2883915) as separate jobs:
@@ -101,31 +98,18 @@ v3, model 2883915) as separate jobs:
 3. `rtx-master`: RTX Video Super Resolution ×1.5 ULTRA. `smooth` mode adds
    RTX Frame Generation ×2.
 
-Mastering a take (`masterTake`, the shot dialog's Master button) runs
-steps 2 and 3. Images `:latest` and `:cu130` were built from `48c8fcf` and
-the build's recipe check passed.
-
-**Next: verify it on the home box.**
-
-1. `up`.
-2. Install `ltx25-refine` and `rtx-master` (about 30 GB of models on top of
-   H3's).
-3. Render in `half`, master, and compare against the Civitai samples.
-
-Still to measure:
-
-- The refine's peak RAM, since 18.7 GB of transformer and 10.6 GB of
-  Gemma are loaded in turn.
-- Whether faces hold at H3's half size.
-- Whether RTX VFX works with driver 595 in the container (it needs
-  580.82+).
+Mastering a take (`masterTake`, the shot dialog's Master button, or
+`POST /v1/takes/:id/master`) runs steps 2 and 3. A 5 s portrait at the
+samples' size (1728×3072) takes about 5 min in all, and up close its faces
+match the samples. The refine keeps identity and fixes H3's half-size
+faults. The 16:9 default size is softer (Resume here, item 1).
 
 Open:
 
-- An A/B of RTX quality ULTRA against HIGHBITRATE_ULTRA.
 - Whether LTX's IC-LoRA Refine-Details is worth adding.
 - Whether NVIDIA's VFX runtime may be redistributed in the image
   (`rtx-master` licence note).
+- Speech in the half takes was not transcribed (no Whisper on the laptop).
 
 ### Other open items
 
@@ -141,7 +125,7 @@ Open:
 - **Recipes never run on any GPU:** `ace-step-music`, `h3-reference`,
   `longcat-avatar`, `ltx23-audio-to-video`, `ltx25-video`,
   `ming-image-design`, `minimax-music-3`, `seedvr2-upscale-image`,
-  `wan-animate2`, `wan-dancer`, plus the chain above.
+  `wan-animate2`, `wan-dancer`.
 
 ## Pepper
 

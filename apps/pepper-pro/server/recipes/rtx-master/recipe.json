@@ -40,10 +40,10 @@
       "name": "scale",
       "type": "float",
       "label": "Scale",
-      "default": 1.5,
+      "default": 2.5,
       "min": 1,
       "max": 4,
-      "description": "1.5 takes an LTX-refined 1152×2048 to 1728×3072, as in the MiniMax × LTXV workflow's samples."
+      "description": "2.5 takes an LTX-refined 896×1152 to 2240×2880, as in the MiniMax × LTXV workflow’s samples (1344×768 to 3360×1920)."
     },
     {
       "name": "quality",
@@ -128,5 +128,11 @@
     "48gb",
     "96gb"
   ],
-  "notes": "Needs an NVIDIA RTX card (Turing or newer) and driver 570.190+/580.82+ on Linux. The node pack imports nvvfx, which needs the driver: on a CPU-only ComfyUI (the image build's validation) it does not load, so the recipe is validated against the schemas recorded in node-schemas.json."
+  "notes": "Needs an NVIDIA RTX card (Turing or newer) and driver 570.190+/580.82+ on Linux. The node pack imports nvvfx, which needs the driver: on a CPU-only ComfyUI (the image build's validation) it does not load, so the recipe is validated against the schemas recorded in node-schemas.json.",
+  "verified": {
+    "date": "2026-10-17",
+    "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier, cu130 image, Kitchen attention, driver 595)",
+    "seconds": 17,
+    "notes": "upscale mode, ULTRA, after ltx25-refine: x2.5 (the default since 2026-10-17, as in the MiniMax × LTXV samples) took 896x1152 to 2240x2880 in 26 s and 1344x768 to 3360x1920 in 15 s; x1.5 took 1344x768 to 2016x1152 in 17 s (1 GB VRAM). x2.5 of a 1152x2048 refine (2880x5120, 42 s) used 29.5 GB of RAM and swapped, so masterTake caps a master at 4K. HIGHBITRATE_ULTRA looks the same, a touch softer. smooth mode: 48 fps, 247 frames in 13 s, clean in-between frames. The VFX runtime loads with driver 595 in the container."
+  }
 }

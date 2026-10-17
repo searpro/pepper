@@ -146,6 +146,14 @@ export interface MasterOptions {
  */
 const REFINE_X2_MAX_SHORT_SIDE = 720;
 
+/**
+ * The long side a master's upscale stops at unless a scale is asked for.
+ * RTX Video's ×2.5 default takes a 1344×768 refine to 3360×1920, as in the
+ * MiniMax × LTXV samples, but a 1152×2048 one to 2880×5120, which used 29.5 GB
+ * of the home box's 32 GB of RAM and swapped. 4K is the delivery size anyway.
+ */
+const MASTER_MAX_LONG_SIDE = 3840;
+
 /** The upload a master's step reads: the take itself, then each step's output. */
 function masterSource(take: TakeRow, step: number): string {
   return step === 0 ? `master-src-${take.id}${extname(take.file ?? '.mp4')}` : `master-src-${take.id}-${step}.mp4`;
@@ -1055,7 +1063,17 @@ export class ProjectService {
     const has = (name: string) => recipe.params.some((p) => p.name === name);
     const last = step === (master.steps?.length ?? 1) - 1;
     const params: Record<string, unknown> = { video: upload };
-    if (has('scale') && last && options.scale !== undefined) params.scale = options.scale;
+    if (has('scale') && last) {
+      if (options.scale !== undefined) params.scale = options.scale;
+      else {
+        const fallback = recipe.params.find((p) => p.name === 'scale')?.default;
+        const info = await probeMedia(safeResolve(this.deps.paths.uploadsDir, upload));
+        const long = Math.max(info.width ?? 0, info.height ?? 0);
+        if (typeof fallback === 'number' && long * fallback > MASTER_MAX_LONG_SIDE) {
+          params.scale = Math.max(1, Math.floor((MASTER_MAX_LONG_SIDE / long) * 100) / 100);
+        }
+      }
+    }
     let mode: string | undefined;
     if (recipe.capabilities.includes('refine')) {
       const rendered = (this.deps.jobs.get(take.jobId)?.params as { params?: { first_frame?: unknown } } | undefined)?.params?.first_frame;

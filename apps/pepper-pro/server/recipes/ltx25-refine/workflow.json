@@ -81,7 +81,7 @@
         "6",
         0
       ],
-      "img_compression": 0
+      "img_compression": 18
     },
     "class_type": "LTXVPreprocess",
     "_meta": {
@@ -98,24 +98,10 @@
       "title": "LTX 2.5 Distilled"
     }
   },
-  "11": {
-    "inputs": {
-      "model": [
-        "10",
-        0
-      ],
-      "lora_name": "ltx2.5-CQ-enhancer-lora-for-videos-rank128.safetensors",
-      "strength_model": 1.0
-    },
-    "class_type": "LoraLoaderModelOnly",
-    "_meta": {
-      "title": "CQ Enhancer LoRA"
-    }
-  },
   "12": {
     "inputs": {
       "model": [
-        "11",
+        "10",
         0
       ],
       "lora_name": "LTX2.3_Crisp_Enhance.safetensors",
@@ -280,7 +266,7 @@
         "33",
         0
       ],
-      "img_compression": 0
+      "img_compression": 18
     },
     "class_type": "LTXVPreprocess",
     "_meta": {
@@ -403,7 +389,7 @@
         "42",
         1
       ],
-      "cfg": 1.1
+      "cfg": 1.0
     },
     "class_type": "CFGGuider",
     "_meta": {
@@ -492,13 +478,9 @@
       "vae": [
         "14",
         0
-      ],
-      "tile_size": 512,
-      "overlap": 64,
-      "temporal_size": 64,
-      "temporal_overlap": 8
+      ]
     },
-    "class_type": "VAEDecodeTiled",
+    "class_type": "VAEDecode",
     "_meta": {
       "title": "Decode"
     }

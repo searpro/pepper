@@ -49,7 +49,9 @@ PEPPER_HOME_HOST=user@host
 
 `PEPPER_API_TOKEN`, `PEPPER_TUNNEL_TOKEN` and `PEPPER_HOSTNAME` are read
 from `deploy/runpod/.env`, `deploy/vastai/.env` or `deploy/kaggle/.env`
-unless you set them here too. They reach the host over SSH's stdin and are
+unless you set them here too. `HF_TOKEN`, which gated repos such as
+LTX-2.5 need, is read from here or the environment, else from the token
+`hf auth login` saved. They reach the host over SSH's stdin and are
 written to `/srv/<product>/.env`, readable by your user only.
 
 ## Starting and stopping
