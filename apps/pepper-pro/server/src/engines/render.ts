@@ -320,8 +320,10 @@ export class RenderEngine implements Engine {
     let segments: Segment[] = [];
     for (const item of cut.items as CutItem[]) {
       const take = projects.requireTake(item.take_id);
-      if (!take.file) throw errors.validation(`Take ${take.id} has no finished file yet`);
-      const path = projects.takeFile(project.id, take.file);
+      // A take's master, upscaled for delivery, plays in its place once done.
+      const file = projects.deliveryFile(take);
+      if (!file) throw errors.validation(`Take ${take.id} has no finished file yet`);
+      const path = projects.takeFile(project.id, file);
       const info = await probeMedia(path);
       const available = info.still ? STILL_S : info.duration;
       const start = Math.max(0, Math.min(item.in ?? 0, available));

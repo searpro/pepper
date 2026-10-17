@@ -67,6 +67,7 @@ There is no linter or formatter configured; match the surrounding style
 | `docs/PRODUCTION-VIDEO.md` | Research behind Pepper Pro: models, recipes, projects |
 | `docs/PEPPER-PRO.md` | Pepper Pro's design, and what is built and verified so far (§13) |
 | `docs/MCP.md` | Using Pepper Pro's MCP endpoint from another project: connect, tools, a video end to end |
+| `docs/H3-16GB.md` | MiniMax H3 on a 16 GB card: the community's measured findings, what Pepper Pro does with them, our runs |
 
 ## Conventions (short form — full list in docs/ARCHITECTURE.md)
 

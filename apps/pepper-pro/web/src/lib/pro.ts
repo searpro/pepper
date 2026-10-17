@@ -136,6 +136,15 @@ export interface Take {
     sourceTakeId?: string;
     error?: string;
   } | null;
+  /** The take upscaled for delivery (SeedVR2), which a cut plays in its place once done. */
+  master: {
+    recipe: string;
+    state: 'rendering' | 'done' | 'failed';
+    status?: Job['status'];
+    progress?: number;
+    url?: string;
+    error?: string;
+  } | null;
 }
 
 export interface Shot {
@@ -154,6 +163,8 @@ export interface Shot {
   audioAssetId: string | null;
   recipeId: string | null;
   params: Record<string, unknown>;
+  /** Carries straight on from the previous shot of its scene, as one continuous take. */
+  continues: boolean;
   chosenTakeId: string | null;
   takes: Take[];
 }

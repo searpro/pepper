@@ -31,9 +31,12 @@ import { planSchema, renderSchema } from '../routes/projects.js';
  */
 
 const PROMPTING =
-  'Prompts: describe the shot, its motion and its sound in one block. For recipes with the ' +
-  '`subject-tags` capability (MiniMax H3), assets are introduced as <Subject n> and dialogue is ' +
-  'written as `<Subject 1> says exactly this: "…".` — plan_project does this from `dialogue`.';
+  'Prompts: write each shot as the director would — framing, camera (type + amplitude + speed + where it ' +
+  'ends, e.g. "The camera pushes in with small amplitude at slow speed toward her hands"), the action as it ' +
+  'unfolds, `dialogue` lines, and `sound` (ambience and effects, then "Music: …" for the score). For MiniMax ' +
+  'H3 the shot is composed into its own structured format (speaker IDs, <d> dialogue, <Subject n> bindings, ' +
+  'frame alignment); a later beat inside one shot is written as "[Shot 2] At 00:04.000, the camera cuts to …". ' +
+  'A prompt already in that format is used as written.';
 
 export function registerProTools(server: McpServer, ctx: ToolContext): void {
   registerMediaResources(server, ctx);
@@ -200,7 +203,9 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         '(characters, locations, props, products, voices, audio — each with a `ref` the plan uses), ' +
         'then scenes of shots (prompt, framing, camera, duration_s, dialogue as {speaker: ref, line}, ' +
         'sound, assets as refs, optional recipe). Returns the project with shot ids to render. ' +
-        'Short-drama shots are 3–8 s; a line or two of dialogue per 5 s. ' +
+        'Short-drama shots are 3–8 s; a line or two of dialogue per 5 s; faces hold best in close and ' +
+        'medium shots. Give recurring characters a fixed visual description (and a voice description) ' +
+        'and reference images, so every shot binds the same person. ' +
         PROMPTING,
       inputSchema: {
         project_id: z.string().optional(),
@@ -230,7 +235,8 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         'Queue takes of shots: drafts first (several per shot, cheap), then finish the chosen draft ' +
         'with `from_take` and `mode: "final"`, which reuses its seed. `from_take` plus `retake_from` ' +
         '(seconds) keeps that take up to there and re-renders the rest. Shots longer than a recipe ' +
-        'renders at once are chained automatically. Returns the takes; follow them ' +
+        'renders at once are chained automatically. `master: true` upscales each shot\'s chosen take for ' +
+        'delivery (SeedVR2, soundtrack kept); cuts then use the masters. Returns the takes; follow them ' +
         `with get_project or get_job (up to ${MAX_WAIT_S} s).` +
         SHOWN,
       _meta: SHOWS_MEDIA,

@@ -41,7 +41,7 @@ export function ProjectPage() {
   React.useEffect(() => {
     if (!data) return;
     const rendering =
-      data.scenes.some((s) => s.shots.some((shot) => shot.takes.some((t) => isActive(t.status)))) ||
+      data.scenes.some((s) => s.shots.some((shot) => shot.takes.some((t) => isActive(t.status) || t.master?.state === 'rendering'))) ||
       data.cuts.some((c) => c.export && isActive(c.export.status));
     setFast(rendering);
   }, [data]);
@@ -240,7 +240,13 @@ function ShotCard({ shot, onOpen }: { shot: Shot; onOpen: () => void }) {
       <div className="flex flex-wrap items-center gap-1">
         <Badge variant="outline">{shot.kind}</Badge>
         <Badge>{shot.durationS}s</Badge>
+        {shot.continues ? (
+          <Badge variant="outline" title="Carries on from the previous shot as one continuous take">
+            continues
+          </Badge>
+        ) : null}
         {chosen ? <Badge variant="primary">{chosen.mode}</Badge> : null}
+        {chosen?.master?.state === 'done' ? <Badge variant="success">mastered</Badge> : null}
         {running ? <Badge variant="warning">{running} rendering</Badge> : null}
         {failed ? <Badge variant="destructive">{failed} failed</Badge> : null}
       </div>
