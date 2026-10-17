@@ -13,7 +13,9 @@ the NVFP4 H3 model on `16gb`.** Rerunning one sample exactly (its MP4
 carries its workflow and prompt) and swapping our files in one at a time:
 NVFP4 washed out contrast and changed the face; int8 is as fast. `h3-video`
 on `16gb` now uses the pruned int8 model, the fp16 VAE and the workflow's
-EMA turbo v4 LoRA; RTX ×2.5 is the master default, capped at 4K. Through
+EMA turbo v4 LoRA; RTX ×2.5 is the master default, capped at 4K; the
+refine decodes untiled (the tiled decode smeared frames 56, 112, 168) and
+runs Crisp alone, as the sample does. Through
 Pepper the sample's own shot now comes out close to the sample
 (`docs/H3-16GB.md` §6). Next:
 
@@ -24,8 +26,10 @@ Pepper the sample's own shot now comes out close to the sample
    `scail2-replace` (verified on NVFP4), the LTX refine (it looked fine
    against the sample; the int8 files are on the box to A/B), and
    anything else with a `16gb` NVFP4 variant.
-3. **Try the samples' short prompts** ("Motion: … Camera: …") against our
-   structured H3 prompt, at the same seed.
+3. **Shot direction:** H3 at 4 steps fumbles gestures across the face
+   (a hand sweeps over it, then overacting and drift); calm actions are
+   clean in our structured prompt and the author's short one alike. Say so
+   in `plan_project`'s guidance, or render such shots in `draft` (8 steps).
 4. Rerun the base-size A/B with int8 (the earlier one used NVFP4).
 5. `h3-reference` is not on `16gb`; its NVFP4 variant there is unused.
 
