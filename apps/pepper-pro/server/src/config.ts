@@ -59,6 +59,12 @@ export interface ProConfig extends CoreConfig {
    * memory is better returned.
    */
   comfyKeepWarm: boolean;
+  /**
+   * Start ComfyUI with Comfy Kitchen's INT8 attention when its build has it
+   * (the CUDA 13 image). Measured on H3 it halves the sampler's time at a
+   * relative error of about 1.6%; false keeps PyTorch's attention.
+   */
+  comfyCkAttention: boolean;
   /** Ceiling on one ComfyUI job. Video finishing runs long. */
   comfyTimeoutMs: number;
 
@@ -108,6 +114,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProConfig {
       .filter(Boolean),
     comfyRecycleJobs: num('COMFY_RECYCLE_JOBS', env.COMFY_RECYCLE_JOBS, 40),
     comfyKeepWarm: bool('COMFY_KEEP_WARM', env.COMFY_KEEP_WARM, true),
+    comfyCkAttention: bool('COMFY_CK_ATTENTION', env.COMFY_CK_ATTENTION, true),
     comfyTimeoutMs: positiveNum('COMFY_TIMEOUT', env.COMFY_TIMEOUT, 3_600_000),
 
     llamacppPort: positiveNum('LLAMACPP_PORT', env.LLAMACPP_PORT, 8090),

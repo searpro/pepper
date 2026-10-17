@@ -41,6 +41,8 @@ const dialogueLine = z.object({
   asset_id: z.string().optional(),
   speaker: z.string().optional(),
   line: z.string().max(2000),
+  /** The spoken language, for H3's dialogue tags; English when absent. */
+  language: z.string().max(40).optional(),
 });
 
 const shotBody = z.object({
@@ -56,6 +58,8 @@ const shotBody = z.object({
   audioAssetId: z.string().nullable().optional(),
   recipeId: z.string().nullable().optional(),
   params: z.record(z.unknown()).optional(),
+  /** Carry straight on from the previous shot of the scene (its chosen take), as one continuous take. */
+  continues: z.boolean().optional(),
 });
 
 /** The plan `plan_project` sends; see `PlanInput` in projects/service.ts. */
@@ -89,12 +93,14 @@ export const planSchema = z.object({
               framing: z.string().optional(),
               camera: z.string().optional(),
               prompt: z.string().min(1),
-              dialogue: z.array(z.object({ speaker: z.string(), line: z.string() })).optional(),
+              dialogue: z.array(z.object({ speaker: z.string(), line: z.string(), language: z.string().optional() })).optional(),
               sound: z.string().optional(),
               assets: z.array(z.string()).optional(),
               audio: z.string().optional(),
               recipe: z.string().optional(),
               params: z.record(z.unknown()).optional(),
+              /** Carries straight on from the shot before it, as one continuous take. */
+              continues: z.boolean().optional(),
             }),
           )
           .max(200),
@@ -114,6 +120,8 @@ export const renderSchema = z.object({
   from_take: z.string().optional(),
   /** With from_take: keep that take up to this second and re-render the rest. */
   retake_from: z.number().positive().optional(),
+  /** Master each shot's chosen take for delivery (upscale it) instead of rendering new takes. */
+  master: z.boolean().optional(),
 });
 
 const cutItem = z.object({
@@ -290,12 +298,17 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
           'Queues `count` takes per shot in `mode`, each with its own seed. `from_take` re-renders that ' +
           "take's seed, which is how a chosen draft is finished. With `retake_from` as well, that take is " +
           'kept up to that second and only the rest is rendered again, as a new take. A shot longer than ' +
-          'its recipe renders at once is rendered in segments that continue each other.',
+          'its recipe renders at once is rendered in segments that continue each other. `master: true` ' +
+          "masters each shot's chosen take for delivery (upscales it) instead.",
         body: renderSchema,
       },
     },
     async (req, reply) => {
       const { retake_from, from_take } = req.body;
+      if (req.body.master) {
+        const { takes, skipped } = await projects.masterChosen(req.body.shot_ids);
+        return reply.code(202).send({ takes, skipped });
+      }
       if (retake_from !== undefined) {
         if (!from_take) throw errors.validation('retake_from needs from_take: the take to keep the start of');
         const take = await projects.retake(from_take, { from: retake_from, mode: req.body.mode, seed: req.body.seed });
@@ -349,6 +362,26 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
       },
     },
     async (req, reply) => reply.code(202).send(projects.viewTake(await projects.retake(req.params.id, req.body))),
+  );
+
+  app.post(
+    '/v1/takes/:id/master',
+    {
+      schema: {
+        tags,
+        summary: 'Master a take for delivery',
+        description:
+          'Finishes a video take for delivery, keeping its soundtrack: by default an LTX refine (ltx25-refine, twice ' +
+          'the size for a take rendered at half size) then RTX Video upscaling (rtx-master), whichever of them is ' +
+          'installed, else SeedVR2. `recipe` names one recipe, `chain` several in order; `scale` goes to the last ' +
+          'upscale. The take is unchanged; a cut uses the master once it is done.',
+        params: id,
+        body: z
+          .object({ recipe: z.string().optional(), chain: z.array(z.string()).max(4).optional(), scale: z.number().min(1).max(4).optional() })
+          .default({}),
+      },
+    },
+    async (req, reply) => reply.code(202).send(await projects.masterTake(req.params.id, req.body)),
   );
 
   app.post(

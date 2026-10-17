@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { access, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join } from 'node:path';
@@ -71,6 +72,16 @@ export const COMFY_ARGS: BackendArgSpec = {
       defaultValue: null,
       min: 0,
       max: 96,
+    },
+    {
+      key: 'use_ck_attention',
+      flag: '--use-ck-attention',
+      label: 'Comfy Kitchen INT8 attention',
+      description:
+        "On when the image's ComfyUI has it (the CUDA 13 build): about twice as fast sampling for the video models. COMFY_CK_ATTENTION=false turns it off.",
+      type: 'boolean',
+      defaultValue: null,
+      locked: true,
     },
     {
       key: 'use_sage_attention',
@@ -189,10 +200,35 @@ export class ProBackendManager extends BackendManager {
     this.setPrepare('comfy', async () => {
       await writeFile(paths.comfyModelPathsFile, modelPathsYaml(paths.modelsDir));
       const whitelist = [...new Set([...config.comfyNodes, ...nodePacks()])];
+      const ck = config.comfyCkAttention && config.accel === 'cuda' ? await this.ckAttention(config.comfyPython, log) : false;
       return {
         argvPrefix: [join(config.comfyDir, 'main.py'), ...(whitelist.length ? ['--whitelist-custom-nodes', ...whitelist] : [])],
         env: { PYTHONUNBUFFERED: '1', HF_HUB_OFFLINE: '1' },
+        managed: { use_ck_attention: ck ? true : null },
       };
     });
+  }
+
+  private ckProbe?: Promise<boolean>;
+
+  /**
+   * Whether ComfyUI's interpreter has Comfy Kitchen's INT8 attention, asked
+   * once per server run. ComfyUI exits at startup if `--use-ck-attention` is
+   * given without it, so the flag is only ever passed where this said yes;
+   * the CUDA 13 image has it, the CUDA 12.8 one does not.
+   */
+  private ckAttention(python: string, log: FastifyBaseLogger): Promise<boolean> {
+    this.ckProbe ??= new Promise((resolve) => {
+      execFile(
+        python,
+        ['-c', 'import sys, comfy_kitchen; sys.exit(0 if comfy_kitchen.int8_attention_is_available() else 3)'],
+        { timeout: 120_000 },
+        (error) => {
+          log.info(error ? 'ComfyUI: Comfy Kitchen INT8 attention unavailable; using PyTorch attention' : 'ComfyUI: using Comfy Kitchen INT8 attention');
+          resolve(!error);
+        },
+      );
+    });
+    return this.ckProbe;
   }
 }

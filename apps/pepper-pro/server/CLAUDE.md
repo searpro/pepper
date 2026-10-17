@@ -28,7 +28,17 @@ Everything else (jobs, downloads, logs, auth, media, MCP) is `@pepper/core`.
   takes and retakes: segments continuing each other through a recipe's
   `continuation` input, driven by the service one job at a time (a parent
   job waiting on its children would hold the only job slot) and joined with
-  ffmpeg.
+  ffmpeg. A shot marked `continues` renders from the previous shot's chosen
+  take through the same continuation, and a new cut trims the overlap, so a
+  scene of directed shots plays as one take. `masterTake` finishes a chosen
+  take for delivery with its soundtrack kept, as a chain of jobs: by default
+  a `refine` recipe (ltx25-refine) then an `upscale` one (rtx-master, else
+  SeedVR2), each reading the last one's output; the cut plays
+  `deliveryFile`, the master once done.
+- `src/projects/derive.ts`: shot → recipe parameters, and the prompt. A
+  recipe's `prompt_format` (`h3-base`, `h3-reference`) composes MiniMax's
+  structured H3 prompts (docs/H3-16GB.md §3); a prompt already in that
+  format passes through.
 - `src/golden/`: golden-shot runs and the blind A/B (`golden/shots.json`).
 - `src/mcp/tools.ts`: Claude's tools. Keep them few: pro_status,
   list_models, install_model, generate_image / generate_video /

@@ -15,7 +15,7 @@ import { probeMedia, runFfmpeg } from '@pepper/core/util/ffmpeg.js';
 import type { Recipe, RecipeParam } from '../recipes/schema.js';
 import type { RecipeStore } from '../recipes/store.js';
 import { joinArgs, planSegments, type JoinPart, type TakeChain } from './chain.js';
-import { deriveParams } from './derive.js';
+import { composePrompt, deriveParams } from './derive.js';
 import {
   assets,
   cuts,
@@ -73,6 +73,7 @@ export type ShotInput = Partial<
     | 'audioAssetId'
     | 'recipeId'
     | 'params'
+    | 'continues'
   >
 >;
 export type CutInput = Partial<Pick<CutRow, 'name' | 'items' | 'music' | 'subtitles' | 'beatSync'>>;
@@ -94,13 +95,14 @@ export interface PlanInput {
       camera?: string;
       prompt: string;
       /** `speaker` is an asset ref, an existing asset id, or a name. */
-      dialogue?: { speaker: string; line: string }[];
+      dialogue?: { speaker: string; line: string; language?: string }[];
       sound?: string;
       /** Asset refs or ids. */
       assets?: string[];
       audio?: string;
       recipe?: string;
       params?: Record<string, unknown>;
+      continues?: boolean;
     }[];
   }[];
 }
@@ -115,8 +117,43 @@ export interface TakeReview {
   at: number;
 }
 
-export interface TakeView extends Omit<TakeRow, 'chain'> {
+/** A take mastered for delivery (see `masterTake`). */
+export interface TakeMaster {
+  jobId: string;
+  /** The finishing recipes, joined with "+" when the master is a chain. */
+  recipe: string;
+  /** The chain, in order (a refine, then an upscale); absent for a single recipe. */
+  steps?: string[];
+  /** Which step `jobId` runs, from 0. */
+  step?: number;
+  state: 'rendering' | 'done' | 'failed';
+  /** The mastered file, in the project's files. */
+  file?: string;
+  error?: string;
+}
+
+/** How to master: one recipe, or a chain in order; `scale` goes to the last step's upscale. */
+export interface MasterOptions {
+  recipe?: string;
+  chain?: string[];
+  scale?: number;
+}
+
+/**
+ * A take whose short side is at most this was rendered small for a refine
+ * (H3's `half` mode): the LTX refine renders it at twice the size. Larger
+ * takes get a detail pass at their own size, which a 16 GB card can hold.
+ */
+const REFINE_X2_MAX_SHORT_SIDE = 720;
+
+/** The upload a master's step reads: the take itself, then each step's output. */
+function masterSource(take: TakeRow, step: number): string {
+  return step === 0 ? `master-src-${take.id}${extname(take.file ?? '.mp4')}` : `master-src-${take.id}-${step}.mp4`;
+}
+
+export interface TakeView extends Omit<TakeRow, 'chain' | 'master'> {
   chain: TakeChain | null;
+  master: (TakeMaster & { url?: string; status?: Job['status']; progress?: number }) | null;
   status: Job['status'] | 'missing';
   progress: number;
   error?: Job['error'];
@@ -333,6 +370,7 @@ export class ProjectService {
       audioAssetId: input.audioAssetId ?? null,
       recipeId: input.recipeId ?? null,
       params: input.params ?? {},
+      continues: input.continues ?? false,
       chosenTakeId: null,
       createdAt: now,
       updatedAt: now,
@@ -437,9 +475,10 @@ export class ProjectService {
       const scene = this.createScene(projectId, { title: sceneInput.title, notes: sceneInput.notes });
       newScenes.push(scene);
       for (const s of sceneInput.shots) {
-        const dialogue = (s.dialogue ?? []).map((d) => {
+        const dialogue = (s.dialogue ?? []).map((d): { asset_id?: string; speaker?: string; line: string; language?: string } => {
           const asset = resolve(d.speaker);
-          return asset ? { asset_id: asset.id, line: d.line } : { speaker: d.speaker, line: d.line };
+          const language = d.language ? { language: d.language } : {};
+          return asset ? { asset_id: asset.id, line: d.line, ...language } : { speaker: d.speaker, line: d.line, ...language };
         });
         const assetIds = (s.assets ?? []).map((ref) => resolve(ref)?.id).filter((id): id is string => Boolean(id));
         // A speaker is in the shot even if the plan forgot to list them.
@@ -457,6 +496,7 @@ export class ProjectService {
             audioAssetId: s.audio ? (resolve(s.audio)?.id ?? null) : null,
             recipeId: s.recipe ?? null,
             params: s.params ?? {},
+            continues: s.continues ?? false,
           }),
         );
       }
@@ -519,6 +559,8 @@ export class ProjectService {
     const created: TakeRow[] = [];
     for (const shotId of shotIds) {
       const request = await this.requestFor(shotId, options.mode);
+      const continuing = this.requireShot(shotId);
+      if (continuing.continues) request.params = await this.continueFrom(continuing, this.deps.recipes.require(request.recipe), request.params ?? {});
       if (options.fromTake) {
         const take = this.requireTake(options.fromTake);
         if (take.seed !== null) request.params = { ...request.params, seed: take.seed };
@@ -528,7 +570,7 @@ export class ProjectService {
       const count = options.fromTake ? 1 : (options.count ?? 1);
       const shot = this.requireShot(shotId);
       const recipe = this.deps.recipes.require(request.recipe);
-      const chain = this.longTakePlan(shot, recipe, request.mode ?? recipe.default_mode, request.params ?? {});
+      const chain = this.longTakePlan(shot, recipe, request.mode ?? recipe.default_mode, request.params ?? {}, shot.continues);
       for (let i = 0; i < count; i++) {
         const takeId = newId('tak');
         const prepared = await this.deps.comfy.prepareRequest(chain ? { ...request, params: chain.first } : request, {
@@ -555,6 +597,7 @@ export class ProjectService {
           review: null,
           // Every segment of a long take renders with the first one's seed.
           chain: chain ? { ...chain.chain, next: { ...chain.chain.next, ...(seed !== null ? { seed } : {}) }, segments: chain.chain.segments.map((s, k) => (k === 0 ? { ...s, jobId: job.id } : { ...s })) } : null,
+          master: null,
           createdAt: Date.now(),
         };
         this.db.insert(takes).values(row).run();
@@ -563,6 +606,50 @@ export class ProjectService {
       this.touch(shot.projectId);
     }
     return created;
+  }
+
+  /**
+   * A shot that carries on from the one before it: the previous shot's
+   * chosen take goes to the recipe's continuation input (H3 pins its last
+   * frames, so motion, light and voices run on), and the opening frame is
+   * dropped, since the take now opens on that tail. This is how a scene of
+   * several directed shots plays as one continuous take, each shot with its
+   * own action and lines; the cut trims what the continuation repeats.
+   */
+  private async continueFrom(shot: ShotRow, recipe: Recipe, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (!recipe.continuation) {
+      throw errors.validation(`${recipe.name} cannot continue a clip, so shot ${shot.id} cannot carry on from the one before it`);
+    }
+    const siblings = this.listShots(shot.projectId, shot.sceneId).sort((a, b) => a.position - b.position);
+    const previous = siblings[siblings.findIndex((s) => s.id === shot.id) - 1];
+    if (!previous) throw errors.validation(`Shot ${shot.id} is the first of its scene, so there is nothing for it to continue`);
+    const take = previous.chosenTakeId ? this.db.select().from(takes).where(eq(takes.id, previous.chosenTakeId)).get() : undefined;
+    if (!take?.file || kindOf(take.file) !== 'video') {
+      throw errors.validation(`Shot ${shot.id} continues the shot before it: choose a finished video take of that shot first`);
+    }
+    // The take as rendered, not its master: the continuation works at the model's own size.
+    const upload = `cont-${take.id}${extname(take.file)}`;
+    await copyFile(this.takeFile(take.projectId, take.file), safeResolve(this.deps.paths.uploadsDir, upload));
+    const out = { ...params, [recipe.continuation.param]: upload };
+    for (const name of ['first_frame', 'image']) delete out[name];
+    // The prompt was written for an opening frame the take no longer has.
+    if (typeof out.prompt === 'string' && !(shot.params as Record<string, unknown>).prompt) {
+      const project = this.requireProject(shot.projectId);
+      out.prompt = composePrompt({ project, shot, assets: this.listAssets(project.id), recipe, continuing: true });
+    }
+    return out;
+  }
+
+  /** Seconds a continuing shot's take repeats of the shot before it, which the cut trims. */
+  private continuedOverlap(shot: ShotRow, take: TakeRow): number {
+    if (!shot.continues) return 0;
+    const job = this.deps.jobs.get(take.jobId);
+    const id = (job?.params as RecipeJobParams | undefined)?.recipe ?? shot.recipeId;
+    try {
+      return id ? (this.deps.recipes.require(id).continuation?.overlap_s ?? 0) : 0;
+    } catch {
+      return 0;
+    }
   }
 
   /** A recipe's length input, and the continuation it chains with, if it has both. */
@@ -581,6 +668,7 @@ export class ProjectService {
     recipe: Recipe,
     mode: string,
     params: Record<string, unknown>,
+    continuing = false,
   ): { first: Record<string, unknown>; chain: TakeChain } | null {
     const spec = this.chainable(recipe);
     // A length pinned in the shot's own parameters is taken as asked.
@@ -588,7 +676,8 @@ export class ProjectService {
     if (shot.durationS <= spec.duration.max + 0.05) return null;
     let durations: number[];
     try {
-      durations = planSegments(shot.durationS, { max: spec.duration.max, min: spec.duration.min, overlap: spec.overlapS });
+      // A shot that continues the one before it repeats that shot's tail in its first segment too.
+      durations = planSegments(shot.durationS, { max: spec.duration.max, min: spec.duration.min, overlap: spec.overlapS, continuing });
     } catch (err) {
       throw errors.validation(`Shot ${shot.id}: ${(err as Error).message}; shorten it or split it into shots`);
     }
@@ -629,6 +718,7 @@ export class ProjectService {
       assets: this.listAssets(project.id),
       recipe,
       mode,
+      continuing: true,
     });
     for (const name of ['first_frame', 'image', 'audio', 'last_frame']) delete next[name];
     return { next, last: params.last_frame !== undefined ? { last_frame: params.last_frame } : {} };
@@ -704,6 +794,7 @@ export class ProjectService {
       notes: `Retake of ${source.id} from ${from.toFixed(1)} s`,
       review: null,
       chain,
+      master: null,
       createdAt: Date.now(),
     };
     this.db.insert(takes).values(row).run();
@@ -825,6 +916,7 @@ export class ProjectService {
       return {
         ...take,
         chain,
+        master: null,
         status: chain.state === 'failed' ? (job?.status === 'cancelled' ? 'cancelled' : 'failed') : job && !settled ? job.status : 'running',
         progress: chain.state === 'joining' ? 0.99 : (chain.index + (settled ? 1 : (job?.progress ?? 0))) / n,
         error: chain.state === 'failed' ? (job?.error ?? { code: 'GENERATION_FAILED', message: chain.error ?? 'The long take failed' }) : undefined,
@@ -836,6 +928,7 @@ export class ProjectService {
     return {
       ...take,
       chain,
+      master: this.viewMaster(take),
       status: chain ? 'completed' : (job?.status ?? (take.file ? 'completed' : 'missing')),
       progress: chain ? 1 : (job?.progress ?? (take.file ? 1 : 0)),
       error: chain ? undefined : job?.error,
@@ -877,6 +970,8 @@ export class ProjectService {
     const job = this.deps.jobs.get(take.jobId);
     if (job && (job.status === 'queued' || job.status === 'running')) this.deps.jobs.cancel(job.id);
     if (take.file) await rm(this.takeFile(take.projectId, take.file), { force: true });
+    const master = take.master as TakeMaster | null;
+    if (master?.file) await rm(this.takeFile(take.projectId, master.file), { force: true });
     const chain = take.chain as TakeChain | null;
     for (const upload of [chain?.head, ...(chain?.segments ?? []).map((s) => s.upload)]) {
       if (upload) await rm(safeResolve(this.deps.paths.uploadsDir, upload), { force: true });
@@ -898,6 +993,7 @@ export class ProjectService {
     if (!take) return;
     const result = (job.result ?? {}) as Record<string, unknown>;
     const path = (result.video_path ?? result.image_path ?? result.audio_path) as string | undefined;
+    if ((job.params as { master?: boolean }).master) return this.settleMaster(take, job, path);
     if (take.chain) return this.advanceChain(take, job, path);
     if (!path || job.status !== 'completed') return;
     try {
@@ -909,6 +1005,186 @@ export class ProjectService {
     } catch (err) {
       this.deps.log.warn({ take: take.id, err: (err as Error).message }, 'could not keep a take in its project');
     }
+  }
+
+  // --- Mastering -------------------------------------------------------------
+
+  /**
+   * Master a finished video take for delivery, keeping its own soundtrack.
+   * By default this is the MiniMax × LTXV chain where its recipes are
+   * installed: an LTX refine re-renders the take's detail (twice its size
+   * for a take rendered at half size), then RTX Video upscales it on the
+   * card; otherwise one upscaler (RTX Video or SeedVR2). Drafting at the
+   * card's comfortable size and mastering only what makes the cut is how a
+   * 16 GB box delivers sharp 1080p and up. The take's file is untouched;
+   * the cut uses the master once it is done.
+   */
+  async masterTake(takeId: string, options: MasterOptions = {}): Promise<TakeView> {
+    const take = this.requireTake(takeId);
+    if (!take.file || kindOf(take.file) !== 'video') throw errors.validation(`Take ${takeId} has no finished video to master`);
+    const current = take.master as TakeMaster | null;
+    if (current?.state === 'rendering') {
+      const job = this.deps.jobs.get(current.jobId);
+      if (job && (job.status === 'queued' || job.status === 'running')) return this.viewTake(take);
+    }
+    const steps = await this.masterSteps(options);
+    // Each step reads its input from uploads, like any other recipe.
+    const upload = `master-src-${take.id}${extname(take.file)}`;
+    await copyFile(this.takeFile(take.projectId, take.file), safeResolve(this.deps.paths.uploadsDir, upload));
+    if (current?.file) await rm(this.takeFile(take.projectId, current.file), { force: true });
+    const pending: TakeMaster = {
+      jobId: '',
+      recipe: steps.map((r) => r.id).join('+'),
+      ...(steps.length > 1 ? { steps: steps.map((r) => r.id), step: 0 } : {}),
+      state: 'rendering',
+    };
+    const master = await this.startMasterStep(take, pending, 0, upload, options);
+    this.db.update(takes).set({ master }).where(eq(takes.id, take.id)).run();
+    this.touch(take.projectId);
+    return this.viewTake(this.requireTake(take.id));
+  }
+
+  /**
+   * Queue one step of a master on `upload`. An LTX refine is handed the
+   * still the take opened on (from its render job), which it pins as the
+   * first frame so the clip keeps that picture's detail, and refines at
+   * twice the size of a take rendered small.
+   */
+  private async startMasterStep(take: TakeRow, master: TakeMaster, step: number, upload: string, options: MasterOptions): Promise<TakeMaster> {
+    const recipe = this.deps.recipes.require(master.steps?.[step] ?? master.recipe);
+    const has = (name: string) => recipe.params.some((p) => p.name === name);
+    const last = step === (master.steps?.length ?? 1) - 1;
+    const params: Record<string, unknown> = { video: upload };
+    if (has('scale') && last && options.scale !== undefined) params.scale = options.scale;
+    let mode: string | undefined;
+    if (recipe.capabilities.includes('refine')) {
+      const rendered = (this.deps.jobs.get(take.jobId)?.params as { params?: { first_frame?: unknown } } | undefined)?.params?.first_frame;
+      if (has('first_frame') && typeof rendered === 'string') params.first_frame = rendered;
+      if (recipe.modes.x2 && recipe.modes.same) {
+        const info = await probeMedia(safeResolve(this.deps.paths.uploadsDir, upload));
+        mode = Math.min(info.width ?? 0, info.height ?? 0) > REFINE_X2_MAX_SHORT_SIDE ? 'same' : 'x2';
+      }
+    }
+    const prepared = await this.deps.comfy.prepareRequest(
+      { recipe: recipe.id, ...(mode ? { mode } : {}), params, shot_id: take.shotId },
+      { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
+    );
+    const job = this.deps.jobs.create(prepared.recipe.kind, {
+      recipe: prepared.recipe.id,
+      mode: prepared.mode,
+      params: prepared.values,
+      shot_id: take.shotId,
+      take_id: take.id,
+      master: true,
+      master_step: step,
+      master_options: options,
+    });
+    return { ...master, jobId: job.id, ...(master.steps ? { step } : {}) };
+  }
+
+  /** Master each shot's chosen take. Shots with no finished chosen take are skipped, and listed. */
+  async masterChosen(shotIds: string[], options: MasterOptions = {}): Promise<{ takes: TakeView[]; skipped: string[] }> {
+    const out: TakeView[] = [];
+    const skipped: string[] = [];
+    for (const shotId of shotIds) {
+      const shot = this.requireShot(shotId);
+      const take = shot.chosenTakeId ? this.db.select().from(takes).where(eq(takes.id, shot.chosenTakeId)).get() : undefined;
+      if (!take?.file) {
+        skipped.push(shotId);
+        continue;
+      }
+      out.push(await this.masterTake(take.id, options));
+    }
+    return { takes: out, skipped };
+  }
+
+  /**
+   * The finishing recipes a master runs, in order: the ones asked for, else
+   * an installed refine followed by an installed upscaler (RTX Video before
+   * SeedVR2), else whichever of the two is installed.
+   */
+  private async masterSteps(options: MasterOptions): Promise<Recipe[]> {
+    const asked = options.chain?.length ? options.chain : options.recipe ? [options.recipe] : undefined;
+    if (asked) return asked.map((id) => this.deps.recipes.require(id));
+    const installed = async (capability: string): Promise<Recipe[]> => {
+      const out: Recipe[] = [];
+      for (const recipe of this.deps.recipes.list()) {
+        if (recipe.kind !== 'video' || !recipe.capabilities.includes(capability) || !recipe.params.some((p) => p.name === 'video')) continue;
+        const status = await this.deps.recipes.status(recipe, this.deps.config.tier, this.deps.config.licenceMode);
+        if (status.state === 'installed' && !status.licenceBlock) out.push(recipe);
+      }
+      return out;
+    };
+    const [refine] = await installed('refine');
+    const upscalers = (await installed('upscale')).sort((a, b) => Number(b.family === 'rtx-vfx') - Number(a.family === 'rtx-vfx'));
+    const steps = [refine, upscalers[0]].filter(Boolean) as Recipe[];
+    if (steps.length > 0) return steps;
+    throw errors.validation(
+      'Nothing is installed to master with; install the LTX refine (ltx25-refine) and RTX Video (rtx-master), or SeedVR2 (seedvr2-upscale-video), from Recipes',
+    );
+  }
+
+  /**
+   * A master job settled: run the chain's next step on its output, or keep
+   * the last output in the project with the take's soundtrack laid back
+   * under it, since an upscaler may return pictures only.
+   */
+  private async settleMaster(take: TakeRow, job: Job, path: string | undefined): Promise<void> {
+    const master = take.master as TakeMaster | null;
+    if (!master || master.jobId !== job.id) return;
+    const step = master.step ?? 0;
+    const source = safeResolve(this.deps.paths.uploadsDir, masterSource(take, step));
+    try {
+      if (job.status !== 'completed' || !path) {
+        const failedStep = master.steps ? ` (step ${step + 1}, ${master.steps[step]})` : '';
+        this.db.update(takes).set({ master: { ...master, state: 'failed', error: (job.error?.message ?? `The master ${job.status}`) + failedStep } }).where(eq(takes.id, take.id)).run();
+        return;
+      }
+      if (master.steps && step < master.steps.length - 1) {
+        const next = masterSource(take, step + 1);
+        await copyFile(path, safeResolve(this.deps.paths.uploadsDir, next));
+        const options = ((job.params as { master_options?: MasterOptions }).master_options ?? {}) as MasterOptions;
+        const advanced = await this.startMasterStep(take, master, step + 1, next, options);
+        this.db.update(takes).set({ master: advanced }).where(eq(takes.id, take.id)).run();
+        return;
+      }
+      const name = `${take.id}-master.mp4`;
+      const target = this.takeFile(take.projectId, name);
+      const [upscaled, original] = await Promise.all([probeMedia(path), take.file ? probeMedia(this.takeFile(take.projectId, take.file)) : null]);
+      if (original?.hasAudio && !upscaled.hasAudio && take.file) {
+        await runFfmpeg(
+          ['-i', path, '-i', this.takeFile(take.projectId, take.file), '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'copy', '-shortest', '-movflags', '+faststart', target],
+          300_000,
+        );
+      } else {
+        await copyFile(path, target);
+      }
+      this.db.update(takes).set({ master: { ...master, state: 'done', file: name } }).where(eq(takes.id, take.id)).run();
+    } catch (err) {
+      const message = (err as Error).message;
+      this.deps.log.warn({ take: take.id, err: message }, 'could not keep a master');
+      this.db.update(takes).set({ master: { ...master, state: 'failed', error: message } }).where(eq(takes.id, take.id)).run();
+    } finally {
+      await rm(source, { force: true });
+    }
+  }
+
+  private viewMaster(take: TakeRow): TakeView['master'] {
+    const master = take.master as TakeMaster | null;
+    if (!master) return null;
+    const job = this.deps.jobs.get(master.jobId);
+    return {
+      ...master,
+      status: master.state === 'done' ? 'completed' : master.state === 'failed' ? 'failed' : job?.status,
+      progress: master.state === 'done' ? 1 : (job?.progress ?? 0),
+      url: master.file ? `/v1/projects/${encodeURIComponent(take.projectId)}/files/${encodeURIComponent(master.file)}` : undefined,
+    };
+  }
+
+  /** The file a cut plays for a take: its master once done, else the take as rendered. */
+  deliveryFile(take: TakeRow): string | null {
+    const master = take.master as TakeMaster | null;
+    return master?.state === 'done' && master.file ? master.file : take.file;
   }
 
   // --- Cuts ------------------------------------------------------------------
@@ -931,7 +1207,12 @@ export class ProjectService {
       this.listShots(projectId)
         .sort((a, b) => this.sceneOrder(a) - this.sceneOrder(b) || a.position - b.position)
         .filter((s) => s.chosenTakeId)
-        .map((s) => ({ take_id: s.chosenTakeId as string }));
+        .map((s) => {
+          const take = this.db.select().from(takes).where(eq(takes.id, s.chosenTakeId as string)).get();
+          const overlap = take ? this.continuedOverlap(s, take) : 0;
+          // A continuing shot opens on the frames it repeats of the shot before; the cut starts after them.
+          return { take_id: s.chosenTakeId as string, ...(overlap > 0 ? { in: Math.round(overlap * 1000) / 1000 } : {}) };
+        });
     const now = Date.now();
     const row: CutRow = {
       id: newId('cut'),

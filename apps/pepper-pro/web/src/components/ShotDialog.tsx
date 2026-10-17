@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Eye, Plus, Scissors, ScanEye, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
+import { Check, Eye, Gem, Plus, Scissors, ScanEye, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -86,6 +86,7 @@ function ShotForm({ shot, assets, recipes, onSaved }: { shot: Shot; assets: Asse
     keyframes: shot.keyframes,
     audioAssetId: shot.audioAssetId,
     recipeId: shot.recipeId,
+    continues: shot.continues,
   }));
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
@@ -137,9 +138,16 @@ function ShotForm({ shot, assets, recipes, onSaved }: { shot: Shot; assets: Asse
           <Input value={draft.framing} placeholder="Medium close-up" onChange={(e) => set('framing', e.target.value)} />
         </Field>
         <Field label="Camera">
-          <Input value={draft.camera} placeholder="Slow push-in" onChange={(e) => set('camera', e.target.value)} />
+          <Input value={draft.camera} placeholder="The camera pushes in slowly toward her face" onChange={(e) => set('camera', e.target.value)} />
         </Field>
       </div>
+      <label className="flex items-start gap-2 text-xs" title="Rendered continuing the previous shot's chosen take, so motion, light and voices run on; the cut trims the frames it repeats">
+        <input type="checkbox" className="mt-0.5" checked={draft.continues} onChange={(e) => set('continues', e.target.checked)} />
+        <span>
+          Carries on from the previous shot of the scene, as one continuous take
+          <span className="block text-muted-foreground">Choose a take of the previous shot first. H3 only.</span>
+        </span>
+      </label>
       <Field label="Action" hint="What happens and how it looks; the project's look and the cast are added for you.">
         <Textarea rows={4} value={draft.prompt} onChange={(e) => set('prompt', e.target.value)} />
       </Field>
@@ -188,8 +196,8 @@ function ShotForm({ shot, assets, recipes, onSaved }: { shot: Shot; assets: Asse
         </div>
       </Field>
 
-      <Field label="Sound" hint="Ambience and effects the recipe generates with the picture.">
-        <Input value={draft.sound} onChange={(e) => set('sound', e.target.value)} />
+      <Field label="Sound" hint={'Ambience and effects the recipe generates with the picture; then "Music: …" for a score only the audience hears.'}>
+        <Input value={draft.sound} placeholder="Rain on the shelter roof, tyres hissing past. Music: a low cello note" onChange={(e) => set('sound', e.target.value)} />
       </Field>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -325,6 +333,19 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
               from {take.chain.from?.toFixed(1)} s
             </Badge>
           ) : null}
+          {take.master ? (
+            <Badge
+              variant={take.master.state === 'done' ? 'success' : take.master.state === 'failed' ? 'destructive' : 'outline'}
+              className="whitespace-nowrap"
+              title={take.master.error ?? `Finished for delivery with ${take.master.steps?.join(' → ') ?? take.master.recipe}; the cut plays it in place of the take`}
+            >
+              {take.master.state === 'done'
+                ? 'mastered'
+                : take.master.state === 'failed'
+                  ? 'master failed'
+                  : `mastering${take.master.steps ? ` ${(take.master.step ?? 0) + 1}/${take.master.steps.length}` : ''} ${Math.round((take.master.progress ?? 0) * 100)}%`}
+            </Badge>
+          ) : null}
         </div>
         <span className="truncate font-mono text-muted-foreground" title="Seed">
           {take.seed ?? ''}
@@ -332,8 +353,14 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
       </div>
       {isActive(take.status) ? <Progress value={take.progress} indeterminate={take.status === 'queued'} /> : null}
       <div ref={media}>
-        <TakeMedia take={take} />
+        {/* A mastered take plays its master, which is what the cut will show. */}
+        <TakeMedia take={take.master?.url ? { ...take, url: take.master.url } : take} />
       </div>
+      {take.master?.url ? (
+        <a href={take.url} target="_blank" rel="noreferrer" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline">
+          Open the take as rendered
+        </a>
+      ) : null}
       {take.error ? <ErrorNote>{take.error.message}</ErrorNote> : null}
       {take.review ? (
         <div className="flex flex-col gap-1 text-[11px]" title={`Checked by ${take.review.model}`}>
@@ -399,7 +426,19 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
               <Scissors />
             </Button>
           ) : null}
-                    <Button size="icon-sm" variant="ghost" aria-label="Delete take" onClick={() => run(() => api.delete(`/v1/takes/${take.id}`))}>
+          {take.kind === 'video' ? (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Master for delivery"
+              title="Finish this take for delivery (LTX refine, then RTX Video upscale), keeping its sound; the cut plays the master"
+              disabled={take.status !== 'completed' || take.master?.state === 'rendering'}
+              onClick={() => run(() => api.post(`/v1/takes/${take.id}/master`, {}))}
+            >
+              {take.master?.state === 'rendering' ? <Spinner /> : <Gem />}
+            </Button>
+          ) : null}
+          <Button size="icon-sm" variant="ghost" aria-label="Delete take" onClick={() => run(() => api.delete(`/v1/takes/${take.id}`))}>
             <Trash2 />
           </Button>
         </div>

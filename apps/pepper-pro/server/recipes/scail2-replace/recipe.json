@@ -514,7 +514,7 @@
     "date": "2026-10-16",
     "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier, NVFP4 file on the cu130 image)",
     "seconds": 335,
-    "notes": "Draft mode, 640x640, 81 frames at 24 fps: ComfyUI's character-replace example (a woman at a piazza fountain) re-cast with a Z-Image character. Scene, camera, gestures and soundtrack kept; 335-397 s with the model load, 361 s warm; peak 12.1 GB VRAM and 17 GB RAM. The int8 file at the same seed looked the same and peaked at 25 GB RAM. NVFP4 needs the cu130 image: on CUDA 12.8 it runs out of memory. Earlier, on an RTX 4090 24 GB, 90 GB RAM (24gb-64ram tier, Vast.ai): 248 s at 896x512."
+    "notes": "Draft mode, 640x640, 81 frames at 24 fps: ComfyUI's character-replace example (a woman at a piazza fountain) re-cast with a Z-Image character. Scene, camera, gestures and soundtrack kept; 335-397 s with the model load, 361 s warm; peak 12.1 GB VRAM and 19 GB RAM. The int8 file at the same seed looked the same and peaked at 26 GB RAM. NVFP4 needs the cu130 image: on CUDA 12.8 it runs out of memory. Earlier, on an RTX 4090 24 GB, 90 GB RAM (24gb-64ram tier, Vast.ai): 248 s at 896x512."
   },
   "notes": "Frames are the driving video's, at its frame rate (81, 157 or 309: windows of 81 overlapping by 5). A driving video shorter than the mode repeats its last frames. Distilled, 6 steps. A driving video with a plain backdrop and the person filling the frame comes back with a new background rather than its own: there is too little of it to keep."
 }

@@ -14,6 +14,7 @@
     "native-audio",
     "text-to-video"
   ],
+  "prompt_format": "h3-reference",
   "licence": {
     "id": "minimax-h3-community",
     "name": "MiniMax H3 Community Licence",
@@ -39,6 +40,15 @@
       "label": "MiniMax H3 ref2va (22B)",
       "description": "The pruned int8 build fits a 24 GB card; larger tiers get the full model.",
       "variants": [
+        {
+          "tiers": [
+            "16gb"
+          ],
+          "repo": "Abiray/Minimax-H3-nvfp4-INT4-INT8-Convrot",
+          "path": "MiniMax_H3_Ref2VA_pruned_nvfp4.safetensors",
+          "bytes": 12528636866,
+          "sha256": "3e1be702c95bc057c05a7d1867e8aeea33073dcf5743835f2f27f06a2f34c596"
+        },
         {
           "tiers": [
             "24gb-64ram",

@@ -147,9 +147,16 @@
   },
   "default_mode": "final",
   "tiers": [
+    "16gb",
     "24gb-64ram",
     "32gb",
     "48gb",
     "96gb"
-  ]
+  ],
+  "verified": {
+    "date": "2026-10-16",
+    "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier, the 3B int8 file, cu130 image)",
+    "seconds": 247,
+    "notes": "2x on an 81-frame SCAIL-2 take, 640x640 to 1280x1280: hair strands, eyes, lashes and skin gain real detail; peak 6.4 GB VRAM and 11 GB RAM; the soundtrack passes through."
+  }
 }

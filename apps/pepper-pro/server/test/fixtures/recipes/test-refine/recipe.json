@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "id": "test-refine",
+  "version": 1,
+  "kind": "video",
+  "name": "Test refine",
+  "description": "Loads a clip and writes a solid one, as a refine re-renders a take. Model-free, for master chain tests.",
+  "family": "test",
+  "capabilities": ["refine", "finish"],
+  "licence": { "id": "test", "name": "Test", "commercial": "yes" },
+  "files": [],
+  "params": [
+    { "name": "video", "type": "video", "label": "Video", "required": true },
+    { "name": "first_frame", "type": "image", "label": "First frame" },
+    { "name": "seed", "type": "seed", "label": "Seed" }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        { "param": "video", "node": "5", "input": "file" },
+        { "param": "first_frame", "nodes": [{ "node": "6", "input": "image" }] }
+      ],
+      "outputs": [{ "node": "4", "kind": "video" }]
+    }
+  },
+  "modes": {
+    "x2": { "label": "Refine x2", "workflow": "main" },
+    "same": { "label": "Refine at size", "workflow": "main" }
+  },
+  "default_mode": "x2",
+  "tiers": ["32gb"]
+}

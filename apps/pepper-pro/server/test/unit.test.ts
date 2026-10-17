@@ -69,7 +69,7 @@ const OBJECT_INFO: ObjectInfo = {
 describe('recipes', () => {
   it('loads the fixture recipes and their workflows', async () => {
     const store = await loadStore();
-    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-video']);
+    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-refine', 'test-upscale', 'test-video']);
     expect(store.broken).toEqual([]);
     expect(Object.keys(store.workflow(store.require('test-image'), 'main'))).toContain('4');
   });
@@ -501,6 +501,80 @@ describe('shots to recipe parameters', () => {
     expect(deriveParams({ project, shot: shot(), assets: [], recipe: sized, mode: 'draft' })).toMatchObject({ width: 384, height: 672 });
     expect(sizeFor('1:1', 1024, 1024)).toEqual({ width: 1024, height: 1024 });
   });
+
+  const h3 = (format: 'h3-base' | 'h3-reference', params: Recipe['params']) =>
+    ({ params, capabilities: [], prompt_format: format }) as unknown as Recipe;
+  const baseParams: Recipe['params'] = [
+    { name: 'prompt', type: 'text', label: '', required: true },
+    { name: 'first_frame', type: 'image', label: '', required: false },
+    { name: 'last_frame', type: 'image', label: '', required: false },
+    { name: 'duration', type: 'float', label: '', required: false, min: 1, max: 15 },
+  ];
+
+  it('writes H3 base prompts in the official three-field format', () => {
+    const voiced = asset('a1', 'Mei', { voice: { description: 'a quiet, breathy young voice' } });
+    const text = composePrompt({
+      project,
+      shot: shot({ assetIds: ['a1', 'a2'], sound: 'rain on the umbrella. Music: sparse piano at a slow tempo', dialogue: [{ asset_id: 'a1', line: 'You lied to me' }, { asset_id: 'a2', line: 'I had to.', language: 'French' }, { asset_id: 'a1', line: 'Go.' }] }),
+      assets: [voiced, asset('a2', 'Jun')],
+      recipe: h3('h3-base', baseParams),
+    });
+    const [instruction, blank] = text.split('\n');
+    // The first asset's image becomes the opening frame, so the prompt has to say so.
+    expect(instruction).toBe('For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.');
+    expect(blank).toBe('');
+    expect(text).toContain('integrated_multimodal_description: [Shot 1] Warm film look.');
+    expect(text).toContain('Medium two-shot. Camera: slow push-in.');
+    // Stable speaker IDs in speaking order, voice described, words verbatim inside <d>.
+    expect(text).toContain('Mei with a quiet, breathy young voice (S1) says: <d>[English] You lied to me</d>');
+    expect(text).toContain('Jun (S2) says: <d>[French] I had to.</d>');
+    expect(text).toContain('Mei with a quiet, breathy young voice (S1) says: <d>[English] Go.</d>');
+    expect(text).toContain('\n\noverall_soundscape: Rain on the umbrella.');
+    expect(text).toContain('\n\nnon_diegetic_music: Sparse piano at a slow tempo.');
+  });
+
+  it('aligns first and last frames to the shot length, and leaves structured prompts alone', () => {
+    const both = composePrompt({
+      project,
+      shot: shot({ durationS: 8, keyframes: { first: 'f.png', last: 'l.png' }, dialogue: [], sound: '', prompt: 'She opens the umbrella. [Shot 2] At 00:04.000, the camera cuts to her hand.' }),
+      assets: [],
+      recipe: h3('h3-base', baseParams),
+    });
+    expect(both.split('\n')[0]).toBe(
+      'How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 2) aligns with the 8.00-second mark of the target video.',
+    );
+    expect(both).toContain('By the end of [Shot 2], the shot settles into the composition, poses and lighting established by <Picture 2>.');
+    expect(both).toContain('non_diegetic_music: N/A');
+    const lastOnly = composePrompt({ project, shot: shot({ durationS: 6, keyframes: { last: 'l.png' }, assetIds: [] }), assets: [], recipe: h3('h3-base', baseParams) });
+    expect(lastOnly.split('\n')[0]).toBe('How the reference pictures align with the target video — <Picture 1> (from [Shot 1]) aligns with the 6.00-second mark of the target video.');
+    const written = 'integrated_multimodal_description: [Shot 1] A lighthouse at dusk.\n\noverall_soundscape: Waves.\n\nnon_diegetic_music: N/A';
+    expect(composePrompt({ project, shot: shot({ prompt: written }), assets: [], recipe: h3('h3-base', baseParams) })).toBe(written);
+  });
+
+  it('writes H3 reference prompts with every picture and voice bound to its label', () => {
+    const text = composePrompt({
+      project,
+      shot: shot({ prompt: 'Mei turns away from Jun in the rain.' }),
+      assets: [asset('a1', 'Mei', { images: ['m1.png', 'm2.png'] }), asset('a2', 'Jun')],
+      recipe: h3('h3-reference', [
+        { name: 'prompt', type: 'text', label: '', required: true },
+        { name: 'refs', type: 'images', label: '', required: false, max_items: 9 },
+        { name: 'voice_refs', type: 'audios', label: '', required: false, max_items: 3 },
+      ]),
+    });
+    const sections = ['subject_definitions:', 'summary:', 'retention_analysis:', 'detailed_description:', 'overall_soundscape:', 'non_diegetic_music:'];
+    expect(sections.map((s) => text.indexOf(`${s}\n`))).toEqual([...sections.map((s) => text.indexOf(`${s}\n`))].sort((a, b) => a - b));
+    expect(sections.every((s) => text.includes(`${s}\n`))).toBe(true);
+    expect(text).toContain('<Subject 1> is Mei in <Picture 1>, <Picture 2>, mei description.');
+    expect(text).toContain('<Subject 2> is Jun in <Picture 3>, jun description.');
+    expect(text).toContain('<Audio 1> is the voice-timbre reference for <Subject 1> (S1).');
+    expect(text).toContain('<Audio 2> is the voice-timbre reference for <Subject 2> (S2).');
+    expect(text).toContain('[reference generation + audio reference] The target video shows <Subject 1> and <Subject 2>: <Subject 1> turns away from <Subject 2> in the rain.');
+    expect(text).toContain('<Subject 1> (S1) says: <d>[English] You lied to me</d>');
+    // The labels match what deriveParams hands the recipe.
+    const params = deriveParams({ project, shot: shot(), assets: [asset('a1', 'Mei', { images: ['m1.png', 'm2.png'] }), asset('a2', 'Jun')], recipe: h3('h3-reference', [{ name: 'refs', type: 'images', label: '', required: false, max_items: 9 }, { name: 'voice_refs', type: 'audios', label: '', required: false, max_items: 3 }]) });
+    expect(params).toMatchObject({ refs: ['m1.png', 'm2.png', 'a2.png'], voice_refs: ['a1.wav', 'a2.wav'] });
+  });
 });
 
 describe('long takes', () => {
@@ -629,7 +703,7 @@ describe('generic generation', () => {
       kind: 'video',
       inputs: { prompt: 'required', image: 'optional', end_image: 'optional', audio: 'optional' },
       duration: { min: 1, max: 15 },
-      qualities: ['draft', 'final'],
+      qualities: ['draft', 'final', 'half'],
     });
     expect(model('h3-video').inputs.reference_images).toBeUndefined();
     expect(model('h3-reference')).toMatchObject({ inputs: { reference_images: 'optional', voice_reference: 'optional' }, max_reference_images: 4 });
@@ -1239,4 +1313,205 @@ describe.skipIf(!haveComfy)('comfyui end to end', () => {
     const done = await settle(job.id);
     expect(['cancelled', 'completed']).toContain(done.status);
   }, 120_000);
+});
+
+describe('mastering', () => {
+  it('masters a chosen take with its own soundtrack, and the cut plays the master', async () => {
+    if (!haveFfmpeg) return;
+    const server = await buildServer(await tempConfig());
+    try {
+      // Stand-ins for ComfyUI: a render leaves a small clip with sound, an
+      // upscale a silent one twice its size, as SeedVR2 returns pictures only.
+      const dir = await mkdtemp(join(tmpdir(), 'pepper-master-'));
+      const rendered = join(dir, 'rendered.mp4');
+      const upscaled = join(dir, 'upscaled.mp4');
+      spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:d=1:r=24', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-shortest', '-pix_fmt', 'yuv420p', rendered]);
+      spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=128x128:d=1:r=24', '-pix_fmt', 'yuv420p', upscaled]);
+      const seen: Record<string, unknown>[] = [];
+      server.jobs.registerExecutor('video', async ({ job }) => {
+        seen.push(job.params);
+        return { video_path: (job.params as { master?: boolean }).master ? upscaled : rendered };
+      });
+      const settleTake = async (id: string, done: (view: ReturnType<typeof server.projects.viewTake>) => boolean) => {
+        for (let i = 0; i < 400; i++) {
+          const view = server.projects.viewTake(server.projects.requireTake(id));
+          if (done(view)) return view;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        throw new Error(`take ${id} did not settle`);
+      };
+
+      const project = server.projects.createProject({ name: 'Master' });
+      const scene = server.projects.createScene(project.id);
+      const shot = server.projects.createShot(scene.id, { prompt: 'blue', recipeId: 'test-video' });
+      await expect(server.projects.masterChosen([shot.id])).resolves.toMatchObject({ takes: [], skipped: [shot.id] });
+
+      const [take] = await server.projects.renderShots([shot.id], { count: 1 });
+      await settleTake(take.id, (v) => Boolean(v.file));
+      server.projects.chooseTake(take.id);
+      const { takes, skipped } = await server.projects.masterChosen([shot.id], { recipe: 'test-upscale' });
+      expect(skipped).toEqual([]);
+      expect(takes[0].master).toMatchObject({ recipe: 'test-upscale', state: 'rendering' });
+      // The upscaler was handed the take, through uploads.
+      expect((seen.at(-1) as { params: { video: string } }).params.video).toBe(`master-src-${take.id}.mp4`);
+
+      const mastered = await settleTake(take.id, (v) => v.master?.state === 'done' || v.master?.state === 'failed');
+      expect(mastered.master).toMatchObject({ state: 'done', file: `${take.id}-master.mp4`, status: 'completed' });
+      expect(mastered.master!.url).toContain(`${take.id}-master.mp4`);
+      const info = await probeMedia(server.projects.takeFile(project.id, mastered.master!.file!));
+      expect(info).toMatchObject({ width: 128, height: 128, hasAudio: true });
+      // The take itself is unchanged; the cut plays the master.
+      const row = server.projects.requireTake(take.id);
+      expect(row.file).toBe(`${take.id}.mp4`);
+      expect(server.projects.deliveryFile(row)).toBe(`${take.id}-master.mp4`);
+      expect(existsSync(join(server.paths.uploadsDir, `master-src-${take.id}.mp4`))).toBe(false);
+
+      await server.projects.deleteTake(take.id);
+      expect(existsSync(server.projects.takeFile(project.id, `${take.id}-master.mp4`))).toBe(false);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  }, 60_000);
+});
+
+describe('mastering chain', () => {
+  it('refines a take, then upscales the refine, keeping the sound and the first frame', async () => {
+    if (!haveFfmpeg) return;
+    const server = await buildServer(await tempConfig());
+    try {
+      // Stand-ins: a render leaves a small clip with sound; the refine a
+      // larger one with sound (it carries the take's soundtrack); the
+      // upscale a silent one larger still.
+      const dir = await mkdtemp(join(tmpdir(), 'pepper-chain-'));
+      const clip = (name: string, size: number, sound: boolean) => {
+        const out = join(dir, name);
+        spawnSync('ffmpeg', [
+          '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `color=c=blue:s=${size}x${size}:d=1:r=24`,
+          ...(sound ? ['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-shortest'] : []),
+          '-pix_fmt', 'yuv420p', out,
+        ]);
+        return out;
+      };
+      const rendered = clip('rendered.mp4', 64, true);
+      const refined = clip('refined.mp4', 128, true);
+      const upscaled = clip('upscaled.mp4', 192, false);
+      await writeFile(join(server.paths.uploadsDir, 'still.png'), await readFile(join(FIXTURES, '..', 'pixel.png')));
+      const seen: { recipe: string; mode?: string; params: Record<string, unknown> }[] = [];
+      server.jobs.registerExecutor('video', async ({ job }) => {
+        const params = job.params as unknown as { recipe: string; mode?: string; params: Record<string, unknown>; master?: boolean };
+        seen.push(params);
+        if (!params.master) return { video_path: rendered };
+        return { video_path: params.recipe === 'test-refine' ? refined : upscaled };
+      });
+      const settleTake = async (id: string, done: (view: ReturnType<typeof server.projects.viewTake>) => boolean) => {
+        for (let i = 0; i < 400; i++) {
+          const view = server.projects.viewTake(server.projects.requireTake(id));
+          if (done(view)) return view;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        throw new Error(`take ${id} did not settle`);
+      };
+
+      const project = server.projects.createProject({ name: 'Chain' });
+      const scene = server.projects.createScene(project.id);
+      // The take opens on a still: the refine pins the same one.
+      const shot = server.projects.createShot(scene.id, { prompt: 'blue', recipeId: 'test-video', keyframes: { first: 'still.png' } });
+      const [take] = await server.projects.renderShots([shot.id], { count: 1 });
+      await settleTake(take.id, (v) => Boolean(v.file));
+      server.projects.chooseTake(take.id);
+
+      const { takes } = await server.projects.masterChosen([shot.id], { scale: 1.5 });
+      expect(takes[0].master).toMatchObject({ recipe: 'test-refine+test-upscale', steps: ['test-refine', 'test-upscale'], step: 0, state: 'rendering' });
+      const mastered = await settleTake(take.id, (v) => v.master?.state === 'done' || v.master?.state === 'failed');
+      expect(mastered.master).toMatchObject({ state: 'done', file: `${take.id}-master.mp4`, step: 1 });
+
+      const [refine, upscale] = seen.filter((p) => (p as { master?: boolean }).master);
+      // A 64 px take was rendered small: refined at twice its size, from the still it opened on.
+      expect(refine).toMatchObject({ recipe: 'test-refine', mode: 'x2', params: { video: `master-src-${take.id}.mp4`, first_frame: 'still.png' } });
+      // The upscale reads the refine's output and gets the scale.
+      expect(upscale).toMatchObject({ recipe: 'test-upscale', params: { video: `master-src-${take.id}-1.mp4`, scale: 1.5 } });
+      const info = await probeMedia(server.projects.takeFile(project.id, mastered.master!.file!));
+      expect(info).toMatchObject({ width: 192, height: 192, hasAudio: true });
+      for (const name of [`master-src-${take.id}.mp4`, `master-src-${take.id}-1.mp4`]) {
+        expect(existsSync(join(server.paths.uploadsDir, name))).toBe(false);
+      }
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  }, 60_000);
+});
+
+describe('continuing shots', () => {
+  it("renders a shot from the previous shot's chosen take, and the cut trims the overlap", async () => {
+    if (!haveFfmpeg) return;
+    const server = await buildServer(await tempConfig());
+    try {
+      const dir = await mkdtemp(join(tmpdir(), 'pepper-continue-'));
+      const clip = join(dir, 'clip.mp4');
+      spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=64x64:d=1:r=24', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=1', '-shortest', '-pix_fmt', 'yuv420p', clip]);
+      const seen: Record<string, unknown>[] = [];
+      server.jobs.registerExecutor('video', async ({ job }) => {
+        seen.push((job.params as { params: Record<string, unknown> }).params);
+        return { video_path: clip };
+      });
+      const settle = async (id: string) => {
+        for (let i = 0; i < 400; i++) {
+          const view = server.projects.viewTake(server.projects.requireTake(id));
+          if (view.file) return view;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        throw new Error(`take ${id} did not settle`);
+      };
+
+      const project = server.projects.createProject({ name: 'One take' });
+      const scene = server.projects.createScene(project.id);
+      const first = server.projects.createShot(scene.id, { prompt: 'She walks in', recipeId: 'test-continue', durationS: 1 });
+      const second = server.projects.createShot(scene.id, { prompt: 'She sits down', recipeId: 'test-continue', durationS: 1, continues: true });
+      const lone = server.projects.createShot(server.projects.createScene(project.id).id, { prompt: 'x', recipeId: 'test-continue', continues: true });
+      await expect(server.projects.renderShots([lone.id], {})).rejects.toThrow(/first of its scene/);
+      await expect(server.projects.renderShots([second.id], {})).rejects.toThrow(/choose a finished video take/);
+
+      const [opening] = await server.projects.renderShots([first.id], {});
+      await settle(opening.id);
+      server.projects.chooseTake(opening.id);
+      const [carried] = await server.projects.renderShots([second.id], {});
+      expect(seen.at(-1)!.previous).toBe(`cont-${opening.id}.mp4`);
+      expect(existsSync(join(server.paths.uploadsDir, `cont-${opening.id}.mp4`))).toBe(true);
+      await settle(carried.id);
+      server.projects.chooseTake(carried.id);
+
+      // test-continue repeats 0.25 s of what it continues: the cut starts the second shot after it.
+      const cut = server.projects.createCut(project.id);
+      expect(cut.items).toEqual([{ take_id: opening.id }, { take_id: carried.id, in: 0.25 }]);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  }, 60_000);
+});
+
+describe('continuation prompts', () => {
+  it('drops the opening-frame line when a take continues earlier footage', () => {
+    const project = { style: '', aspect: '16:9' } as ProjectRow;
+    const mei = { id: 'a1', name: 'Mei', description: 'short black bob', images: ['mei.png'], voice: null } as unknown as AssetRow;
+    const shot = { assetIds: ['a1'], framing: '', camera: '', prompt: 'She boards the bus.', dialogue: [], sound: '', durationS: 6, keyframes: {}, params: {} } as unknown as ShotRow;
+    const recipe = {
+      params: [
+        { name: 'prompt', type: 'text' },
+        { name: 'first_frame', type: 'image' },
+      ],
+      capabilities: [],
+      prompt_format: 'h3-base',
+    } as unknown as Recipe;
+    const opening = deriveParams({ project, shot, assets: [mei], recipe });
+    expect(opening.first_frame).toBe('mei.png');
+    expect(opening.prompt).toMatch(/^For the target video, at 0.00 seconds/);
+    const continued = deriveParams({ project, shot, assets: [mei], recipe, continuing: true });
+    expect(continued.first_frame).toBeUndefined();
+    expect(continued.prompt).toMatch(/^integrated_multimodal_description: \[Shot 1\]/);
+    expect(continued.prompt).toContain('carries straight on from the footage before it');
+    expect(continued.prompt).not.toContain('<Picture 1>');
+  });
 });

@@ -1,0 +1,562 @@
+{
+  "1": {
+    "inputs": {
+      "file": "input.mp4"
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "Load Take"
+    }
+  },
+  "2": {
+    "inputs": {
+      "video": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "GetVideoComponents",
+    "_meta": {
+      "title": "Take Components"
+    }
+  },
+  "3": {
+    "inputs": {
+      "image": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "Take Size"
+    }
+  },
+  "4": {
+    "inputs": {
+      "image": [
+        "2",
+        0
+      ],
+      "batch_index": -1,
+      "length": 1
+    },
+    "class_type": "ImageFromBatch",
+    "_meta": {
+      "title": "Last Frame"
+    }
+  },
+  "5": {
+    "inputs": {
+      "image": [
+        "4",
+        0
+      ],
+      "amount": 8
+    },
+    "class_type": "RepeatImageBatch",
+    "_meta": {
+      "title": "Pad Frames"
+    }
+  },
+  "6": {
+    "inputs": {
+      "image1": [
+        "2",
+        0
+      ],
+      "image2": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "ImageBatch",
+    "_meta": {
+      "title": "Padded Take"
+    }
+  },
+  "7": {
+    "inputs": {
+      "image": [
+        "6",
+        0
+      ],
+      "img_compression": 0
+    },
+    "class_type": "LTXVPreprocess",
+    "_meta": {
+      "title": "Preprocess Take"
+    }
+  },
+  "10": {
+    "inputs": {
+      "unet_name": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "LTX 2.5 Distilled"
+    }
+  },
+  "11": {
+    "inputs": {
+      "model": [
+        "10",
+        0
+      ],
+      "lora_name": "ltx2.5-CQ-enhancer-lora-for-videos-rank128.safetensors",
+      "strength_model": 1.0
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "CQ Enhancer LoRA"
+    }
+  },
+  "12": {
+    "inputs": {
+      "model": [
+        "11",
+        0
+      ],
+      "lora_name": "LTX2.3_Crisp_Enhance.safetensors",
+      "strength_model": 0.8
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Crisp Enhance LoRA"
+    }
+  },
+  "13": {
+    "inputs": {
+      "clip_name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+      "type": "ltxv",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Gemma"
+    }
+  },
+  "14": {
+    "inputs": {
+      "vae_name": "ltx-2.5-video-vae-conv-bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "LTX Video VAE"
+    }
+  },
+  "15": {
+    "inputs": {
+      "vae_name": "ltx-2.5-audio-vae-bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "LTX Audio VAE"
+    }
+  },
+  "16": {
+    "inputs": {
+      "model_name": "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"
+    },
+    "class_type": "LatentUpscaleModelLoader",
+    "_meta": {
+      "title": "Spatial Upscaler x2"
+    }
+  },
+  "20": {
+    "inputs": {
+      "value": 2
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Scale"
+    }
+  },
+  "21": {
+    "inputs": {
+      "expression": "a * b",
+      "values.a": [
+        "3",
+        0
+      ],
+      "values.b": [
+        "20",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "22": {
+    "inputs": {
+      "expression": "a * b",
+      "values.a": [
+        "3",
+        1
+      ],
+      "values.b": [
+        "20",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "30": {
+    "inputs": {
+      "pixels": [
+        "7",
+        0
+      ],
+      "vae": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "Encode Take"
+    }
+  },
+  "31": {
+    "inputs": {
+      "samples": [
+        "30",
+        0
+      ],
+      "upscale_model": [
+        "16",
+        0
+      ],
+      "vae": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "LTXVLatentUpsampler",
+    "_meta": {
+      "title": "Latent Upscale x2"
+    }
+  },
+  "32": {
+    "inputs": {
+      "image": "input.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "First Frame"
+    }
+  },
+  "33": {
+    "inputs": {
+      "image": [
+        "32",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": [
+        "21",
+        1
+      ],
+      "height": [
+        "22",
+        1
+      ],
+      "crop": "center"
+    },
+    "class_type": "ImageScale",
+    "_meta": {
+      "title": "First Frame to Size"
+    }
+  },
+  "34": {
+    "inputs": {
+      "image": [
+        "33",
+        0
+      ],
+      "img_compression": 0
+    },
+    "class_type": "LTXVPreprocess",
+    "_meta": {
+      "title": "Preprocess First Frame"
+    }
+  },
+  "35": {
+    "inputs": {
+      "vae": [
+        "14",
+        0
+      ],
+      "image": [
+        "34",
+        0
+      ],
+      "latent": [
+        "31",
+        0
+      ],
+      "strength": 1.0,
+      "bypass": false
+    },
+    "class_type": "LTXVImgToVideoInplace",
+    "_meta": {
+      "title": "Pin First Frame"
+    }
+  },
+  "36": {
+    "inputs": {
+      "frames_number": 1,
+      "frame_rate": [
+        "2",
+        2
+      ],
+      "batch_size": 1,
+      "audio_vae": [
+        "15",
+        0
+      ]
+    },
+    "class_type": "LTXVEmptyLatentAudio",
+    "_meta": {
+      "title": "Empty Audio Latent"
+    }
+  },
+  "37": {
+    "inputs": {
+      "video_latent": [
+        "35",
+        0
+      ],
+      "audio_latent": [
+        "36",
+        0
+      ]
+    },
+    "class_type": "LTXVConcatAVLatent",
+    "_meta": {
+      "title": "AV Latent"
+    }
+  },
+  "40": {
+    "inputs": {
+      "text": "ultra high quality, upscaled, 8k resolution, crisp clarity and quality, sharp edges, extreme definition, shot on 8k resolution cinema camera, flawless focus, clean lines, pristine cinematic lighting, maintain facial features and motion. ",
+      "clip": [
+        "13",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Refine Prompt"
+    }
+  },
+  "41": {
+    "inputs": {
+      "text": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, unreadable text, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, wrong gaze direction, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, missing sniff sounds, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, missing door or shelves, missing shallow depth of field, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, AI artifacts, watermark.",
+      "clip": [
+        "13",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "Refine Negative"
+    }
+  },
+  "42": {
+    "inputs": {
+      "positive": [
+        "40",
+        0
+      ],
+      "negative": [
+        "41",
+        0
+      ],
+      "frame_rate": [
+        "2",
+        2
+      ]
+    },
+    "class_type": "LTXVConditioning",
+    "_meta": {
+      "title": "Conditioning"
+    }
+  },
+  "43": {
+    "inputs": {
+      "model": [
+        "12",
+        0
+      ],
+      "positive": [
+        "42",
+        0
+      ],
+      "negative": [
+        "42",
+        1
+      ],
+      "cfg": 1.1
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "Guider"
+    }
+  },
+  "44": {
+    "inputs": {
+      "model": [
+        "12",
+        0
+      ],
+      "scheduler": "linear_quadratic",
+      "steps": 3,
+      "denoise": 0.3
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "Refine Schedule"
+    }
+  },
+  "45": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Sampler"
+    }
+  },
+  "46": {
+    "inputs": {
+      "noise_seed": 415284290401415
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "Noise"
+    }
+  },
+  "47": {
+    "inputs": {
+      "noise": [
+        "46",
+        0
+      ],
+      "guider": [
+        "43",
+        0
+      ],
+      "sampler": [
+        "45",
+        0
+      ],
+      "sigmas": [
+        "44",
+        0
+      ],
+      "latent_image": [
+        "37",
+        0
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "Refine"
+    }
+  },
+  "48": {
+    "inputs": {
+      "av_latent": [
+        "47",
+        0
+      ]
+    },
+    "class_type": "LTXVSeparateAVLatent",
+    "_meta": {
+      "title": "Separate"
+    }
+  },
+  "49": {
+    "inputs": {
+      "samples": [
+        "48",
+        0
+      ],
+      "vae": [
+        "14",
+        0
+      ],
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 64,
+      "temporal_overlap": 8
+    },
+    "class_type": "VAEDecodeTiled",
+    "_meta": {
+      "title": "Decode"
+    }
+  },
+  "50": {
+    "inputs": {
+      "image": [
+        "49",
+        0
+      ],
+      "batch_index": 0,
+      "length": [
+        "3",
+        2
+      ]
+    },
+    "class_type": "ImageFromBatch",
+    "_meta": {
+      "title": "Trim Padding"
+    }
+  },
+  "51": {
+    "inputs": {
+      "images": [
+        "50",
+        0
+      ],
+      "fps": [
+        "2",
+        2
+      ],
+      "audio": [
+        "2",
+        1
+      ],
+      "bit_depth": 8,
+      "color_space": "sRGB",
+      "codec": "none"
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "Create Video"
+    }
+  },
+  "52": {
+    "inputs": {
+      "video": [
+        "51",
+        0
+      ],
+      "filename_prefix": "pepper-pro",
+      "format": "auto",
+      "format.codec": "auto",
+      "codec": "auto"
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Save Video"
+    }
+  }
+}

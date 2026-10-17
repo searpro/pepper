@@ -105,6 +105,12 @@ export const shots = sqliteTable(
     recipeId: text('recipe_id'),
     /** Recipe parameters that override what the shot derives. */
     params: text('params', { mode: 'json' }).notNull().default({}),
+    /**
+     * The shot carries straight on from the previous shot of its scene: it is
+     * rendered continuing that shot's chosen take (H3's continuation), and the
+     * cut trims the frames it repeats, so the two play as one take.
+     */
+    continues: integer('continues', { mode: 'boolean' }).notNull().default(false),
     chosenTakeId: text('chosen_take_id'),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
@@ -137,6 +143,12 @@ export const takes = sqliteTable(
      * (see chain.ts). `jobId` is then the segment rendering now.
      */
     chain: text('chain', { mode: 'json' }),
+    /**
+     * The take mastered for delivery: upscaled by a finishing recipe
+     * (SeedVR2) with its own soundtrack kept, `{ jobId, recipe, state, file?, error? }`.
+     * The cut uses it in place of the take's file once it is done.
+     */
+    master: text('master', { mode: 'json' }),
     createdAt: integer('created_at').notNull(),
   },
   (t) => ({
@@ -275,4 +287,6 @@ export const PRO_MIGRATIONS: string[] = [
   'ALTER TABLE cuts ADD COLUMN beat_sync INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE golden_results ADD COLUMN review TEXT',
   'ALTER TABLE takes ADD COLUMN chain TEXT',
+  'ALTER TABLE takes ADD COLUMN master TEXT',
+  'ALTER TABLE shots ADD COLUMN continues INTEGER NOT NULL DEFAULT 0',
 ];

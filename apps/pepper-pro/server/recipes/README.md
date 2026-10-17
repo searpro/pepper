@@ -20,6 +20,8 @@ recipes/<id>/
 | `ltx25-video` | video | Fast b-roll and transitions between two keyframes | LTX-2.x (under $10M) |
 | `ltx23-audio-to-video` | video | One image performing to a finished track or recorded line | LTX-2 (under $10M) |
 | `seedvr2-upscale-video` | video | Finishing: restore and upscale a chosen take | Apache 2.0 |
+| `ltx25-refine` | video | Finishing: re-render a take's detail with LTX 2.5, at twice its size for an H3 `half` take; motion, lip-sync and sound kept | LTX-2.x (under $10M) |
+| `rtx-master` | video | Finishing: NVIDIA RTX Video upscale (and 2× frame rate in `smooth` mode) on the card, in seconds | NVIDIA VFX SDK; nodes MIT |
 | `infinitetalk` | video | A portrait lip-synced to a voice recording, 3-12 s | Apache 2.0 |
 | `infinitetalk-duo` | video | Two people in one frame, each lip-synced to their own line (left speaks first) | Apache 2.0 |
 | `longcat-avatar` | video | A portrait speaking or singing a long recording (minutes) with body and hand motion | MIT |
@@ -109,4 +111,21 @@ modes are one, two and four chained 81-frame windows.
 3. `npm run validate-recipes -- --comfy http://127.0.0.1:8188 --write-fixture test/fixtures/object_info.json`
    builds every mode with and without optional inputs and validates it against
    that ComfyUI, and refreshes the node types the unit tests check against.
-4. Render the golden shots on a pod and fill in `verified`.
+4. Render the golden shots on a GPU (the home box or a pod) and fill in `verified`.
+
+A node pack that only loads with an NVIDIA driver (NVIDIA's VFX nodes link
+libcuda when imported) is marked `gpu_only` in the recipe's `nodes`. A
+CPU-only ComfyUI, like the image build's, cannot describe its nodes, so
+`validate-recipes` falls back to the schemas recorded in the recipe's
+`node-schemas.json`, taken from `/object_info` (`rtx-master` has one).
+
+## The finishing chain
+
+The MiniMax × LTXV workflow (Civitai, SonicLoops v3) gets its quality from a
+chain, which Pepper Pro runs as separate jobs so each fits a 16 GB card and
+32 GB of RAM: `h3-video` in `half` mode renders motion, faces and sound at
+half the size (turbo v4 LoRA, 4 steps, beta, CFG 1, sigma shift 12);
+`ltx25-refine` re-renders it at twice that size in three steps at denoise
+0.3 (spatial upscaler, CQ + Crisp LoRAs, the take's first frame pinned);
+`rtx-master` upscales on the card with RTX Video. Mastering a take runs the
+refine and then the upscale by default (`masterTake`).

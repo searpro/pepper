@@ -190,6 +190,12 @@ export const recipeSchema = z
     family: z.string(),
     /** What it can do, for the shot editor and the MCP planner. */
     capabilities: z.array(z.string()).default([]),
+    /**
+     * How a shot's prompt is written for this model (projects/derive.ts).
+     * `h3-base` and `h3-reference` follow MiniMax's prompt-writing guides for
+     * H3's FL2VA and Ref2VA checkpoints; absent, a plain prompt.
+     */
+    prompt_format: z.enum(['h3-base', 'h3-reference']).optional(),
     licence: licenceSchema,
     /** Custom node packs, by directory name, each pinned to a commit in the image. */
     nodes: z
@@ -202,6 +208,13 @@ export const recipeSchema = z
           skip_requirements: z.array(z.string()).default([]),
           /** Packages the pack imports but does not list. */
           pip: z.array(z.string()).default([]),
+          /**
+           * The pack loads only where there is an NVIDIA driver (NVIDIA's VFX
+           * runtime links libcuda at import), so a CPU-only ComfyUI, like the
+           * image build's, cannot describe its nodes. Validation there uses the
+           * schemas recorded in the recipe's `node-schemas.json` instead.
+           */
+          gpu_only: z.boolean().default(false),
         }),
       )
       .default([]),
