@@ -406,6 +406,7 @@ On the pod, not only in Claude:
 
 | Tier | Example | Use |
 | --- | --- | --- |
+| `16gb` | 5060 Ti at home, 32 GB RAM | Images, audio, upscaling, SCAIL-2; NVFP4 variants where a recipe has them (the `cu130` image), else the `24gb-64ram` files (`deploy/home`) |
 | `24gb-64ram` | 4090 on a 64 GB+ RAM host | Images, LTX-2.5, H3 INT8 drafts |
 | `32gb` | 5090 | The default video tier |
 | `48gb` | L40S / A6000 | LongCat-Avatar 1.5, H3 with its encoder resident |

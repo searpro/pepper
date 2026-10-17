@@ -75,6 +75,13 @@ ENV COMFY_DIR=/opt/comfy/ComfyUI \
 # TORCH_INDEX=https://download.pytorch.org/whl/cpu builds a CPU-only image,
 # a few GB smaller, for checking the build itself where there is no GPU.
 ARG TORCH_INDEX=https://download.pytorch.org/whl/cu128
+# On a slow link, uv's 50 parallel downloads leave each of torch's multi-GB
+# CUDA wheels a trickle, and one stalls past the timeout: a CUDA 13 build on
+# an 80 Mbit home connection failed that way twice. Fewer at once, and a
+# longer timeout, see it through (`--build-arg UV_CONCURRENT_DOWNLOADS=3` at
+# home). An ARG is in the environment of the RUN steps below it.
+ARG UV_HTTP_TIMEOUT=300
+ARG UV_CONCURRENT_DOWNLOADS=8
 COPY apps/pepper-pro/server/scripts/install-comfy.sh ./apps/pepper-pro/server/scripts/install-comfy.sh
 RUN mkdir -p /tmp/no-recipes \
     && TORCH_INDEX=$TORCH_INDEX RECIPES_DIR=/tmp/no-recipes apps/pepper-pro/server/scripts/install-comfy.sh \

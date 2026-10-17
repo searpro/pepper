@@ -57,6 +57,7 @@ There is no linter or formatter configured; match the surrounding style
 | `apps/*/web/src/pages/*`, `packages/ui/src/*` | SPA screens; `packages/ui/src/lib/api.ts` is the API client |
 | `deploy/runpod` | RunPod launcher (`launch.py` local; `--product pro --tier …` for Pro) and container `entrypoint.mjs` (tunnel, idle shutdown) |
 | `deploy/vastai` | Vast.ai launcher (`launch.py`, the same commands as RunPod's; same image and entrypoint, which stops an idle instance instead of terminating it) |
+| `deploy/home` | Own-GPU launcher (`launch.py` over SSH: a Compose stack in `/srv/<product>` with its data in `data/`; `--build` runs the checkout) |
 | `deploy/kaggle` | Kaggle GPU launcher (`launch.py` local, `kernel.py` remote); free, 16 GB; Pepper only |
 | `Dockerfile`, `Dockerfile.pro`, `.github/workflows/*.yml` | The images pods run (`ghcr.io/searpro/pepper`, `…/pepper-pro`), rebuilt on pushes to `main`; `test.yml` runs typecheck and tests |
 | `.mcp.json`, `.claude/pepper-mcp.mjs` | Claude Code's `pepper` MCP server: a stdio bridge to a running instance |
@@ -122,6 +123,12 @@ The `pepper-dev` skill has the full loop. In short:
   same on Vast.ai: same image, flags and tiers. Models live on the instance's
   disk, so `down` (and idle) *stops* it and the next `up` restarts it;
   `down --destroy` deletes it. Ask before `up` here too.
+- `uv run deploy/home/launch.py up | status | logs | down` — the user's own
+  GPU box over SSH (`PEPPER_HOME_HOST`): no billing, so no idle shutdown,
+  and `up --build` runs the checkout. `--product pro` defaults to the
+  `16gb` tier and to the `pepper-pro:cu130` image (CUDA 13, which NVFP4
+  files need; CI builds it beside `latest`). It holds the hostname until `down`: run `down` here before
+  any cloud `up`. `down --delete-data` deletes models and outputs: ask first.
 - All of them serve one hostname through one named tunnel; never run two at once.
 - The `pepper` MCP server (`.mcp.json`) reaches whichever is running. Its
   bridge reads the hostname and token from `deploy/runpod/.env` /
