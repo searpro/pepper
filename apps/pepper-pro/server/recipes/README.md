@@ -38,10 +38,9 @@ recipes/<id>/
 | `minimax-music-3` | audio | Produced songs, slower | Apache 2.0 (per the Comfy-Org repackage) |
 | `qwen3-tts` | audio | Speech: a cloned voice, a described voice, nine presets, or a dialogue of up to four voices | Apache 2.0 |
 
-None of these has been run on a GPU yet: the `verified` field is absent on
-all of them until a golden-shot run fills it in. `qwen3-tts` is the one that
-has produced real output, on a CPU ComfyUI (preset, cloned and dialogue
-speech, checked by Whisper).
+A recipe's `verified` field records the date, GPU and seconds of the run
+that proved it; one without it has only been validated structurally.
+`docs/STATUS.md` lists which ran on the home box's `16gb` tier.
 
 ## Parameter names are a contract
 
@@ -104,8 +103,13 @@ modes are one, two and four chained 81-frame windows.
 
 ## Adding or changing a recipe
 
-1. Convert the ComfyUI template (UI format) to API format with a running
-   ComfyUI: `CHROMIUM_PATH=… npm run convert-template -- template.json > workflow.json`.
+1. Read what the workflow really does: `npm run inspect-workflow --
+   workflow.json --object-info http://127.0.0.1:8188` (active nodes, packs,
+   files, LoRAs, sampler settings, prompts, notes). Then convert it to API
+   format with a running ComfyUI:
+   `CHROMIUM_PATH=… npm run convert-template -- template.json > workflow.json`,
+   or rebuild the active chain by hand when it is mostly canvas plumbing.
+   The `workflow-to-recipe` skill (`.claude/skills/`) is the whole procedure.
 2. Wire it: bind parameters and files, drop prompt enhancers (Claude writes the
    prompt), give optional inputs their own loader nodes.
 3. `npm run validate-recipes -- --comfy http://127.0.0.1:8188 --write-fixture test/fixtures/object_info.json`

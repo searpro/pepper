@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "convert-template": "node scripts/convert-template.mjs",
+    "inspect-workflow": "node scripts/inspect-workflow.mjs",
     "validate-recipes": "tsx --conditions=pepper-source src/scripts/validate-recipes.ts"
   },
   "dependencies": {

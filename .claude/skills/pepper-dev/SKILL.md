@@ -12,9 +12,10 @@ works until stage 2 has run.
 
 ## Before anything: read what is already known
 
-Check the memory notes (`MEMORY.md` index) and the **Gotchas** in
-`docs/ARCHITECTURE.md` for the model or backend involved *before* diagnosing a
-failure. Several hours have gone into re-deriving findings that were already
+Read `docs/STATUS.md` (current state, measurements, the user's standing
+directions) and the **Gotchas** in `docs/ARCHITECTURE.md` for the model or
+backend involved *before* diagnosing a failure; Pepper Pro's 16 GB findings
+are in `docs/H3-16GB.md`. Sessions share no memory, so these files are it. Several hours have gone into re-deriving findings that were already
 written down (the Wan 2.2 two-expert LoRA crash, system RAM being the limit
 rather than VRAM).
 
@@ -35,11 +36,15 @@ rather than VRAM).
 
 ## Stage 2 — on a GPU
 
+**The home box is the primary target** (the user's direction): it costs
+nothing, and Pepper Pro's `16gb` tier is designed for it. Use a cloud tier
+only for what it cannot hold, and ask first.
+
 All targets serve the same hostname through one named tunnel, so **only one
 instance can run at a time**; the launchers refuse to start a second. Check
-first: `pepper_status` (MCP), or `uv run deploy/runpod/launch.py status`
-(`deploy/vastai/launch.py status`).
-Ask the user before launching either — one spends money, the other quota.
+first: `pepper_status` (MCP), or `uv run deploy/home/launch.py status`
+(`deploy/runpod/…`, `deploy/vastai/…`).
+Ask the user before launching a cloud one — one spends money, the other quota.
 
 | | RunPod (the default target) | Kaggle |
 | --- | --- | --- |
@@ -90,8 +95,10 @@ the user's own GPU machine over SSH, as a Compose stack in `/srv/<product>`
 whose `data/` folder holds the models. Nothing bills, so it stays up until
 `down`, holding the hostname. `up --build` builds the checkout, uncommitted
 changes included, on the host: the quickest way to put a change on a real
-GPU. Its card is 16 GB with 32 GB of RAM, so judge large video recipes on a
-cloud tier.
+GPU. Its card is 16 GB with 32 GB of RAM (single channel), so host RAM is
+the limit: split big pipelines into one model family per job, prefer NVFP4
+files (Blackwell, the `:cu130` image), and watch for paging (flat ~35 W at
+"99 %" GPU).
 
 ### Kaggle
 
@@ -140,9 +147,11 @@ The same loop, with Pro's own checks (`apps/pepper-pro/server/CLAUDE.md`):
    types. The `comfyui end to end` tests run the engine, projects, cuts,
    beats and golden runs on that CPU ComfyUI with model-free fixture recipes:
    `COMFY_TEST_DIR=… COMFY_TEST_PYTHON=… npx vitest run -t "comfyui end to end"`.
-2. GPU: push, wait for the `image-pro` workflow, then
-   `uv run deploy/runpod/launch.py up --product pro --tier <tier>` (ask first;
-   it bills). Install the recipe, render its golden shots from the Recipes
+2. GPU: push, wait for the `image-pro` workflow (`:latest` and `:cu130`),
+   then `uv run deploy/home/launch.py up --product pro` (or `--build` for an
+   unmerged checkout); a cloud tier is
+   `uv run deploy/runpod/launch.py up --product pro --tier <tier>` (ask
+   first; it bills). Install the recipe, render its golden shots from the Recipes
    screen (or `POST /v1/golden/runs`), look at every result, and when it holds
    up fill in the recipe's `verified` with the date, GPU and seconds per shot.
 3. Report which recipes and modes actually rendered on which tier, and what
@@ -151,5 +160,6 @@ The same loop, with Pro's own checks (`apps/pepper-pro/server/CLAUDE.md`):
 ## Reporting
 
 Say what was verified where: "typecheck + tests + UI locally; generated N
-images on a RunPod 4090 in X s" — or state plainly which part was not run
-and why. Record measured timings and surprises in a memory note.
+images on the home 5060 Ti in X s" — or state plainly which part was not run
+and why. Record measured timings and surprises in `docs/STATUS.md` (and the
+model's own doc), committed with the change.
