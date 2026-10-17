@@ -136,9 +136,13 @@ export interface Take {
     sourceTakeId?: string;
     error?: string;
   } | null;
-  /** The take upscaled for delivery (SeedVR2), which a cut plays in its place once done. */
+  /** The take finished for delivery (an LTX refine, then RTX Video), which a cut plays in its place once done. */
   master: {
+    /** The finishing recipes, joined with "+" for a chain. */
     recipe: string;
+    steps?: string[];
+    /** The step running, from 0. */
+    step?: number;
     state: 'rendering' | 'done' | 'failed';
     status?: Job['status'];
     progress?: number;

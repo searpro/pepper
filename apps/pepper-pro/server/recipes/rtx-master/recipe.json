@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "id": "rtx-master",
+  "version": 1,
+  "kind": "video",
+  "name": "RTX Video — upscale and smooth on the NVIDIA card",
+  "description": "Finishes a take with NVIDIA's RTX Video Super Resolution (×1–4, ULTRA by default) and, in smooth mode, RTX Frame Generation for twice the frame rate in real time; the soundtrack is kept. Seconds per clip, no model download: the effects ship in the nvidia-vfx wheel.",
+  "family": "rtx-vfx",
+  "capabilities": [
+    "upscale",
+    "finish",
+    "frame-generation"
+  ],
+  "licence": {
+    "id": "nvidia-vfx-sdk",
+    "name": "NVIDIA Video Effects SDK (nvidia-vfx); nodes MIT (Comfy-Org)",
+    "url": "https://pypi.org/project/nvidia-vfx/",
+    "commercial": "yes",
+    "obligations": [
+      "The VFX runtime is NVIDIA-proprietary: review NVIDIA's SDK terms before redistributing an image that bundles it."
+    ]
+  },
+  "nodes": [
+    {
+      "name": "Nvidia_RTX_Nodes_ComfyUI",
+      "repo": "https://github.com/Comfy-Org/Nvidia_RTX_Nodes_ComfyUI",
+      "commit": "38d790ded00650681fa3645362efe28c8560cf40",
+      "gpu_only": true
+    }
+  ],
+  "files": [],
+  "params": [
+    {
+      "name": "video",
+      "type": "video",
+      "label": "Video",
+      "required": true
+    },
+    {
+      "name": "scale",
+      "type": "float",
+      "label": "Scale",
+      "default": 1.5,
+      "min": 1,
+      "max": 4,
+      "description": "1.5 takes an LTX-refined 1152×2048 to 1728×3072, as in the MiniMax × LTXV workflow's samples."
+    },
+    {
+      "name": "quality",
+      "type": "enum",
+      "label": "Model",
+      "default": "ULTRA",
+      "options": [
+        "ULTRA",
+        "HIGHBITRATE_ULTRA",
+        "HIGH"
+      ],
+      "description": "ULTRA is trained on compressed video and cleans it; HIGHBITRATE_ULTRA preserves clean sources (try it on refined takes)."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "video",
+          "nodes": [
+            {
+              "node": "1",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "param": "scale",
+          "node": "5",
+          "input": "resize_type.scale"
+        },
+        {
+          "param": "quality",
+          "node": "5",
+          "input": "quality"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "7",
+          "kind": "video"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "upscale": {
+      "label": "Upscale",
+      "description": "RTX Video Super Resolution only.",
+      "workflow": "main"
+    },
+    "smooth": {
+      "label": "Upscale + 2× frame rate",
+      "description": "RTX Frame Generation doubles the frames and the frame rate together, so the take keeps its length and lip-sync; then the upscale.",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "5",
+          "input": "images",
+          "value": [
+            "3",
+            0
+          ]
+        },
+        {
+          "node": "6",
+          "input": "fps",
+          "value": [
+            "4",
+            0
+          ]
+        }
+      ]
+    }
+  },
+  "default_mode": "upscale",
+  "tiers": [
+    "16gb",
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Needs an NVIDIA RTX card (Turing or newer) and driver 570.190+/580.82+ on Linux. The node pack imports nvvfx, which needs the driver: on a CPU-only ComfyUI (the image build's validation) it does not load, so the recipe is validated against the schemas recorded in node-schemas.json."
+}

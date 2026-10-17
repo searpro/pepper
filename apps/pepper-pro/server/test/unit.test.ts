@@ -69,7 +69,7 @@ const OBJECT_INFO: ObjectInfo = {
 describe('recipes', () => {
   it('loads the fixture recipes and their workflows', async () => {
     const store = await loadStore();
-    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-upscale', 'test-video']);
+    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-refine', 'test-upscale', 'test-video']);
     expect(store.broken).toEqual([]);
     expect(Object.keys(store.workflow(store.require('test-image'), 'main'))).toContain('4');
   });
@@ -703,7 +703,7 @@ describe('generic generation', () => {
       kind: 'video',
       inputs: { prompt: 'required', image: 'optional', end_image: 'optional', audio: 'optional' },
       duration: { min: 1, max: 15 },
-      qualities: ['draft', 'final'],
+      qualities: ['draft', 'final', 'half'],
     });
     expect(model('h3-video').inputs.reference_images).toBeUndefined();
     expect(model('h3-reference')).toMatchObject({ inputs: { reference_images: 'optional', voice_reference: 'optional' }, max_reference_images: 4 });
@@ -1349,7 +1349,7 @@ describe('mastering', () => {
       const [take] = await server.projects.renderShots([shot.id], { count: 1 });
       await settleTake(take.id, (v) => Boolean(v.file));
       server.projects.chooseTake(take.id);
-      const { takes, skipped } = await server.projects.masterChosen([shot.id]);
+      const { takes, skipped } = await server.projects.masterChosen([shot.id], { recipe: 'test-upscale' });
       expect(skipped).toEqual([]);
       expect(takes[0].master).toMatchObject({ recipe: 'test-upscale', state: 'rendering' });
       // The upscaler was handed the take, through uploads.
@@ -1368,6 +1368,74 @@ describe('mastering', () => {
 
       await server.projects.deleteTake(take.id);
       expect(existsSync(server.projects.takeFile(project.id, `${take.id}-master.mp4`))).toBe(false);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  }, 60_000);
+});
+
+describe('mastering chain', () => {
+  it('refines a take, then upscales the refine, keeping the sound and the first frame', async () => {
+    if (!haveFfmpeg) return;
+    const server = await buildServer(await tempConfig());
+    try {
+      // Stand-ins: a render leaves a small clip with sound; the refine a
+      // larger one with sound (it carries the take's soundtrack); the
+      // upscale a silent one larger still.
+      const dir = await mkdtemp(join(tmpdir(), 'pepper-chain-'));
+      const clip = (name: string, size: number, sound: boolean) => {
+        const out = join(dir, name);
+        spawnSync('ffmpeg', [
+          '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `color=c=blue:s=${size}x${size}:d=1:r=24`,
+          ...(sound ? ['-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-shortest'] : []),
+          '-pix_fmt', 'yuv420p', out,
+        ]);
+        return out;
+      };
+      const rendered = clip('rendered.mp4', 64, true);
+      const refined = clip('refined.mp4', 128, true);
+      const upscaled = clip('upscaled.mp4', 192, false);
+      await writeFile(join(server.paths.uploadsDir, 'still.png'), await readFile(join(FIXTURES, '..', 'pixel.png')));
+      const seen: { recipe: string; mode?: string; params: Record<string, unknown> }[] = [];
+      server.jobs.registerExecutor('video', async ({ job }) => {
+        const params = job.params as unknown as { recipe: string; mode?: string; params: Record<string, unknown>; master?: boolean };
+        seen.push(params);
+        if (!params.master) return { video_path: rendered };
+        return { video_path: params.recipe === 'test-refine' ? refined : upscaled };
+      });
+      const settleTake = async (id: string, done: (view: ReturnType<typeof server.projects.viewTake>) => boolean) => {
+        for (let i = 0; i < 400; i++) {
+          const view = server.projects.viewTake(server.projects.requireTake(id));
+          if (done(view)) return view;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        throw new Error(`take ${id} did not settle`);
+      };
+
+      const project = server.projects.createProject({ name: 'Chain' });
+      const scene = server.projects.createScene(project.id);
+      // The take opens on a still: the refine pins the same one.
+      const shot = server.projects.createShot(scene.id, { prompt: 'blue', recipeId: 'test-video', keyframes: { first: 'still.png' } });
+      const [take] = await server.projects.renderShots([shot.id], { count: 1 });
+      await settleTake(take.id, (v) => Boolean(v.file));
+      server.projects.chooseTake(take.id);
+
+      const { takes } = await server.projects.masterChosen([shot.id], { scale: 1.5 });
+      expect(takes[0].master).toMatchObject({ recipe: 'test-refine+test-upscale', steps: ['test-refine', 'test-upscale'], step: 0, state: 'rendering' });
+      const mastered = await settleTake(take.id, (v) => v.master?.state === 'done' || v.master?.state === 'failed');
+      expect(mastered.master).toMatchObject({ state: 'done', file: `${take.id}-master.mp4`, step: 1 });
+
+      const [refine, upscale] = seen.filter((p) => (p as { master?: boolean }).master);
+      // A 64 px take was rendered small: refined at twice its size, from the still it opened on.
+      expect(refine).toMatchObject({ recipe: 'test-refine', mode: 'x2', params: { video: `master-src-${take.id}.mp4`, first_frame: 'still.png' } });
+      // The upscale reads the refine's output and gets the scale.
+      expect(upscale).toMatchObject({ recipe: 'test-upscale', params: { video: `master-src-${take.id}-1.mp4`, scale: 1.5 } });
+      const info = await probeMedia(server.projects.takeFile(project.id, mastered.master!.file!));
+      expect(info).toMatchObject({ width: 192, height: 192, hasAudio: true });
+      for (const name of [`master-src-${take.id}.mp4`, `master-src-${take.id}-1.mp4`]) {
+        expect(existsSync(join(server.paths.uploadsDir, name))).toBe(false);
+      }
     } finally {
       await server.app.close();
       server.closeDb();

@@ -1,0 +1,307 @@
+{
+  "schema": 1,
+  "id": "ltx25-refine",
+  "version": 1,
+  "kind": "video",
+  "name": "LTX 2.5 refine — detail pass on a take",
+  "description": "Re-renders a finished take with LTX 2.5 at twice its size (or its own size) in three low-denoise steps, so the motion, faces and lip-sync stay and texture, edges and skin are rebuilt; the take's soundtrack is kept. The refiner of the MiniMax × LTXV workflow: render H3 at half size, refine here, finish with RTX Video.",
+  "family": "ltx-2.5-refine",
+  "capabilities": [
+    "refine",
+    "finish"
+  ],
+  "licence": {
+    "id": "ltx-2.x-community",
+    "name": "LTX-2.x Community Licence",
+    "url": "https://github.com/Lightricks/LTX-2/blob/main/LICENSE-2_x",
+    "commercial": "under-10M",
+    "obligations": [
+      "Entities over $10M annual revenue need a commercial licence from Lightricks."
+    ]
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "LTX 2.5 22B distilled",
+      "description": "NVFP4 on the 16 GB tier (Blackwell, CUDA 13 image), int8 up to 48 GB, bf16 on 96 GB.",
+      "variants": [
+        {
+          "tiers": [
+            "16gb"
+          ],
+          "repo": "Lightricks/LTX-2.5",
+          "path": "diffusion_models/ltx-2.5-22b-distilled-transformer-nvfp4.safetensors",
+          "bytes": 18721548408
+        },
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Lightricks/LTX-2.5",
+          "path": "diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors",
+          "bytes": 21504034224
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Lightricks/LTX-2.5",
+          "path": "diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors",
+          "bytes": 42018190584
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "Gemma 4 12B with projection",
+      "description": "Encodes the fixed refine prompts once per job.",
+      "variants": [
+        {
+          "tiers": [
+            "16gb"
+          ],
+          "repo": "Deadshot699/ltx-2.5-gemma4-12b-comfy-nvfp4",
+          "path": "text_encoders/gemma4-12b-with-proj-ltx-2.5-nvfp4.safetensors",
+          "bytes": 10595300646,
+          "sha256": "17328e50aeeaeb9f7278709211e8c17ec2a848b3ff6ae6f9d6caf8da17a238e4"
+        },
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Lightricks/LTX-2.5",
+          "path": "text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors",
+          "bytes": 15372969374
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Lightricks/LTX-2.5",
+          "path": "text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors",
+          "bytes": 26263858182
+        }
+      ]
+    },
+    {
+      "id": "video_vae",
+      "folder": "vae",
+      "label": "LTX 2.5 video VAE (conv)",
+      "variants": [
+        {
+          "repo": "Lightricks/LTX-2.5",
+          "path": "vae/ltx-2.5-video-vae-conv-bf16.safetensors",
+          "bytes": 1452269922
+        }
+      ]
+    },
+    {
+      "id": "audio_vae",
+      "folder": "vae",
+      "label": "LTX 2.5 audio VAE",
+      "variants": [
+        {
+          "repo": "Lightricks/LTX-2.5",
+          "path": "vae/ltx-2.5-audio-vae-bf16.safetensors",
+          "bytes": 364866540
+        }
+      ]
+    },
+    {
+      "id": "upscaler",
+      "folder": "latent_upscale_models",
+      "label": "LTX 2.5 latent spatial upscaler ×2",
+      "variants": [
+        {
+          "repo": "Lightricks/LTX-2.5",
+          "path": "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors",
+          "bytes": 995778752
+        }
+      ]
+    },
+    {
+      "id": "cq_lora",
+      "folder": "loras",
+      "label": "CQ video enhancer LoRA (rank 128)",
+      "variants": [
+        {
+          "repo": "CQdesign/LTX-2.5-CQ-Video-and-Image-Enhancer-LoRAs",
+          "path": "ltx2.5-CQ-enhancer-lora-for-videos-rank128.safetensors",
+          "bytes": 1323282248,
+          "sha256": "cbd721d4e462832977f0d23a533fdf998016b63608820424f993a2ed9e21aa10"
+        }
+      ]
+    },
+    {
+      "id": "crisp_lora",
+      "folder": "loras",
+      "label": "Crisp Enhance LoRA",
+      "variants": [
+        {
+          "repo": "vrgamedevgirl84/LTX_2.3_Crisp_Enhance_Style_LoRa",
+          "path": "LTX2.3_Crisp_Enhance.safetensors",
+          "bytes": 705198392,
+          "sha256": "020529377ce07b1235d8050505dd38adc3bc9dc49a191f318a7ccf3921354053"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "video",
+      "type": "video",
+      "label": "Take",
+      "required": true
+    },
+    {
+      "name": "first_frame",
+      "type": "image",
+      "label": "First frame",
+      "description": "The sharp still the take opened on, at full size: pinned as the refine's first frame, it carries its detail through the clip."
+    },
+    {
+      "name": "denoise",
+      "type": "float",
+      "label": "Strength",
+      "default": 0.3,
+      "min": 0.1,
+      "max": 0.6,
+      "description": "How much is re-rendered: 0.3 keeps motion and lip-sync; higher adds detail and drift."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "video",
+          "nodes": [
+            {
+              "node": "1",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "param": "first_frame",
+          "nodes": [
+            {
+              "node": "32",
+              "input": "image"
+            }
+          ]
+        },
+        {
+          "param": "denoise",
+          "node": "44",
+          "input": "denoise"
+        },
+        {
+          "param": "seed",
+          "node": "46",
+          "input": "noise_seed"
+        },
+        {
+          "file": "model",
+          "node": "10",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "13",
+          "input": "clip_name"
+        },
+        {
+          "file": "video_vae",
+          "node": "14",
+          "input": "vae_name"
+        },
+        {
+          "file": "audio_vae",
+          "node": "15",
+          "input": "vae_name"
+        },
+        {
+          "file": "upscaler",
+          "node": "16",
+          "input": "model_name"
+        },
+        {
+          "file": "cq_lora",
+          "node": "11",
+          "input": "lora_name"
+        },
+        {
+          "file": "crisp_lora",
+          "node": "12",
+          "input": "lora_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "52",
+          "kind": "video"
+        }
+      ],
+      "bypass": [
+        {
+          "node": "35",
+          "requires": [
+            "image"
+          ],
+          "through": {
+            "0": "latent"
+          }
+        }
+      ]
+    }
+  },
+  "modes": {
+    "x2": {
+      "label": "Refine ×2",
+      "description": "Latent upscale to twice the take's size, then refine: for takes rendered at half size.",
+      "workflow": "main"
+    },
+    "same": {
+      "label": "Refine at size",
+      "description": "A detail pass at the take's own size, for takes already at delivery size.",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "20",
+          "input": "value",
+          "value": 1
+        },
+        {
+          "node": "35",
+          "input": "latent",
+          "value": [
+            "30",
+            0
+          ]
+        }
+      ]
+    }
+  },
+  "default_mode": "x2",
+  "tiers": [
+    "16gb",
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Settings from the MiniMax × LTXV low-VRAM workflow (SonicLoops v3): spatial upscaler ×2, 3 steps linear_quadratic at denoise 0.3, CFG 1.1, euler, CQ enhancer 1.0 + Crisp Enhance 0.8, its refine prompts verbatim. Frames are padded to LTX's 1+8k grid and trimmed back, so picture and sound keep their length. On 16 GB it runs as its own job: transformer and encoder together are about 30 GB, which only fits 32 GB of RAM with nothing else loaded."
+}

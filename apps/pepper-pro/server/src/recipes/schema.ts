@@ -208,6 +208,13 @@ export const recipeSchema = z
           skip_requirements: z.array(z.string()).default([]),
           /** Packages the pack imports but does not list. */
           pip: z.array(z.string()).default([]),
+          /**
+           * The pack loads only where there is an NVIDIA driver (NVIDIA's VFX
+           * runtime links libcuda at import), so a CPU-only ComfyUI, like the
+           * image build's, cannot describe its nodes. Validation there uses the
+           * schemas recorded in the recipe's `node-schemas.json` instead.
+           */
+          gpu_only: z.boolean().default(false),
         }),
       )
       .default([]),

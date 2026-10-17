@@ -236,7 +236,7 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         'with `from_take` and `mode: "final"`, which reuses its seed. `from_take` plus `retake_from` ' +
         '(seconds) keeps that take up to there and re-renders the rest. Shots longer than a recipe ' +
         'renders at once are chained automatically. `master: true` upscales each shot\'s chosen take for ' +
-        'delivery (SeedVR2, soundtrack kept); cuts then use the masters. Returns the takes; follow them ' +
+        'delivery (LTX refine, then RTX Video upscale; soundtrack kept); cuts then use the masters. Returns the takes; follow them ' +
         `with get_project or get_job (up to ${MAX_WAIT_S} s).` +
         SHOWN,
       _meta: SHOWS_MEDIA,

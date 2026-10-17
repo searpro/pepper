@@ -371,10 +371,14 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
         tags,
         summary: 'Master a take for delivery',
         description:
-          'Upscales a finished video take with a finishing recipe (the installed SeedVR2 video upscaler unless ' +
-          '`recipe` names one), keeping its soundtrack. The take is unchanged; a cut uses the master once it is done.',
+          'Finishes a video take for delivery, keeping its soundtrack: by default an LTX refine (ltx25-refine, twice ' +
+          'the size for a take rendered at half size) then RTX Video upscaling (rtx-master), whichever of them is ' +
+          'installed, else SeedVR2. `recipe` names one recipe, `chain` several in order; `scale` goes to the last ' +
+          'upscale. The take is unchanged; a cut uses the master once it is done.',
         params: id,
-        body: z.object({ recipe: z.string().optional(), scale: z.number().min(1).max(4).optional() }).default({}),
+        body: z
+          .object({ recipe: z.string().optional(), chain: z.array(z.string()).max(4).optional(), scale: z.number().min(1).max(4).optional() })
+          .default({}),
       },
     },
     async (req, reply) => reply.code(202).send(await projects.masterTake(req.params.id, req.body)),

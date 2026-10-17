@@ -120,11 +120,35 @@ export interface TakeReview {
 /** A take mastered for delivery (see `masterTake`). */
 export interface TakeMaster {
   jobId: string;
+  /** The finishing recipes, joined with "+" when the master is a chain. */
   recipe: string;
+  /** The chain, in order (a refine, then an upscale); absent for a single recipe. */
+  steps?: string[];
+  /** Which step `jobId` runs, from 0. */
+  step?: number;
   state: 'rendering' | 'done' | 'failed';
   /** The mastered file, in the project's files. */
   file?: string;
   error?: string;
+}
+
+/** How to master: one recipe, or a chain in order; `scale` goes to the last step's upscale. */
+export interface MasterOptions {
+  recipe?: string;
+  chain?: string[];
+  scale?: number;
+}
+
+/**
+ * A take whose short side is at most this was rendered small for a refine
+ * (H3's `half` mode): the LTX refine renders it at twice the size. Larger
+ * takes get a detail pass at their own size, which a 16 GB card can hold.
+ */
+const REFINE_X2_MAX_SHORT_SIDE = 720;
+
+/** The upload a master's step reads: the take itself, then each step's output. */
+function masterSource(take: TakeRow, step: number): string {
+  return step === 0 ? `master-src-${take.id}${extname(take.file ?? '.mp4')}` : `master-src-${take.id}-${step}.mp4`;
 }
 
 export interface TakeView extends Omit<TakeRow, 'chain' | 'master'> {
@@ -986,14 +1010,16 @@ export class ProjectService {
   // --- Mastering -------------------------------------------------------------
 
   /**
-   * Master a finished video take for delivery: upscale it with a finishing
-   * recipe (SeedVR2 by default) and keep its own soundtrack. Drafting at
-   * the card's comfortable size and mastering only what makes the cut is
-   * how a 16 GB box delivers 1080p: the cut otherwise stretches a 0.5 MP
-   * render with ffmpeg. The take's file is untouched; the cut uses the
-   * master once it is done.
+   * Master a finished video take for delivery, keeping its own soundtrack.
+   * By default this is the MiniMax × LTXV chain where its recipes are
+   * installed: an LTX refine re-renders the take's detail (twice its size
+   * for a take rendered at half size), then RTX Video upscales it on the
+   * card; otherwise one upscaler (RTX Video or SeedVR2). Drafting at the
+   * card's comfortable size and mastering only what makes the cut is how a
+   * 16 GB box delivers sharp 1080p and up. The take's file is untouched;
+   * the cut uses the master once it is done.
    */
-  async masterTake(takeId: string, options: { recipe?: string; scale?: number } = {}): Promise<TakeView> {
+  async masterTake(takeId: string, options: MasterOptions = {}): Promise<TakeView> {
     const take = this.requireTake(takeId);
     if (!take.file || kindOf(take.file) !== 'video') throw errors.validation(`Take ${takeId} has no finished video to master`);
     const current = take.master as TakeMaster | null;
@@ -1001,17 +1027,46 @@ export class ProjectService {
       const job = this.deps.jobs.get(current.jobId);
       if (job && (job.status === 'queued' || job.status === 'running')) return this.viewTake(take);
     }
-    const recipe = await this.masterRecipe(options.recipe);
-    const scale = recipe.params.find((p) => p.name === 'scale');
-    // The recipe reads its input from uploads, like any other.
+    const steps = await this.masterSteps(options);
+    // Each step reads its input from uploads, like any other recipe.
     const upload = `master-src-${take.id}${extname(take.file)}`;
     await copyFile(this.takeFile(take.projectId, take.file), safeResolve(this.deps.paths.uploadsDir, upload));
+    if (current?.file) await rm(this.takeFile(take.projectId, current.file), { force: true });
+    const pending: TakeMaster = {
+      jobId: '',
+      recipe: steps.map((r) => r.id).join('+'),
+      ...(steps.length > 1 ? { steps: steps.map((r) => r.id), step: 0 } : {}),
+      state: 'rendering',
+    };
+    const master = await this.startMasterStep(take, pending, 0, upload, options);
+    this.db.update(takes).set({ master }).where(eq(takes.id, take.id)).run();
+    this.touch(take.projectId);
+    return this.viewTake(this.requireTake(take.id));
+  }
+
+  /**
+   * Queue one step of a master on `upload`. An LTX refine is handed the
+   * still the take opened on (from its render job), which it pins as the
+   * first frame so the clip keeps that picture's detail, and refines at
+   * twice the size of a take rendered small.
+   */
+  private async startMasterStep(take: TakeRow, master: TakeMaster, step: number, upload: string, options: MasterOptions): Promise<TakeMaster> {
+    const recipe = this.deps.recipes.require(master.steps?.[step] ?? master.recipe);
+    const has = (name: string) => recipe.params.some((p) => p.name === name);
+    const last = step === (master.steps?.length ?? 1) - 1;
+    const params: Record<string, unknown> = { video: upload };
+    if (has('scale') && last && options.scale !== undefined) params.scale = options.scale;
+    let mode: string | undefined;
+    if (recipe.capabilities.includes('refine')) {
+      const rendered = (this.deps.jobs.get(take.jobId)?.params as { params?: { first_frame?: unknown } } | undefined)?.params?.first_frame;
+      if (has('first_frame') && typeof rendered === 'string') params.first_frame = rendered;
+      if (recipe.modes.x2 && recipe.modes.same) {
+        const info = await probeMedia(safeResolve(this.deps.paths.uploadsDir, upload));
+        mode = Math.min(info.width ?? 0, info.height ?? 0) > REFINE_X2_MAX_SHORT_SIDE ? 'same' : 'x2';
+      }
+    }
     const prepared = await this.deps.comfy.prepareRequest(
-      {
-        recipe: recipe.id,
-        params: { video: upload, ...(scale && options.scale !== undefined ? { scale: options.scale } : {}) },
-        shot_id: take.shotId,
-      },
+      { recipe: recipe.id, ...(mode ? { mode } : {}), params, shot_id: take.shotId },
       { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
     );
     const job = this.deps.jobs.create(prepared.recipe.kind, {
@@ -1021,16 +1076,14 @@ export class ProjectService {
       shot_id: take.shotId,
       take_id: take.id,
       master: true,
+      master_step: step,
+      master_options: options,
     });
-    if (current?.file) await rm(this.takeFile(take.projectId, current.file), { force: true });
-    const master: TakeMaster = { jobId: job.id, recipe: recipe.id, state: 'rendering' };
-    this.db.update(takes).set({ master }).where(eq(takes.id, take.id)).run();
-    this.touch(take.projectId);
-    return this.viewTake(this.requireTake(take.id));
+    return { ...master, jobId: job.id, ...(master.steps ? { step } : {}) };
   }
 
   /** Master each shot's chosen take. Shots with no finished chosen take are skipped, and listed. */
-  async masterChosen(shotIds: string[], options: { recipe?: string; scale?: number } = {}): Promise<{ takes: TakeView[]; skipped: string[] }> {
+  async masterChosen(shotIds: string[], options: MasterOptions = {}): Promise<{ takes: TakeView[]; skipped: string[] }> {
     const out: TakeView[] = [];
     const skipped: string[] = [];
     for (const shotId of shotIds) {
@@ -1045,28 +1098,54 @@ export class ProjectService {
     return { takes: out, skipped };
   }
 
-  /** The finishing recipe a master uses: the one asked for, else the first installed video upscaler. */
-  private async masterRecipe(id?: string): Promise<Recipe> {
-    if (id) return this.deps.recipes.require(id);
-    for (const recipe of this.deps.recipes.list()) {
-      if (recipe.kind !== 'video' || !recipe.capabilities.includes('upscale') || !recipe.params.some((p) => p.name === 'video')) continue;
-      const status = await this.deps.recipes.status(recipe, this.deps.config.tier, this.deps.config.licenceMode);
-      if (status.state === 'installed') return recipe;
-    }
-    throw errors.validation('No video upscaler is installed to master with; install SeedVR2 (seedvr2-upscale-video) from Recipes');
+  /**
+   * The finishing recipes a master runs, in order: the ones asked for, else
+   * an installed refine followed by an installed upscaler (RTX Video before
+   * SeedVR2), else whichever of the two is installed.
+   */
+  private async masterSteps(options: MasterOptions): Promise<Recipe[]> {
+    const asked = options.chain?.length ? options.chain : options.recipe ? [options.recipe] : undefined;
+    if (asked) return asked.map((id) => this.deps.recipes.require(id));
+    const installed = async (capability: string): Promise<Recipe[]> => {
+      const out: Recipe[] = [];
+      for (const recipe of this.deps.recipes.list()) {
+        if (recipe.kind !== 'video' || !recipe.capabilities.includes(capability) || !recipe.params.some((p) => p.name === 'video')) continue;
+        const status = await this.deps.recipes.status(recipe, this.deps.config.tier, this.deps.config.licenceMode);
+        if (status.state === 'installed' && !status.licenceBlock) out.push(recipe);
+      }
+      return out;
+    };
+    const [refine] = await installed('refine');
+    const upscalers = (await installed('upscale')).sort((a, b) => Number(b.family === 'rtx-vfx') - Number(a.family === 'rtx-vfx'));
+    const steps = [refine, upscalers[0]].filter(Boolean) as Recipe[];
+    if (steps.length > 0) return steps;
+    throw errors.validation(
+      'Nothing is installed to master with; install the LTX refine (ltx25-refine) and RTX Video (rtx-master), or SeedVR2 (seedvr2-upscale-video), from Recipes',
+    );
   }
 
   /**
-   * A master job settled: keep its output in the project with the take's
-   * soundtrack laid back under it, since an upscaler returns pictures only.
+   * A master job settled: run the chain's next step on its output, or keep
+   * the last output in the project with the take's soundtrack laid back
+   * under it, since an upscaler may return pictures only.
    */
   private async settleMaster(take: TakeRow, job: Job, path: string | undefined): Promise<void> {
     const master = take.master as TakeMaster | null;
     if (!master || master.jobId !== job.id) return;
-    const source = safeResolve(this.deps.paths.uploadsDir, `master-src-${take.id}${extname(take.file ?? '.mp4')}`);
+    const step = master.step ?? 0;
+    const source = safeResolve(this.deps.paths.uploadsDir, masterSource(take, step));
     try {
       if (job.status !== 'completed' || !path) {
-        this.db.update(takes).set({ master: { ...master, state: 'failed', error: job.error?.message ?? `The master ${job.status}` } }).where(eq(takes.id, take.id)).run();
+        const failedStep = master.steps ? ` (step ${step + 1}, ${master.steps[step]})` : '';
+        this.db.update(takes).set({ master: { ...master, state: 'failed', error: (job.error?.message ?? `The master ${job.status}`) + failedStep } }).where(eq(takes.id, take.id)).run();
+        return;
+      }
+      if (master.steps && step < master.steps.length - 1) {
+        const next = masterSource(take, step + 1);
+        await copyFile(path, safeResolve(this.deps.paths.uploadsDir, next));
+        const options = ((job.params as { master_options?: MasterOptions }).master_options ?? {}) as MasterOptions;
+        const advanced = await this.startMasterStep(take, master, step + 1, next, options);
+        this.db.update(takes).set({ master: advanced }).where(eq(takes.id, take.id)).run();
         return;
       }
       const name = `${take.id}-master.mp4`;

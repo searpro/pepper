@@ -11,6 +11,7 @@
   "files": [],
   "params": [
     { "name": "prompt", "type": "text", "label": "Prompt" },
+    { "name": "first_frame", "type": "image", "label": "First frame" },
     { "name": "width", "type": "int", "label": "Width", "default": 64, "min": 16, "max": 512 },
     { "name": "height", "type": "int", "label": "Height", "default": 64, "min": 16, "max": 512 },
     { "name": "duration", "type": "float", "label": "Seconds", "default": 1, "min": 0.5, "max": 5 },
@@ -22,7 +23,8 @@
       "bindings": [
         { "param": "width", "node": "1", "input": "width" },
         { "param": "height", "node": "1", "input": "height" },
-        { "param": "duration", "node": "2", "input": "duration" }
+        { "param": "duration", "node": "2", "input": "duration" },
+        { "param": "first_frame", "nodes": [{ "node": "90", "input": "image" }] }
       ],
       "outputs": [{ "node": "4", "kind": "video" }]
     }

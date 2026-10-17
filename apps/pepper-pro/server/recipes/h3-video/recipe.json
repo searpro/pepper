@@ -161,6 +161,35 @@
           "sha256": "2339acdf19bfe123f46b971ea35d367a84adb85de43627e1eceafa5a5b2b111e"
         }
       ]
+    },
+    {
+      "id": "turbo_v4_lora",
+      "folder": "loras",
+      "label": "Turbo v4 step600 LoRA (4-8 steps)",
+      "description": "silveroxides' merge of the lightx2v turbo LoRAs, as the MiniMax × LTXV workflow uses it: the pruned build for pruned bases, the original for full ones.",
+      "variants": [
+        {
+          "tiers": [
+            "16gb",
+            "24gb-64ram",
+            "32gb"
+          ],
+          "repo": "HAOOOOOOO51/Minimax_h3_fl2v_lightx2v_turbo_4to8step_v0.1-v1.0_768p_v4_step600_dareties_fro095_pruned",
+          "path": "minimax_h3_fl2v_lightx2v_turbo_4to8step_v0.1-v1.0_768p_v4_step600_dareties_fro095_pruned.safetensors",
+          "bytes": 858643568,
+          "sha256": "063df5592549161ff62a1e29ef49978625ee5060eda7d97edfa631bd9aa713b1"
+        },
+        {
+          "tiers": [
+            "48gb",
+            "96gb"
+          ],
+          "repo": "silveroxides/MiniMax-H3_tests",
+          "path": "experimental/minimax_h3_fl2v_lightx2v_turbo_4to8step_v0.1-v1.0_768p_v4_step600_dareties.safetensors",
+          "bytes": 2116726792,
+          "sha256": "e14c9e78834f5fac9195cb022baf2bc83372140da5142a8c999a1f568cb4915d"
+        }
+      ]
     }
   ],
   "params": [
@@ -237,13 +266,13 @@
         },
         {
           "param": "width",
-          "node": "105:104",
-          "input": "width"
+          "node": "300",
+          "input": "value"
         },
         {
           "param": "height",
-          "node": "105:104",
-          "input": "height"
+          "node": "301",
+          "input": "value"
         },
         {
           "param": "duration",
@@ -315,6 +344,11 @@
           "file": "turbo_lora",
           "node": "105:121",
           "input": "lora_name"
+        },
+        {
+          "file": "turbo_v4_lora",
+          "node": "310",
+          "input": "lora_name"
         }
       ],
       "outputs": [
@@ -367,6 +401,53 @@
           "node": "105:126",
           "input": "value",
           "value": false
+        }
+      ]
+    },
+    "half": {
+      "label": "Half size for refine (turbo v4, 4 steps)",
+      "description": "Renders at half the width and height for an LTX refine to bring back to full size (ltx25-refine ×2): H3 lays out motion, faces and sound cheaply and LTX re-renders the detail. The MiniMax × LTXV workflow's first stage: turbo v4 LoRA, 4 steps, beta, CFG 1, sigma shift 12.",
+      "workflow": "main",
+      "set": [
+        {
+          "node": "105:104",
+          "input": "width",
+          "value": [
+            "302",
+            1
+          ]
+        },
+        {
+          "node": "105:104",
+          "input": "height",
+          "value": [
+            "303",
+            1
+          ]
+        },
+        {
+          "node": "105:14",
+          "input": "guider",
+          "value": [
+            "313",
+            0
+          ]
+        },
+        {
+          "node": "105:14",
+          "input": "sigmas",
+          "value": [
+            "314",
+            0
+          ]
+        },
+        {
+          "node": "105:14",
+          "input": "sampler",
+          "value": [
+            "315",
+            0
+          ]
         }
       ]
     }

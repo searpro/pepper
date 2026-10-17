@@ -198,8 +198,14 @@
   "105:104": {
     "inputs": {
       "prompt": "",
-      "width": 1344,
-      "height": 768,
+      "width": [
+        "300",
+        0
+      ],
+      "height": [
+        "301",
+        0
+      ],
       "length": [
         "105:107",
         1
@@ -424,6 +430,135 @@
     },
     "_meta": {
       "title": "Anchor audio"
+    }
+  },
+  "300": {
+    "inputs": {
+      "value": 1344
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "301": {
+    "inputs": {
+      "value": 768
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "302": {
+    "inputs": {
+      "expression": "max(32, round(a / 64) * 32)",
+      "values.a": [
+        "300",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Half Width"
+    }
+  },
+  "303": {
+    "inputs": {
+      "expression": "max(32, round(a / 64) * 32)",
+      "values.a": [
+        "301",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Half Height"
+    }
+  },
+  "310": {
+    "inputs": {
+      "model": [
+        "105:6",
+        0
+      ],
+      "lora_name": "minimax_h3_fl2v_lightx2v_turbo_4to8step_v0.1-v1.0_768p_v4_step600_dareties_fro095_pruned.safetensors",
+      "strength_model": 1.0
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Turbo v4 step600 LoRA"
+    }
+  },
+  "311": {
+    "inputs": {
+      "model": [
+        "310",
+        0
+      ],
+      "shift_video": 12.0,
+      "shift_audio": 3.0
+    },
+    "class_type": "MiniMaxH3SigmaShift",
+    "_meta": {
+      "title": "Sigma Shift"
+    }
+  },
+  "312": {
+    "inputs": {
+      "conditioning": [
+        "211",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "Zero Negative"
+    }
+  },
+  "313": {
+    "inputs": {
+      "model": [
+        "311",
+        0
+      ],
+      "positive": [
+        "211",
+        0
+      ],
+      "negative": [
+        "312",
+        0
+      ],
+      "cfg": 1.0
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "Guider (half)"
+    }
+  },
+  "314": {
+    "inputs": {
+      "model": [
+        "311",
+        0
+      ],
+      "scheduler": "beta",
+      "steps": 4,
+      "denoise": 1.0
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "Schedule (half)"
+    }
+  },
+  "315": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "Sampler (half)"
     }
   }
 }

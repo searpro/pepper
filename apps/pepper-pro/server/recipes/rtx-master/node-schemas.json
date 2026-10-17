@@ -1,0 +1,293 @@
+{
+ "RTXVideoSuperResolution": {
+  "input": {
+   "required": {
+    "images": [
+     "IMAGE",
+     {}
+    ],
+    "resize_type": [
+     "COMFY_DYNAMICCOMBO_V3",
+     {
+      "tooltip": "Choose to scale by a multiplier or to exact target dimensions. Denoise and deblur modes keep the input dimensions.",
+      "options": [
+       {
+        "key": "scale by multiplier",
+        "inputs": {
+         "required": {
+          "scale": [
+           "FLOAT",
+           {
+            "tooltip": "Scale factor (e.g., 2.0 doubles the size).",
+            "default": 2.0,
+            "min": 1.0,
+            "max": 4.0,
+            "step": 0.01
+           }
+          ]
+         }
+        }
+       },
+       {
+        "key": "target dimensions",
+        "inputs": {
+         "required": {
+          "width": [
+           "INT",
+           {
+            "tooltip": "Target width in pixels.",
+            "default": 1920,
+            "min": 64,
+            "max": 8192,
+            "step": 8
+           }
+          ],
+          "height": [
+           "INT",
+           {
+            "tooltip": "Target height in pixels.",
+            "default": 1080,
+            "min": 64,
+            "max": 8192,
+            "step": 8
+           }
+          ]
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "quality": [
+     "COMBO",
+     {
+      "tooltip": "Select the SDK model. DENOISE and DEBLUR process at the original resolution; HIGHBITRATE modes preserve clean sources.",
+      "default": "ULTRA",
+      "multiselect": false,
+      "options": [
+       "BICUBIC",
+       "LOW",
+       "MEDIUM",
+       "HIGH",
+       "ULTRA",
+       "DENOISE_LOW",
+       "DENOISE_MEDIUM",
+       "DENOISE_HIGH",
+       "DENOISE_ULTRA",
+       "DEBLUR_LOW",
+       "DEBLUR_MEDIUM",
+       "DEBLUR_HIGH",
+       "DEBLUR_ULTRA",
+       "HIGHBITRATE_LOW",
+       "HIGHBITRATE_MEDIUM",
+       "HIGHBITRATE_HIGH",
+       "HIGHBITRATE_ULTRA",
+       "STREAMING_MEDIUM",
+       "STREAMING_ULTRA"
+      ]
+     }
+    ],
+    "strength": [
+     "FLOAT",
+     {
+      "tooltip": "Effect strength.",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01
+     }
+    ],
+    "image_encoding": [
+     "COMBO",
+     {
+      "tooltip": "SDK pixel encoding. 10-bit preserves more precision but does not by itself convert SDR content to HDR.",
+      "default": "8-bit RGB",
+      "multiselect": false,
+      "options": [
+       "8-bit RGB",
+       "10-bit RGB (RGB10A2)"
+      ]
+     }
+    ]
+   }
+  },
+  "input_order": {
+   "required": [
+    "images",
+    "resize_type",
+    "quality",
+    "strength",
+    "image_encoding"
+   ]
+  },
+  "is_input_list": false,
+  "output": [
+   "IMAGE"
+  ],
+  "output_is_list": [
+   false
+  ],
+  "output_name": [
+   "upscaled_images"
+  ],
+  "output_tooltips": [
+   null
+  ],
+  "output_matchtypes": null,
+  "name": "RTXVideoSuperResolution",
+  "display_name": "RTX Video Super Resolution",
+  "description": "Upscale, denoise, or deblur images with NVIDIA Video Effects.",
+  "python_module": "custom_nodes.Nvidia_RTX_Nodes_ComfyUI",
+  "category": "image/upscaling",
+  "output_node": false,
+  "deprecated": false,
+  "experimental": false,
+  "dev_only": false,
+  "api_node": false,
+  "price_badge": null,
+  "search_aliases": [
+   "rtx",
+   "nvidia",
+   "upscale",
+   "super resolution",
+   "vsr",
+   "denoise",
+   "deblur"
+  ],
+  "essentials_category": null,
+  "has_intermediate_output": false
+ },
+ "RTXVideoFrameGeneration": {
+  "input": {
+   "required": {
+    "images": [
+     "IMAGE",
+     {}
+    ],
+    "generation_type": [
+     "COMFY_DYNAMICCOMBO_V3",
+     {
+      "options": [
+       {
+        "key": "frame rate multiplier",
+        "inputs": {
+         "required": {
+          "multiplier": [
+           "INT",
+           {
+            "tooltip": "Output frame-rate multiplier.",
+            "default": 2,
+            "min": 2,
+            "max": 16
+           }
+          ]
+         }
+        }
+       },
+       {
+        "key": "specific timestep",
+        "inputs": {
+         "required": {
+          "timestep": [
+           "FLOAT",
+           {
+            "tooltip": "Position between each adjacent input pair.",
+            "default": 0.5,
+            "min": 0.01,
+            "max": 0.99,
+            "step": 0.01
+           }
+          ]
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "mode": [
+     "COMBO",
+     {
+      "tooltip": "Frame-generation quality mode.",
+      "default": "MEDIUM",
+      "multiselect": false,
+      "options": [
+       "LOW",
+       "MEDIUM",
+       "HIGH"
+      ]
+     }
+    ],
+    "automatic_shot_change_detection": [
+     "BOOLEAN",
+     {
+      "default": true
+     }
+    ],
+    "shot_change": [
+     "BOOLEAN",
+     {
+      "tooltip": "Mark every submitted pair as a shot change. Useful when processing a single pair.",
+      "default": false
+     }
+    ],
+    "image_encoding": [
+     "COMBO",
+     {
+      "tooltip": "SDK pixel encoding. 10-bit preserves more precision but does not by itself convert SDR content to HDR.",
+      "default": "8-bit RGB",
+      "multiselect": false,
+      "options": [
+       "8-bit RGB",
+       "10-bit RGB (RGB10A2)"
+      ]
+     }
+    ]
+   }
+  },
+  "input_order": {
+   "required": [
+    "images",
+    "generation_type",
+    "mode",
+    "automatic_shot_change_detection",
+    "shot_change",
+    "image_encoding"
+   ]
+  },
+  "is_input_list": false,
+  "output": [
+   "IMAGE"
+  ],
+  "output_is_list": [
+   false
+  ],
+  "output_name": [
+   "interpolated_images"
+  ],
+  "output_tooltips": [
+   null
+  ],
+  "output_matchtypes": null,
+  "name": "RTXVideoFrameGeneration",
+  "display_name": "RTX Video Frame Generation",
+  "description": "Generate intermediate video frames with NVIDIA Video Effects.",
+  "python_module": "custom_nodes.Nvidia_RTX_Nodes_ComfyUI",
+  "category": "video",
+  "output_node": false,
+  "deprecated": false,
+  "experimental": false,
+  "dev_only": false,
+  "api_node": false,
+  "price_badge": null,
+  "search_aliases": [
+   "rtx",
+   "nvidia",
+   "frame generation",
+   "interpolation",
+   "slow motion",
+   "vfi"
+  ],
+  "essentials_category": null,
+  "has_intermediate_output": false
+ }
+}

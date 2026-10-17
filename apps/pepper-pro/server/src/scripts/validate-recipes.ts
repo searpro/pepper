@@ -13,7 +13,8 @@
  * node types the recipes use, which the unit tests validate against offline;
  * refresh it whenever ComfyUI is bumped.
  */
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { ComfyClient, type ObjectInfo } from '../comfy/client.js';
@@ -37,6 +38,24 @@ const log = pino({ level: 'warn' });
 const store = new RecipeStore(dir, { modelsDir: '/nonexistent' } as ProPaths, log);
 await store.load();
 const objectInfo = await new ComfyClient(comfyUrl).objectInfo();
+
+// A GPU-only pack (NVIDIA's VFX nodes) cannot load on a CPU-only ComfyUI,
+// so its node types come from the schemas its recipe recorded, and only
+// where this ComfyUI does not describe them itself.
+for (const recipe of store.list()) {
+  if (!recipe.nodes.some((pack) => pack.gpu_only)) continue;
+  let recorded: ObjectInfo;
+  try {
+    recorded = JSON.parse(await readFile(join(dir, recipe.id, 'node-schemas.json'), 'utf8')) as ObjectInfo;
+  } catch {
+    continue;
+  }
+  for (const [type, info] of Object.entries(recorded)) {
+    if (objectInfo[type]) continue;
+    objectInfo[type] = info;
+    console.log(`· ${type}: GPU-only, validated against ${recipe.id}/node-schemas.json`);
+  }
+}
 
 let failed = store.broken.length;
 for (const broken of store.broken) console.log(`✗ ${broken.id}: does not load: ${broken.error}`);

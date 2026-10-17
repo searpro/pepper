@@ -337,9 +337,13 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
             <Badge
               variant={take.master.state === 'done' ? 'success' : take.master.state === 'failed' ? 'destructive' : 'outline'}
               className="whitespace-nowrap"
-              title={take.master.error ?? `Upscaled for delivery with ${take.master.recipe}; the cut plays it in place of the take`}
+              title={take.master.error ?? `Finished for delivery with ${take.master.steps?.join(' → ') ?? take.master.recipe}; the cut plays it in place of the take`}
             >
-              {take.master.state === 'done' ? 'mastered' : take.master.state === 'failed' ? 'master failed' : `mastering ${Math.round((take.master.progress ?? 0) * 100)}%`}
+              {take.master.state === 'done'
+                ? 'mastered'
+                : take.master.state === 'failed'
+                  ? 'master failed'
+                  : `mastering${take.master.steps ? ` ${(take.master.step ?? 0) + 1}/${take.master.steps.length}` : ''} ${Math.round((take.master.progress ?? 0) * 100)}%`}
             </Badge>
           ) : null}
         </div>
@@ -427,7 +431,7 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
               size="icon-sm"
               variant="ghost"
               aria-label="Master for delivery"
-              title="Upscale this take for delivery (SeedVR2), keeping its sound; the cut plays the master"
+              title="Finish this take for delivery (LTX refine, then RTX Video upscale), keeping its sound; the cut plays the master"
               disabled={take.status !== 'completed' || take.master?.state === 'rendering'}
               onClick={() => run(() => api.post(`/v1/takes/${take.id}/master`, {}))}
             >

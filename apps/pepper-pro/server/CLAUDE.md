@@ -30,9 +30,11 @@ Everything else (jobs, downloads, logs, auth, media, MCP) is `@pepper/core`.
   job waiting on its children would hold the only job slot) and joined with
   ffmpeg. A shot marked `continues` renders from the previous shot's chosen
   take through the same continuation, and a new cut trims the overlap, so a
-  scene of directed shots plays as one take. `masterTake` upscales a chosen
-  take for delivery (an `upscale` recipe, SeedVR2) with its soundtrack kept;
-  the cut plays `deliveryFile`, the master once done.
+  scene of directed shots plays as one take. `masterTake` finishes a chosen
+  take for delivery with its soundtrack kept, as a chain of jobs: by default
+  a `refine` recipe (ltx25-refine) then an `upscale` one (rtx-master, else
+  SeedVR2), each reading the last one's output; the cut plays
+  `deliveryFile`, the master once done.
 - `src/projects/derive.ts`: shot → recipe parameters, and the prompt. A
   recipe's `prompt_format` (`h3-base`, `h3-reference`) composes MiniMax's
   structured H3 prompts (docs/H3-16GB.md §3); a prompt already in that
