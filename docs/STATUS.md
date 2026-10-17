@@ -4,25 +4,30 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-17 (finishing chain verified and A/B'd on the home box).
+Last updated: 2026-10-17 (H3 on 16gb back to int8: NVFP4 was the quality gap).
 
 ## Resume here
 
-The MiniMax × LTXV finishing chain is verified on the home box and A/B'd
-against a draft mastered with SeedVR2 (`docs/H3-16GB.md` §6). Results:
-denoise 0.3 and RTX ULTRA stay as they are, `smooth` works, and **the base
-size is what decides quality**. Next:
+**Our H3 takes fell short of the MiniMax × LTXV Civitai samples because of
+the NVFP4 H3 model on `16gb`.** Rerunning one sample exactly (its MP4
+carries its workflow and prompt) and swapping our files in one at a time:
+NVFP4 washed out contrast and changed the face; int8 is as fast. `h3-video`
+on `16gb` now uses the pruned int8 model, the fp16 VAE and the workflow's
+EMA turbo v4 LoRA; RTX ×2.5 is the master default, capped at 4K. Through
+Pepper the sample's own shot now comes out close to the sample
+(`docs/H3-16GB.md` §6). Next:
 
-1. **Raise the size `half` derives.** At 0.5× of 1344×768 the master is
-   softer than a plain draft. At the samples' size (H3 at 1024×576 for
-   16:9, a 3072×1728 master) it matches the SeedVR2 baseline in 4.7 min
-   against 14.4. The refine then peaks at 25.8 GB of RAM for 5 s, so check
-   a 10 s take before making it the default. 0.6× (800×448, 24.1 GB) is
-   the safer middle.
-2. **Keep the chain as the default master**; SeedVR2 for damaged takes.
-3. CQ-only against CQ + Crisp needs a LoRA parameter on `ltx25-refine`.
-   LTX's IC-LoRA Refine-Details and the VFX runtime's licence are still
-   open.
+1. **Merge, then let `image-pro` rebuild.** The box runs the recipes
+   hot-patched into its container; the 4K cap is server code and only
+   arrives with the image. Then rerun a master to see the cap.
+2. **Check the other NVFP4 files against int8 at the same seed:**
+   `scail2-replace` (verified on NVFP4), the LTX refine (it looked fine
+   against the sample; the int8 files are on the box to A/B), and
+   anything else with a `16gb` NVFP4 variant.
+3. **Try the samples' short prompts** ("Motion: … Camera: …") against our
+   structured H3 prompt, at the same seed.
+4. Rerun the base-size A/B with int8 (the earlier one used NVFP4).
+5. `h3-reference` is not on `16gb`; its NVFP4 variant there is unused.
 
 `deploy/home/.env` does not exist on the laptop: pass
 `--host lijin@lk-gpu-server` or add `PEPPER_HOME_HOST` there. The launcher
@@ -41,7 +46,9 @@ gated repo needs.
   or workflow. DO NOT STICK WITH SOMETHING JUST BECAUSE WE HAVE DONE THE
   GROUNDWORK ALREADY." (`.claude/skills/workflow-to-recipe`.)
 - **Use the NVIDIA GPU fully.** Prefer NVFP4 files, Kitchen attention and
-  NVIDIA's own VFX where they help.
+  NVIDIA's own VFX where they help. H3's NVFP4 build did not: it cost
+  quality at no gain in speed (2026-10-17), so compare any NVFP4 file with
+  int8 at the same seed before adopting it.
 - **Keep both products and Kaggle support.**
 
 ## The home box
@@ -66,9 +73,9 @@ none is, its tools are missing.
 | `h3-video` | draft (8-step turbo) | 1344×768, 6 s in 390 s; 15.7 GB VRAM / 18.5 GB RAM. Continuing take 445 s; seam invisible. |
 | `scail2-replace` | draft | 640×640, 81 frames in 335–397 s (NVFP4) |
 | `seedvr2-upscale-video` | 2× | 640² → 1280², 81 frames in 247 s |
-| `h3-video` | half (turbo v4, 4 steps) | 672×384 in 51 s; 576×1024 in 77 s (5 s each) |
+| `h3-video` | half (int8, EMA turbo v4, 4 steps) | the Civitai sample's shot 448×576, 7 s in 69 s; 672×384, 5 s in 46 s |
 | `ltx25-refine` | x2 | 672×384 → 1344×768 in 89 s cold; 576×1024 → 1152×2048 in 205 s, 23.5 GB RAM + 4.2 GB swap |
-| `rtx-master` | upscale ×1.5 ULTRA | 2016×1152 in 17 s; 1728×3072 in 18 s; driver 595 fine |
+| `rtx-master` | upscale ×2.5 ULTRA | 2240×2880 in 26 s; 3360×1920 in 15 s; driver 595 fine |
 | `zimage-turbo`, `flux2-klein-edit`, `qwen-image-edit` | — | Rendered correctly, checked by eye, with the `24gb-64ram` files (no 16gb variants); not timed |
 
 Details and the rest of the measurements are in `docs/H3-16GB.md` §6.

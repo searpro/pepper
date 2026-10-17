@@ -1396,13 +1396,14 @@ describe('mastering chain', () => {
       const rendered = clip('rendered.mp4', 64, true);
       const refined = clip('refined.mp4', 128, true);
       const upscaled = clip('upscaled.mp4', 192, false);
+      let refineOut = refined;
       await writeFile(join(server.paths.uploadsDir, 'still.png'), await readFile(join(FIXTURES, '..', 'pixel.png')));
       const seen: { recipe: string; mode?: string; params: Record<string, unknown> }[] = [];
       server.jobs.registerExecutor('video', async ({ job }) => {
         const params = job.params as unknown as { recipe: string; mode?: string; params: Record<string, unknown>; master?: boolean };
         seen.push(params);
         if (!params.master) return { video_path: rendered };
-        return { video_path: params.recipe === 'test-refine' ? refined : upscaled };
+        return { video_path: params.recipe === 'test-refine' ? refineOut : upscaled };
       });
       const settleTake = async (id: string, done: (view: ReturnType<typeof server.projects.viewTake>) => boolean) => {
         for (let i = 0; i < 400; i++) {
@@ -1436,6 +1437,15 @@ describe('mastering chain', () => {
       for (const name of [`master-src-${take.id}.mp4`, `master-src-${take.id}-1.mp4`]) {
         expect(existsSync(join(server.paths.uploadsDir, name))).toBe(false);
       }
+
+      // Without a scale, the upscale's default (2 here) is capped so a large
+      // refine's master stays within 4K: 3840 / 2048 = 1.875, rounded down.
+      refineOut = clip('refined-big.mp4', 2048, true);
+      seen.length = 0;
+      await server.projects.masterTake(take.id);
+      await settleTake(take.id, (v) => v.master?.state === 'done' || v.master?.state === 'failed');
+      const [, capped] = seen.filter((p) => (p as { master?: boolean }).master);
+      expect(capped).toMatchObject({ recipe: 'test-upscale', params: { scale: 1.87 } });
     } finally {
       await server.app.close();
       server.closeDb();
