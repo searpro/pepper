@@ -63,7 +63,8 @@ the pinned version (scripts/install-comfy.sh installs one; `TORCH_INDEX=
 https://download.pytorch.org/whl/cpu` for a CPU-only checkout). The unit
 tests then validate every recipe offline against that fixture. Nothing here
 has been run on a GPU until a recipe's `verified` is filled in by a golden
-run on a pod.
+run (the home box first). Bringing in a community workflow is the
+`workflow-to-recipe` skill; `recipe-reviewer` checks the result.
 
 ## Tests
 

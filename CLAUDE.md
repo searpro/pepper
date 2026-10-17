@@ -6,9 +6,12 @@ runners, plus a React SPA and an MCP endpoint (`/mcp`) served by the same
 Fastify process. Alpha successor to sd-api; the sd-api contract must keep
 working (`docs/API-COMPATIBILITY.md`).
 
-One user, one shared secret (`PEPPER_API_TOKEN`). The target is quality media
-at low cost on a 24 GB RunPod pod, driven from the web app or from Claude over
-MCP.
+One user, one shared secret (`PEPPER_API_TOKEN`). The target is the best
+quality the user's own GPU box can make (`deploy/home`: RTX 5060 Ti 16 GB,
+32 GB RAM, the `16gb` tier), driven from the web app or from Claude over MCP;
+RunPod, Vast.ai and Kaggle remain supported. **Read `docs/STATUS.md` first**:
+where things stand, what was verified on which hardware, and the user's
+standing directions.
 
 Two products on one platform, as npm workspaces:
 
@@ -61,7 +64,9 @@ There is no linter or formatter configured; match the surrounding style
 | `deploy/kaggle` | Kaggle GPU launcher (`launch.py` local, `kernel.py` remote); free, 16 GB; Pepper only |
 | `Dockerfile`, `Dockerfile.pro`, `.github/workflows/*.yml` | The images pods run (`ghcr.io/searpro/pepper`, `…/pepper-pro`), rebuilt on pushes to `main`; `test.yml` runs typecheck and tests |
 | `.mcp.json`, `.claude/pepper-mcp.mjs` | Claude Code's `pepper` MCP server: a stdio bridge to a running instance |
-| `.claude/skills/*` | `pepper-dev` (change → local checks → GPU) and `catalogue-curator` (research → entry → test → PR) |
+| `.claude/skills/*` | `pepper-dev` (change → local checks → GPU), `workflow-to-recipe` (a ComfyUI workflow → recipes at its samples' quality), `session-handoff` (pull other sessions' context in; keep `docs/STATUS.md`), `catalogue-curator` (research → entry → test → PR) |
+| `.claude/agents/*` | `model-file-scout` (files, bytes, sha256 per tier), `recipe-reviewer` (a recipe diff against the contract), `session-historian` (digest of a large transcript) |
+| `docs/STATUS.md` | The handoff between sessions: current state, measurements, open items, next steps |
 | `docs/ARCHITECTURE.md` | Design reasons, **Gotchas** and **Conventions** (grep `^## ` for the line) |
 | `docs/CATALOGUE.md` | Pepper's remote catalogue manifest format (catalogue lives in searpro/pepper-catalogue) |
 | `docs/PRODUCTION-VIDEO.md` | Research behind Pepper Pro: models, recipes, projects |

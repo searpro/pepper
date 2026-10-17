@@ -11,7 +11,19 @@
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git show:*)"
+      "Bash(git show:*)",
+      "Bash(npm run validate-recipes:*)",
+      "Bash(npm run inspect-workflow:*)",
+      "Bash(npm run convert-template:*)",
+      "Bash(node apps/pepper-pro/server/scripts/inspect-workflow.mjs:*)",
+      "Bash(python3 -I .claude/skills/session-handoff/transcripts.py:*)",
+      "Bash(git fetch:*)",
+      "Bash(git branch:*)",
+      "Bash(git rev-list:*)",
+      "Bash(uv run deploy/home/launch.py status:*)",
+      "Bash(uv run deploy/home/launch.py logs:*)",
+      "Bash(uv run deploy/runpod/launch.py status:*)",
+      "Bash(uv run deploy/vastai/launch.py status:*)"
     ],
     "deny": [
       "Read(./apps/*/server/data/**)",
@@ -31,7 +43,22 @@
       "Read(./deploy/kaggle/.last-url)",
       "Read(./deploy/kaggle/.env)",
       "Read(./deploy/runpod/.env)",
-      "Read(./deploy/vastai/.env)"
+      "Read(./deploy/vastai/.env)",
+      "Read(./deploy/home/.env)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start.sh",
+            "timeout": 600
+          }
+        ]
+      }
     ]
   }
 }
