@@ -144,3 +144,9 @@ its fallback runs a 16 GB card out of memory.
 Verified on the 5060 Ti: Z-Image Turbo, FLUX.2 klein, Qwen-Image Edit and
 SCAIL-2 (an 81-frame draft in about 6 min). Video recipes whose files total
 40 GB or more need a bigger host.
+
+## Case lighting
+
+`rgb/` colours the box's RGB by CPU and GPU load (OpenRGB plus a small
+service); [rgb/README.md](rgb/README.md) has the install and what the board
+accepts.

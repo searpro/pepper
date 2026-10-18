@@ -1,0 +1,13 @@
+[Unit]
+Description=Colour the RGB by CPU and GPU load
+Requires=openrgb.service
+After=openrgb.service
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/rgb-load/rgb_load.py
+DynamicUser=yes
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
