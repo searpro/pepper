@@ -4,34 +4,38 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-17 (H3 on 16gb back to int8: NVFP4 was the quality gap).
+Last updated: 2026-10-18 (short drama and influencer video approved on the home box).
 
 ## Resume here
 
-**Our H3 takes fell short of the MiniMax × LTXV Civitai samples because of
-the NVFP4 H3 model on `16gb`.** Rerunning one sample exactly (its MP4
-carries its workflow and prompt) and swapping our files in one at a time:
-NVFP4 washed out contrast and changed the face; int8 is as fast. `h3-video`
-on `16gb` now uses the pruned int8 model, the fp16 VAE and the workflow's
-EMA turbo v4 LoRA; RTX ×2.5 is the master default, capped at 4K; the
-refine decodes untiled (the tiled decode smeared frames 56, 112, 168) and
-runs Crisp alone, as the sample does. Through
-Pepper the sample's own shot now comes out close to the sample
-(`docs/H3-16GB.md` §6). Next:
+**Pepper Pro on the home box now makes short drama and influencer video the
+user approves** (2026-10-17, `docs/H3-16GB.md` §7): Krea 2 stills (a Qwen
+edit for expression), every eyeline "just past the lens", `h3-video`
+`draft` at full size, then RTX Video only. Two projects on the box show it:
+"Sadie — Ember morning coffee" (`prj_9776ec052916`) and "Glass House v2"
+(`prj_2b0628b963a4`). Earlier the same day: H3 on `16gb` went back to int8
+(NVFP4 was the quality gap behind the Civitai samples), and the LTX refine
+lost its seam-smearing tiled decode. All of it is in PR #17.
 
-1. **Merge, then let `image-pro` rebuild.** The box runs the recipes
-   hot-patched into its container; the 4K cap is server code and only
-   arrives with the image. Then rerun a master to see the cap.
-2. **Check the other NVFP4 files against int8 at the same seed:**
-   `scail2-replace` (verified on NVFP4), the LTX refine (it looked fine
-   against the sample; the int8 files are on the box to A/B), and
-   anything else with a `16gb` NVFP4 variant.
-3. **Shot direction:** H3 at 4 steps fumbles gestures across the face
-   (a hand sweeps over it, then overacting and drift); calm actions are
-   clean in our structured prompt and the author's short one alike. Say so
-   in `plan_project`'s guidance, or render such shots in `draft` (8 steps).
-4. Rerun the base-size A/B with int8 (the earlier one used NVFP4).
-5. `h3-reference` is not on `16gb`; its NVFP4 variant there is unused.
+Next:
+
+1. **Merge #17, let `image-pro` rebuild, then `up` the box.** It runs
+   recipes hot-patched into its container (h3-video, ltx25-refine,
+   rtx-master, krea2-image); the 4K master cap is server code and only
+   arrives with the image.
+2. **Make the approved dialogue path the default:** `masterTake` runs RTX
+   only for dialogue shots (or a project setting), shots with dialogue
+   render in `draft` at full size, and `plan_project`'s guidance tells
+   Claude about calm direction, eyelines and Krea stills.
+3. **FLUX 3 Image Klein** (open weights, 15 Oct) as a still model to A/B
+   with Krea 2: the user accepts its licence on
+   `black-forest-labs/flux-3-image-klein-comfy`, and the image moves to
+   ComfyUI 0.41+ (we pin 0.38.1), re-validating every recipe.
+4. **Short drama, still untested:** two characters in one frame (a
+   composed first frame of both), and voice consistency across a
+   character's shots.
+5. Check the other NVFP4 files against int8 at the same seed
+   (`scail2-replace`; the LTX refine's int8 files are on the box).
 
 `deploy/home/.env` does not exist on the laptop: pass
 `--host lijin@lk-gpu-server` or add `PEPPER_HOME_HOST` there. The launcher
@@ -80,10 +84,11 @@ none is, its tools are missing.
 | `h3-video` | half (int8, EMA turbo v4, 4 steps) | the Civitai sample's shot 448×576, 7 s in 69 s; 672×384, 5 s in 46 s |
 | `ltx25-refine` | x2 | 672×384 → 1344×768 in 89 s cold; 576×1024 → 1152×2048 in 205 s, 23.5 GB RAM + 4.2 GB swap |
 | `rtx-master` | upscale ×2.5 ULTRA | 2240×2880 in 26 s; 3360×1920 in 15 s; driver 595 fine |
+| `krea2-image` | — | 9:16 still in about 15 s warm (fp8); the still model for people |
 | `zimage-turbo`, `flux2-klein-edit`, `qwen-image-edit` | — | Rendered correctly, checked by eye, with the `24gb-64ram` files (no 16gb variants); not timed |
 
 Details and the rest of the measurements are in `docs/H3-16GB.md` §6.
-`krea2-image`, `infinitetalk`, `infinitetalk-duo` and `qwen3-tts` were
+`infinitetalk`, `infinitetalk-duo` and `qwen3-tts` were
 verified on a 32 GB cloud card only.
 
 ### The MiniMax × LTXV finishing chain (verified 2026-10-17)

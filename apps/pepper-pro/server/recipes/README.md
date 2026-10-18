@@ -138,4 +138,7 @@ upscale by default (`masterTake`). On `16gb` H3 must be the pruned **int8**
 model, as in the workflow: the NVFP4 build washed out contrast and changed
 faces at the same seed (`docs/H3-16GB.md` §6). The samples' MP4s carry the
 workflow and API prompt that made them (ffprobe tags `workflow`, `prompt`),
-which is the way to rerun one and compare.
+which is the way to rerun one and compare. For dialogue, skip the refine: it
+re-renders mouths without the audio, so lips drift from H3's sound. Render
+speaking shots in `h3-video` `draft` at full size and master them with
+`rtx-master` alone (`docs/H3-16GB.md` §7).

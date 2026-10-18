@@ -28,6 +28,7 @@
       "variants": [
         {
           "tiers": [
+            "16gb",
             "24gb-64ram",
             "32gb",
             "48gb"
@@ -55,6 +56,7 @@
       "variants": [
         {
           "tiers": [
+            "16gb",
             "24gb-64ram",
             "32gb"
           ],
@@ -175,6 +177,7 @@
   },
   "default_mode": "final",
   "tiers": [
+    "16gb",
     "24gb-64ram",
     "32gb",
     "48gb",
@@ -184,6 +187,6 @@
     "date": "2026-10-01",
     "gpu": "RTX PRO 4500 Blackwell 32 GB, 62 GB RAM (32gb tier)",
     "seconds": 7.3,
-    "notes": "4 of 4 golden stills at 1024x1024, about 7.3 s each (85 s for the first, loading the model). A more filmic, photographic look than Z-Image; the chalkboard is hand-lettered and correct, with an extra line it was not asked for."
+    "notes": "4 of 4 golden stills at 1024x1024, about 7.3 s each (85 s for the first, loading the model). A more filmic, photographic look than Z-Image; the chalkboard is hand-lettered and correct, with an extra line it was not asked for. On the 16gb tier (RTX 5060 Ti 16 GB, 32 GB RAM, the fp8 files) on 2026-10-17: a 9:16 still in about 15 s warm, 25 s with the model load. Photoreal faces with focused eyes and catchlights, the first frames that cured the vacant gaze in H3 dialogue; weak on emotion and age, so a Qwen-Image-Edit \"change only the expression\" pass follows."
   }
 }
