@@ -85,6 +85,9 @@ none is, its tools are missing.
 | `ltx25-refine` | x2 | 672×384 → 1344×768 in 89 s cold; 576×1024 → 1152×2048 in 205 s, 23.5 GB RAM + 4.2 GB swap |
 | `rtx-master` | upscale ×2.5 ULTRA | 2240×2880 in 26 s; 3360×1920 in 15 s; driver 595 fine |
 | `krea2-image` | — | 9:16 still in about 15 s warm (fp8); the still model for people |
+| `qwen3-tts` | design, final (clone) | A 10 s line in 5–10 s warm. Design one voice, then clone it with `voice_text` for every line: one voice across a whole piece (2026-10-18) |
+| `ace-step-music` | final | 130 s instrumental bed in 11–18 s |
+| `h3-video` | draft, driven by `audio` | 768×1344, 10 s lip-synced to a qwen3-tts line in ~14 min; the speech lands to within 0.02 s of the line |
 | `zimage-turbo`, `flux2-klein-edit`, `qwen-image-edit` | — | Rendered correctly, checked by eye, with the `24gb-64ram` files (no 16gb variants); not timed |
 
 Details and the rest of the measurements are in `docs/H3-16GB.md` §6.

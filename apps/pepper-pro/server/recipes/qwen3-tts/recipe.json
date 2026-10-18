@@ -847,6 +847,7 @@
   },
   "default_mode": "final",
   "tiers": [
+    "16gb",
     "24gb-64ram",
     "32gb",
     "48gb",
