@@ -41,19 +41,11 @@
       "id": "model",
       "folder": "diffusion_models",
       "label": "MiniMax H3 fl2va (22B)",
-      "description": "The pruned int8 build fits a 24 GB card; larger tiers get the full model.",
+      "description": "The pruned int8 build up to 32 GB (on 16gb too: the NVFP4 build washed out contrast and changed faces against it, at the same speed); larger tiers get the full model.",
       "variants": [
         {
           "tiers": [
-            "16gb"
-          ],
-          "repo": "Abiray/Minimax-H3-nvfp4-INT4-INT8-Convrot",
-          "path": "MiniMax_H3_FL2VA_pruned_nvfp4.safetensors",
-          "bytes": 12528636865,
-          "sha256": "6ab7f0c48141e7919b32f925ca3def22e06a6aebeb9e0b6f5a0be0fe8409976f"
-        },
-        {
-          "tiers": [
+            "16gb",
             "24gb-64ram",
             "32gb"
           ],
@@ -89,6 +81,7 @@
       "variants": [
         {
           "tiers": [
+            "16gb",
             "24gb-64ram",
             "32gb"
           ],
@@ -126,6 +119,7 @@
         },
         {
           "tiers": [
+            "16gb",
             "48gb",
             "96gb"
           ],
@@ -166,7 +160,7 @@
       "id": "turbo_v4_lora",
       "folder": "loras",
       "label": "Turbo v4 step600 LoRA (4-8 steps)",
-      "description": "silveroxides' merge of the lightx2v turbo LoRAs, as the MiniMax × LTXV workflow uses it: the pruned build for pruned bases, the original for full ones.",
+      "description": "The turbo v4 step600 LoRA (4-8 steps). Pruned bases get the EMA build the MiniMax × LTXV workflow loads (drbaph); full ones silveroxides’ DARE-TIES merge, which has no EMA build.",
       "variants": [
         {
           "tiers": [
@@ -174,10 +168,10 @@
             "24gb-64ram",
             "32gb"
           ],
-          "repo": "HAOOOOOOO51/Minimax_h3_fl2v_lightx2v_turbo_4to8step_v0.1-v1.0_768p_v4_step600_dareties_fro095_pruned",
-          "path": "minimax_h3_fl2v_lightx2v_turbo_4to8step_v0.1-v1.0_768p_v4_step600_dareties_fro095_pruned.safetensors",
-          "bytes": 858643568,
-          "sha256": "063df5592549161ff62a1e29ef49978625ee5060eda7d97edfa631bd9aa713b1"
+          "repo": "drbaph/MiniMax-H3-Turbo-Lora-ComfyUI",
+          "path": "minimax_h3_turbo_v4_step600_ema_pruned_comfyui.safetensors",
+          "bytes": 620285592,
+          "sha256": "7098acf3ee75028fd9fcd948f50fcc8d995057fabb76f86bd3ca2c0ffc58e409"
         },
         {
           "tiers": [
@@ -466,9 +460,9 @@
     "overlap_s": 0.9167
   },
   "verified": {
-    "date": "2026-10-16",
-    "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier, pruned FL2VA NVFP4 on the cu130 image, Kitchen attention)",
-    "seconds": 390,
-    "notes": "Draft mode, 1344x768, 6 s (158 frames) from a first frame and one line: 390 s with the model load, a shot continuing it 445 s; peak 15.7 GB VRAM and 18.5 GB RAM at 170 W, no thrashing. The action, push-in, identity and street held; speech at 8 steps was close but slurred ('Not today, Nagen.'). The continuation seam was invisible. Earlier, on an RTX PRO 4500 Blackwell 32 GB, 62 GB RAM (32gb tier): about 7.6 min per 5 s draft."
+    "date": "2026-10-17",
+    "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier: pruned FL2VA int8, NVFP4 text encoder, fp16 VAE, EMA turbo v4; cu130 image, Kitchen attention)",
+    "seconds": 69,
+    "notes": "Half mode, the MiniMax × LTXV Civitai sample's own shot (its prompt, seed and first frame): 448x576, 7 s (175 frames) in 69 s; the 16:9 Nora shot 672x384 in 46 s; a 576x1024 portrait in 107 s. Peak 15.3 GB VRAM, 15.2 GB RAM. Mastered with ltx25-refine and rtx-master it came out close to the sample. The NVFP4 build this tier used before washed out contrast and changed faces at the same seed, at the same speed (docs/H3-16GB.md §6). Earlier, draft mode with NVFP4: 1344x768, 6 s in 390 s; on an RTX PRO 4500 32 GB (32gb tier) about 7.6 min per 5 s draft."
   }
 }

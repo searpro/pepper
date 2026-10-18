@@ -85,7 +85,7 @@ The server only answers while a pod is running:
 | `list_jobs`, `cancel_job` | Recent jobs; stop one |
 | `install_model` | Downloads a model's files. It is refused when the volume has no room |
 | `add_input` | Uploads a file from base64 bytes, for a client with local files and no URL |
-| `plan_project`, `render_shots`, `get_project` | Projects: scenes of shots, draft and final takes, long takes, retakes, and a cut |
+| `plan_project`, `render_shots`, `get_project` | Projects: scenes of shots, draft and final takes, long takes, retakes, and a cut. `get_project` with no id also lists the shared library (recurring characters and voices); a plan names them, and `library: true` saves an asset there |
 | `analyze` | Beats, stems, Whisper transcription, a vision check of a take |
 | `pro_status`, `get_logs` | Status: the GPU, the queue, installed models; and the logs |
 

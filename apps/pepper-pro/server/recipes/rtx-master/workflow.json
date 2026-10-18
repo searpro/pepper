@@ -58,7 +58,7 @@
         0
       ],
       "resize_type": "scale by multiplier",
-      "resize_type.scale": 1.5,
+      "resize_type.scale": 2.5,
       "quality": "ULTRA",
       "strength": 1.0,
       "image_encoding": "8-bit RGB"
@@ -99,8 +99,9 @@
       ],
       "filename_prefix": "pepper-pro",
       "format": "auto",
-      "format.codec": "auto",
-      "codec": "auto"
+      "format.codec": "h264",
+      "format.codec.encoding": "re-encode",
+      "format.codec.encoding.crf": 14
     },
     "class_type": "SaveVideo",
     "_meta": {

@@ -32,6 +32,8 @@ PEPPER_* values they share, and the process environment beats all of them:
     PEPPER_API_TOKEN=...          required
     PEPPER_TUNNEL_TOKEN=...       with PEPPER_HOSTNAME: serve at a fixed hostname
     PEPPER_HOSTNAME=...
+    HF_TOKEN=...                  for gated Hugging Face repos (LTX-2.5); else
+                                  the token `hf auth login` saved, if any
 
 The tokens reach the host over SSH's stdin, never a command line, and
 nothing is printed.
@@ -54,7 +56,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
 ENV_FILES = [HERE / ".env", HERE.parent / "runpod" / ".env", HERE.parent / "vastai" / ".env", HERE.parent / "kaggle" / ".env"]
 CATALOGUE_RAW = "https://raw.githubusercontent.com/searpro/pepper-catalogue/{branch}/pepper-catalogue.json"
-SECRET_KEYS = ("PEPPER_API_TOKEN", "PEPPER_TUNNEL_TOKEN")
+SECRET_KEYS = ("PEPPER_API_TOKEN", "PEPPER_TUNNEL_TOKEN", "HF_TOKEN")
 STACKS_DIR = "/srv"
 PORT = 3000
 # Per product: the published image, the Dockerfile `--build` uses, and the
@@ -112,6 +114,12 @@ def load_env() -> dict[str, str]:
     for key in ("PEPPER_HOME_HOST", *SECRET_KEYS, "PEPPER_HOSTNAME"):
         if os.environ.get(key):
             values[key] = os.environ[key]
+    # Gated repos (LTX-2.5) fail every download with a 401 without a token,
+    # and most people who accepted a licence have logged in with the CLI.
+    if not values.get("HF_TOKEN"):
+        saved = Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")) / "token"
+        if saved.exists():
+            values["HF_TOKEN"] = saved.read_text().strip()
     return {k: v for k, v in values.items() if v}
 
 
@@ -319,8 +327,11 @@ def cmd_up(host: Host, env: dict, a) -> None:
         **({"CATALOGUE_URL": CATALOGUE_RAW.format(branch=a.catalogue_branch)} if a.catalogue_branch else {}),
         # Outputs default to the container's /tmp, which every `up` that
         # replaces the container wiped. Here they live with the rest of the
-        # data, so only the retention sweep removes them.
+        # data, and the day-long retention sweep (meant for billed pod disks,
+        # and run on every boot) is off: the box's own disk is the archive,
+        # and the user deletes outputs from the Media page.
         "OUTPUT_DIR": "/data/outputs",
+        "OUTPUT_RETENTION_MS": "0",
     }
     q = shlex.quote(directory)
     # umask 077: the .env is created readable by its owner only.

@@ -77,6 +77,8 @@ export const planSchema = z.object({
         images: z.array(z.string()).optional(),
         audio: z.string().optional(),
         voice: z.object({ upload: z.string().optional(), description: z.string().optional() }).optional(),
+        /** Save (or update) it in the shared library, so every project can name it. */
+        library: z.boolean().optional(),
       }),
     )
     .optional(),

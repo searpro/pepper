@@ -49,7 +49,9 @@ PEPPER_HOME_HOST=user@host
 
 `PEPPER_API_TOKEN`, `PEPPER_TUNNEL_TOKEN` and `PEPPER_HOSTNAME` are read
 from `deploy/runpod/.env`, `deploy/vastai/.env` or `deploy/kaggle/.env`
-unless you set them here too. They reach the host over SSH's stdin and are
+unless you set them here too. `HF_TOKEN`, which gated repos such as
+LTX-2.5 need, is read from here or the environment, else from the token
+`hf auth login` saved. They reach the host over SSH's stdin and are
 written to `/srv/<product>/.env`, readable by your user only.
 
 ## Starting and stopping
@@ -113,9 +115,10 @@ Each product is one folder, which is the whole story of what it stores:
 | What uses space | `status`, or `du -sh /srv/*/data` on the host |
 
 Outputs go to `data/outputs` (`OUTPUT_DIR`), not the container's `/tmp` as on
-a pod, so an update keeps them. The retention sweep still removes outputs
-older than a day (`OUTPUT_RETENTION_MS`); takes copied into a project, and
-outputs used as inputs, are kept apart from it.
+a pod, so an update keeps them, and the retention sweep is off
+(`OUTPUT_RETENTION_MS=0`): pods sweep outputs older than a day, on every boot
+too, which on the box made a restart look like it lost the Media page. Delete
+outputs from the Media page, or watch `du -sh /srv/*/data` (`status`).
 
 The container writes as root, so `down --delete-data` removes the folder
 through a throwaway container rather than needing sudo. Portainer, or

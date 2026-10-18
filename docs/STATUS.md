@@ -4,47 +4,67 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-17 (resume steps for the home-box run added).
+Last updated: 2026-10-18 (Roadster explainer, character library, high-quality saves).
 
-## Resume here: run the finishing chain on the home box
+## Resume here
 
-A cloud session can't do this: it has no `deploy/home/.env` and can't reach
-the box over SSH. Run it from a local session on the laptop, where
-`deploy/home/.env` (`PEPPER_HOME_HOST` and the tokens) lives.
+**A researched presenter explainer, end to end on the home box** (2026-10-18):
+"How the Tesla Roadster defies gravity", 2:04, 9:16 4K. Maya (a Krea 2
+still) speaks every line in one Qwen3-TTS voice, cloned from one designed
+clip; `h3-video` `draft` lip-syncs each line from that audio (the speech
+lands within 0.02 s of the line); RTX Video masters to 2192×3840; ACE-Step
+makes the bed; a compositor on the laptop lays real photos of the car over
+her (the user rejected generated car shots). The whole procedure, scripts
+and that video's cue sheet are the `presenter-explainer` skill. 3.7 GPU-hours
+including two retakes and a dropped approach.
 
-1. `git checkout main && git pull` to get the merged chain, #14 and #15.
-2. `uv run deploy/home/launch.py status`. If anything else (RunPod, Vast)
-   holds the hostname, `down` it first.
-3. `uv run deploy/home/launch.py up --product pro`. This uses the `16gb`
-   tier and pulls `ghcr.io/searpro/pepper-pro:cu130` built from `6fc4186`.
-   Wait for "Pepper is up".
-4. Start Claude Code in the checkout. The `pepper` MCP server connects
-   through the tunnel; if it was down at start, reconnect it from `/mcp`.
-   Then tell it:
+Same day:
 
-   > Read docs/STATUS.md. Run the MiniMax × LTXV finishing chain on the home
-   > box: install ltx25-refine and rtx-master, render an h3-video take in
-   > `half` mode, master it, measure each step, and compare against the
-   > Civitai samples.
+- **Video saves were throwing detail away.** SaveVideo `auto` came out
+  near CRF 23: H3 takes at 768×1344 were 1.2 Mbps and 4K masters 7.3 Mbps,
+  which is where the soft skin came from. The chain now saves H.264 at
+  CRF 12 (H3, H3 reference, LTX refine, SeedVR2) and 14 (RTX master): the
+  same take is 7.7 Mbps and its master 56 Mbps, with the forehead texture,
+  freckles and lashes back (an A/B at one seed). `final` mode (20 steps)
+  adds a little more at twice the time (11 min per 5 s).
+- **Character library over MCP:** `get_project` with no id lists the
+  shared library and `library: true` on a plan asset saves there; a plan
+  naming a library character binds to it without rewriting it. Maya is
+  `ast_70ea1af4d2eb` (still, voice clip, its transcript in `meta`).
+- **The Media page lost files on restart** because of the day-long output
+  retention sweep, which also runs at boot. The home launcher now sets
+  `OUTPUT_RETENTION_MS=0`; the user deletes outputs themselves.
+- `qwen3-tts` and `ace-step-music` run on `16gb`.
+- The box runs `pepper-pro:local`, built from this branch with the CUDA 13
+  torch index (`up --build --build-arg TORCH_INDEX=…/cu130`).
 
-What that session does (`pepper-dev` skill, Pepper Pro section):
+Next:
 
-1. Install `ltx25-refine` and `rtx-master` (about 30 GB of downloads),
-   plus h3-video's turbo v4 LoRA if it is missing.
-2. Render one shot in `h3-video` `half` mode at a close-up or medium shot,
-   from a first frame.
-3. Master the take. It runs `ltx25-refine` (×2, 3 steps, denoise 0.3),
-   then `rtx-master` (×1.5 ULTRA).
-4. Record the seconds and peak VRAM and RAM for each step
-   (`nvidia-smi`, `free -g` over SSH). Watch for paging: a flat ~35 W at
-   "99 %" GPU.
-5. Look at the result for faces at half size, and compare it with the
-   samples.
-6. If it holds up, fill in `verified` on the three recipes, add the numbers
-   to `docs/H3-16GB.md` §6 and to this file, and commit.
+1. **`up` the box from the published `cu130` image** once `image-pro` has
+   rebuilt from main (PR #17 merged), so it stops depending on a local
+   build.
+2. **Explainers inside Pepper:** a cut that overlays photos, captions and
+   stat callouts (what `presenter-explainer/scripts/compose.py` does on the
+   laptop), and a route to import a finished file as a take, so a video
+   like the Roadster one is a project rather than loose outputs.
+3. **Make the approved dialogue path the default:** `masterTake` runs RTX
+   only for dialogue shots (or a project setting), shots with dialogue
+   render in `draft` at full size, and `plan_project`'s guidance tells
+   Claude about calm direction, eyelines and Krea stills.
+4. **FLUX 3 Image Klein** (open weights, 15 Oct) as a still model to A/B
+   with Krea 2: the user accepts its licence on
+   `black-forest-labs/flux-3-image-klein-comfy`, and the image moves to
+   ComfyUI 0.41+ (we pin 0.38.1), re-validating every recipe.
+5. **Short drama, still untested:** two characters in one frame (a
+   composed first frame of both). Voice consistency across a character's
+   shots is solved for narration (design once, clone every line).
+6. Check the other NVFP4 files against int8 at the same seed
+   (`scail2-replace`; the LTX refine's int8 files are on the box).
 
-If RTX VFX fails to import in the container, check the driver: the pack
-wants 580.82+, and the box has 595.
+`deploy/home/.env` does not exist on the laptop: pass
+`--host lijin@lk-gpu-server` or add `PEPPER_HOME_HOST` there. The launcher
+now forwards `HF_TOKEN` (or the `hf auth login` token), which LTX-2.5's
+gated repo needs.
 
 ## Standing directions from the user
 
@@ -58,7 +78,9 @@ wants 580.82+, and the box has 595.
   or workflow. DO NOT STICK WITH SOMETHING JUST BECAUSE WE HAVE DONE THE
   GROUNDWORK ALREADY." (`.claude/skills/workflow-to-recipe`.)
 - **Use the NVIDIA GPU fully.** Prefer NVFP4 files, Kitchen attention and
-  NVIDIA's own VFX where they help.
+  NVIDIA's own VFX where they help. H3's NVFP4 build did not: it cost
+  quality at no gain in speed (2026-10-17), so compare any NVFP4 file with
+  int8 at the same seed before adopting it.
 - **Keep both products and Kaggle support.**
 
 ## The home box
@@ -83,13 +105,20 @@ none is, its tools are missing.
 | `h3-video` | draft (8-step turbo) | 1344×768, 6 s in 390 s; 15.7 GB VRAM / 18.5 GB RAM. Continuing take 445 s; seam invisible. |
 | `scail2-replace` | draft | 640×640, 81 frames in 335–397 s (NVFP4) |
 | `seedvr2-upscale-video` | 2× | 640² → 1280², 81 frames in 247 s |
+| `h3-video` | half (int8, EMA turbo v4, 4 steps) | the Civitai sample's shot 448×576, 7 s in 69 s; 672×384, 5 s in 46 s |
+| `ltx25-refine` | x2 | 672×384 → 1344×768 in 89 s cold; 576×1024 → 1152×2048 in 205 s, 23.5 GB RAM + 4.2 GB swap |
+| `rtx-master` | upscale ×2.5 ULTRA | 2240×2880 in 26 s; 3360×1920 in 15 s; driver 595 fine |
+| `krea2-image` | — | 9:16 still in about 15 s warm (fp8); the still model for people |
+| `qwen3-tts` | design, final (clone) | A 10 s line in 5–10 s warm. Design one voice, then clone it with `voice_text` for every line: one voice across a whole piece (2026-10-18) |
+| `ace-step-music` | final | 130 s instrumental bed in 11–18 s |
+| `h3-video` | draft, driven by `audio` | 768×1344, 10 s lip-synced to a qwen3-tts line in ~14 min; the speech lands to within 0.02 s of the line |
 | `zimage-turbo`, `flux2-klein-edit`, `qwen-image-edit` | — | Rendered correctly, checked by eye, with the `24gb-64ram` files (no 16gb variants); not timed |
 
 Details and the rest of the measurements are in `docs/H3-16GB.md` §6.
-`krea2-image`, `infinitetalk`, `infinitetalk-duo` and `qwen3-tts` were
+`infinitetalk`, `infinitetalk-duo` and `qwen3-tts` were
 verified on a 32 GB cloud card only.
 
-### The MiniMax × LTXV finishing chain (merged in #14, not yet run on a GPU)
+### The MiniMax × LTXV finishing chain (verified 2026-10-17)
 
 This reproduces the Civitai "MiniMax x LTXV Low VRAM" workflow (SonicLoops
 v3, model 2883915) as separate jobs:
@@ -101,31 +130,18 @@ v3, model 2883915) as separate jobs:
 3. `rtx-master`: RTX Video Super Resolution ×1.5 ULTRA. `smooth` mode adds
    RTX Frame Generation ×2.
 
-Mastering a take (`masterTake`, the shot dialog's Master button) runs
-steps 2 and 3. Images `:latest` and `:cu130` were built from `48c8fcf` and
-the build's recipe check passed.
-
-**Next: verify it on the home box.**
-
-1. `up`.
-2. Install `ltx25-refine` and `rtx-master` (about 30 GB of models on top of
-   H3's).
-3. Render in `half`, master, and compare against the Civitai samples.
-
-Still to measure:
-
-- The refine's peak RAM, since 18.7 GB of transformer and 10.6 GB of
-  Gemma are loaded in turn.
-- Whether faces hold at H3's half size.
-- Whether RTX VFX works with driver 595 in the container (it needs
-  580.82+).
+Mastering a take (`masterTake`, the shot dialog's Master button, or
+`POST /v1/takes/:id/master`) runs steps 2 and 3. A 5 s portrait at the
+samples' size (1728×3072) takes about 5 min in all, and up close its faces
+match the samples. The refine keeps identity and fixes H3's half-size
+faults. The 16:9 default size is softer (Resume here, item 1).
 
 Open:
 
-- An A/B of RTX quality ULTRA against HIGHBITRATE_ULTRA.
 - Whether LTX's IC-LoRA Refine-Details is worth adding.
 - Whether NVIDIA's VFX runtime may be redistributed in the image
   (`rtx-master` licence note).
+- Speech in the half takes was not transcribed (no Whisper on the laptop).
 
 ### Other open items
 
@@ -141,7 +157,7 @@ Open:
 - **Recipes never run on any GPU:** `ace-step-music`, `h3-reference`,
   `longcat-avatar`, `ltx23-audio-to-video`, `ltx25-video`,
   `ming-image-design`, `minimax-music-3`, `seedvr2-upscale-image`,
-  `wan-animate2`, `wan-dancer`, plus the chain above.
+  `wan-animate2`, `wan-dancer`.
 
 ## Pepper
 
@@ -153,6 +169,8 @@ in `searpro/pepper-catalogue`.
 
 - **Skills** (`.claude/skills/`):
   - `pepper-dev`: change → local checks → GPU.
+  - `presenter-explainer`: research → script → one cloned voice → H3
+    lip-sync → RTX master → photos, captions and music composed on the laptop.
   - `workflow-to-recipe`: a ComfyUI workflow → recipes.
   - `session-handoff`: pull context in, and keep this file up to date.
   - `catalogue-curator`: research models for Pepper's catalogue.

@@ -1035,6 +1035,32 @@ describe('api', () => {
     expect((await inject('POST', `/v1/cuts/${cut.json().id}/export`)).statusCode).toBe(400);
   });
 
+  it('binds library characters by name without rewriting them, and saves to the library on request', async () => {
+    const maya = (
+      await inject('POST', '/v1/assets', {
+        kind: 'character',
+        name: 'Maya',
+        description: 'A presenter in a charcoal bomber jacket',
+        voice: { description: 'warm, clear' },
+      })
+    ).json();
+    const project = (await inject('POST', '/v1/projects', { name: 'Explainer' })).json();
+    const plan = (
+      await inject('POST', `/v1/projects/${project.id}/plan`, {
+        assets: [
+          { ref: 'host', kind: 'character', name: 'Maya', description: 'Someone else entirely' },
+          { ref: 'car', kind: 'product', name: 'Roadster', description: 'A white sports car', library: true },
+        ],
+        scenes: [{ shots: [{ prompt: 'Maya explains.', dialogue: [{ speaker: 'host', line: 'Hello.' }], recipe: 'test-video' }] }],
+      })
+    ).json();
+    expect(plan.shots[0].assetIds).toEqual([maya.id]);
+    const library = (await inject('GET', '/v1/assets')).json().assets;
+    expect(library.find((a: { id: string }) => a.id === maya.id).description).toBe('A presenter in a charcoal bomber jacket');
+    expect(library.map((a: { name: string }) => a.name)).toEqual(expect.arrayContaining(['Maya', 'Roadster']));
+    expect(library.find((a: { name: string }) => a.name === 'Roadster').projectId).toBeNull();
+  });
+
   it('holds a commercial project to commercial licences on a personal server', async () => {
     const make = async (licenceMode: string) => {
       const project = (await inject('POST', '/v1/projects', { name: `Ad ${licenceMode}`, licenceMode })).json();
@@ -1396,13 +1422,14 @@ describe('mastering chain', () => {
       const rendered = clip('rendered.mp4', 64, true);
       const refined = clip('refined.mp4', 128, true);
       const upscaled = clip('upscaled.mp4', 192, false);
+      let refineOut = refined;
       await writeFile(join(server.paths.uploadsDir, 'still.png'), await readFile(join(FIXTURES, '..', 'pixel.png')));
       const seen: { recipe: string; mode?: string; params: Record<string, unknown> }[] = [];
       server.jobs.registerExecutor('video', async ({ job }) => {
         const params = job.params as unknown as { recipe: string; mode?: string; params: Record<string, unknown>; master?: boolean };
         seen.push(params);
         if (!params.master) return { video_path: rendered };
-        return { video_path: params.recipe === 'test-refine' ? refined : upscaled };
+        return { video_path: params.recipe === 'test-refine' ? refineOut : upscaled };
       });
       const settleTake = async (id: string, done: (view: ReturnType<typeof server.projects.viewTake>) => boolean) => {
         for (let i = 0; i < 400; i++) {
@@ -1436,6 +1463,15 @@ describe('mastering chain', () => {
       for (const name of [`master-src-${take.id}.mp4`, `master-src-${take.id}-1.mp4`]) {
         expect(existsSync(join(server.paths.uploadsDir, name))).toBe(false);
       }
+
+      // Without a scale, the upscale's default (2 here) is capped so a large
+      // refine's master stays within 4K: 3840 / 2048 = 1.875, rounded down.
+      refineOut = clip('refined-big.mp4', 2048, true);
+      seen.length = 0;
+      await server.projects.masterTake(take.id);
+      await settleTake(take.id, (v) => v.master?.state === 'done' || v.master?.state === 'failed');
+      const [, capped] = seen.filter((p) => (p as { master?: boolean }).master);
+      expect(capped).toMatchObject({ recipe: 'test-upscale', params: { scale: 1.87 } });
     } finally {
       await server.app.close();
       server.closeDb();

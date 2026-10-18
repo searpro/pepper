@@ -84,7 +84,20 @@ export interface PlanInput {
   style?: string;
   /** Replace the project's scenes and shots rather than appending. */
   replace?: boolean;
-  assets?: { ref: string; kind: AssetRow['kind']; name: string; description?: string; images?: string[]; audio?: string; voice?: { upload?: string; description?: string } }[];
+  /**
+   * New or updated assets. A name that matches a library asset binds to it; the
+   * library copy is only changed (or a new one made) when `library` is set.
+   */
+  assets?: {
+    ref: string;
+    kind: AssetRow['kind'];
+    name: string;
+    description?: string;
+    images?: string[];
+    audio?: string;
+    voice?: { upload?: string; description?: string };
+    library?: boolean;
+  }[];
   scenes: {
     title?: string;
     notes?: string;
@@ -145,6 +158,14 @@ export interface MasterOptions {
  * takes get a detail pass at their own size, which a 16 GB card can hold.
  */
 const REFINE_X2_MAX_SHORT_SIDE = 720;
+
+/**
+ * The long side a master's upscale stops at unless a scale is asked for.
+ * RTX Video's ×2.5 default takes a 1344×768 refine to 3360×1920, as in the
+ * MiniMax × LTXV samples, but a 1152×2048 one to 2880×5120, which used 29.5 GB
+ * of the home box's 32 GB of RAM and swapped. 4K is the delivery size anyway.
+ */
+const MASTER_MAX_LONG_SIDE = 3840;
 
 /** The upload a master's step reads: the take itself, then each step's output. */
 function masterSource(take: TakeRow, step: number): string {
@@ -447,15 +468,19 @@ export class ProjectService {
     const created: AssetRow[] = [];
     for (const input of plan.assets ?? []) {
       const existing = byRef.get(input.name.toLowerCase());
-      const asset =
-        existing && existing.kind === input.kind
+      // A library character is shared by every project, so one project's plan
+      // naming it must not rewrite it for the rest; it is only edited on purpose.
+      const reuse = existing && existing.kind === input.kind && existing.projectId === null && !input.library;
+      const asset = reuse && existing
+        ? existing
+        : existing && existing.kind === input.kind && (existing.projectId !== null || input.library)
           ? this.updateAsset(existing.id, {
               description: input.description ?? existing.description,
               ...(input.images ? { images: input.images } : {}),
               ...(input.audio ? { audio: input.audio } : {}),
               ...(input.voice ? { voice: input.voice } : {}),
             })
-          : this.createAsset(project.id, {
+          : this.createAsset(input.library ? null : project.id, {
               kind: input.kind,
               name: input.name,
               description: input.description,
@@ -1055,7 +1080,17 @@ export class ProjectService {
     const has = (name: string) => recipe.params.some((p) => p.name === name);
     const last = step === (master.steps?.length ?? 1) - 1;
     const params: Record<string, unknown> = { video: upload };
-    if (has('scale') && last && options.scale !== undefined) params.scale = options.scale;
+    if (has('scale') && last) {
+      if (options.scale !== undefined) params.scale = options.scale;
+      else {
+        const fallback = recipe.params.find((p) => p.name === 'scale')?.default;
+        const info = await probeMedia(safeResolve(this.deps.paths.uploadsDir, upload));
+        const long = Math.max(info.width ?? 0, info.height ?? 0);
+        if (typeof fallback === 'number' && long * fallback > MASTER_MAX_LONG_SIDE) {
+          params.scale = Math.max(1, Math.floor((MASTER_MAX_LONG_SIDE / long) * 100) / 100);
+        }
+      }
+    }
     let mode: string | undefined;
     if (recipe.capabilities.includes('refine')) {
       const rendered = (this.deps.jobs.get(take.jobId)?.params as { params?: { first_frame?: unknown } } | undefined)?.params?.first_frame;
