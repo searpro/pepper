@@ -4,37 +4,61 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-18 (short drama and influencer video approved on the home box).
+Last updated: 2026-10-18 (Roadster explainer, character library, high-quality saves).
 
 ## Resume here
 
-**Pepper Pro on the home box now makes short drama and influencer video the
-user approves** (2026-10-17, `docs/H3-16GB.md` §7): Krea 2 stills (a Qwen
-edit for expression), every eyeline "just past the lens", `h3-video`
-`draft` at full size, then RTX Video only. Two projects on the box show it:
-"Sadie — Ember morning coffee" (`prj_9776ec052916`) and "Glass House v2"
-(`prj_2b0628b963a4`). Earlier the same day: H3 on `16gb` went back to int8
-(NVFP4 was the quality gap behind the Civitai samples), and the LTX refine
-lost its seam-smearing tiled decode. All of it is in PR #17.
+**A researched presenter explainer, end to end on the home box** (2026-10-18):
+"How the Tesla Roadster defies gravity", 2:04, 9:16 4K. Maya (a Krea 2
+still) speaks every line in one Qwen3-TTS voice, cloned from one designed
+clip; `h3-video` `draft` lip-syncs each line from that audio (the speech
+lands within 0.02 s of the line); RTX Video masters to 2192×3840; ACE-Step
+makes the bed; a compositor on the laptop lays real photos of the car over
+her (the user rejected generated car shots). The whole procedure, scripts
+and that video's cue sheet are the `presenter-explainer` skill. 3.7 GPU-hours
+including two retakes and a dropped approach.
+
+Same day:
+
+- **Video saves were throwing detail away.** SaveVideo `auto` came out
+  near CRF 23: H3 takes at 768×1344 were 1.2 Mbps and 4K masters 7.3 Mbps,
+  which is where the soft skin came from. The chain now saves H.264 at
+  CRF 12 (H3, H3 reference, LTX refine, SeedVR2) and 14 (RTX master): the
+  same take is 7.7 Mbps and its master 56 Mbps, with the forehead texture,
+  freckles and lashes back (an A/B at one seed). `final` mode (20 steps)
+  adds a little more at twice the time (11 min per 5 s).
+- **Character library over MCP:** `get_project` with no id lists the
+  shared library and `library: true` on a plan asset saves there; a plan
+  naming a library character binds to it without rewriting it. Maya is
+  `ast_70ea1af4d2eb` (still, voice clip, its transcript in `meta`).
+- **The Media page lost files on restart** because of the day-long output
+  retention sweep, which also runs at boot. The home launcher now sets
+  `OUTPUT_RETENTION_MS=0`; the user deletes outputs themselves.
+- `qwen3-tts` and `ace-step-music` run on `16gb`.
+- The box runs `pepper-pro:local`, built from this branch with the CUDA 13
+  torch index (`up --build --build-arg TORCH_INDEX=…/cu130`).
 
 Next:
 
-1. **Merge #17, let `image-pro` rebuild, then `up` the box.** It runs
-   recipes hot-patched into its container (h3-video, ltx25-refine,
-   rtx-master, krea2-image); the 4K master cap is server code and only
-   arrives with the image.
-2. **Make the approved dialogue path the default:** `masterTake` runs RTX
+1. **`up` the box from the published `cu130` image** once `image-pro` has
+   rebuilt from main (PR #17 merged), so it stops depending on a local
+   build.
+2. **Explainers inside Pepper:** a cut that overlays photos, captions and
+   stat callouts (what `presenter-explainer/scripts/compose.py` does on the
+   laptop), and a route to import a finished file as a take, so a video
+   like the Roadster one is a project rather than loose outputs.
+3. **Make the approved dialogue path the default:** `masterTake` runs RTX
    only for dialogue shots (or a project setting), shots with dialogue
    render in `draft` at full size, and `plan_project`'s guidance tells
    Claude about calm direction, eyelines and Krea stills.
-3. **FLUX 3 Image Klein** (open weights, 15 Oct) as a still model to A/B
+4. **FLUX 3 Image Klein** (open weights, 15 Oct) as a still model to A/B
    with Krea 2: the user accepts its licence on
    `black-forest-labs/flux-3-image-klein-comfy`, and the image moves to
    ComfyUI 0.41+ (we pin 0.38.1), re-validating every recipe.
-4. **Short drama, still untested:** two characters in one frame (a
-   composed first frame of both), and voice consistency across a
-   character's shots.
-5. Check the other NVFP4 files against int8 at the same seed
+5. **Short drama, still untested:** two characters in one frame (a
+   composed first frame of both). Voice consistency across a character's
+   shots is solved for narration (design once, clone every line).
+6. Check the other NVFP4 files against int8 at the same seed
    (`scail2-replace`; the LTX refine's int8 files are on the box).
 
 `deploy/home/.env` does not exist on the laptop: pass
@@ -145,6 +169,8 @@ in `searpro/pepper-catalogue`.
 
 - **Skills** (`.claude/skills/`):
   - `pepper-dev`: change → local checks → GPU.
+  - `presenter-explainer`: research → script → one cloned voice → H3
+    lip-sync → RTX master → photos, captions and music composed on the laptop.
   - `workflow-to-recipe`: a ComfyUI workflow → recipes.
   - `session-handoff`: pull context in, and keep this file up to date.
   - `catalogue-curator`: research models for Pepper's catalogue.

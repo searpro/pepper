@@ -64,7 +64,7 @@ There is no linter or formatter configured; match the surrounding style
 | `deploy/kaggle` | Kaggle GPU launcher (`launch.py` local, `kernel.py` remote); free, 16 GB; Pepper only |
 | `Dockerfile`, `Dockerfile.pro`, `.github/workflows/*.yml` | The images pods run (`ghcr.io/searpro/pepper`, `…/pepper-pro`), rebuilt on pushes to `main`; `test.yml` runs typecheck and tests |
 | `.mcp.json`, `.claude/pepper-mcp.mjs` | Claude Code's `pepper` MCP server: a stdio bridge to a running instance |
-| `.claude/skills/*` | `pepper-dev` (change → local checks → GPU), `workflow-to-recipe` (a ComfyUI workflow → recipes at its samples' quality), `session-handoff` (pull other sessions' context in; keep `docs/STATUS.md`), `catalogue-curator` (research → entry → test → PR) |
+| `.claude/skills/*` | `pepper-dev` (change → local checks → GPU), `workflow-to-recipe` (a ComfyUI workflow → recipes at its samples' quality), `session-handoff` (pull other sessions' context in; keep `docs/STATUS.md`), `catalogue-curator` (research → entry → test → PR), `presenter-explainer` (a researched explainer: cloned voice, H3 lip-sync, real photos composed over the presenter) |
 | `.claude/agents/*` | `model-file-scout` (files, bytes, sha256 per tier), `recipe-reviewer` (a recipe diff against the contract), `session-historian` (digest of a large transcript) |
 | `docs/STATUS.md` | The handoff between sessions: current state, measurements, open items, next steps |
 | `docs/ARCHITECTURE.md` | Design reasons, **Gotchas** and **Conventions** (grep `^## ` for the line) |
