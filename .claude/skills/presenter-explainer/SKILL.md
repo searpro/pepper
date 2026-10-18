@@ -93,10 +93,14 @@ non_diegetic_music: N/A
   plan a photo over the bad stretch. A monitor that polls the job ids and
   prints each completion saves polling by hand.
 
-**Detail.** The recipes save takes at CRF 12 and masters at CRF 14 (before
-2026-10-18 `auto` gave 1.2 Mbps takes and soft skin). For close shots where
-skin matters, `quality: final` at the draft's seed is a little more natural
-again, at twice the time; the draft is the default.
+**Detail** (measured on one 5 s take, 2026-10-18). The recipes save takes
+at CRF 12 and masters at CRF 14 (before, `auto` gave 1.2 Mbps takes and soft
+skin); that alone brought the texture back. Two optional steps add more:
+`quality: final` at the draft's seed is a little more natural (11 min per
+5 s, twice the draft), and **SeedVR2 ×2 on the take, then `rtx-master` at
+`scale: 1.4271`** gives the most real skin, pores and lashes (+18 min per
+5 s, lip sync kept). Offer SeedVR2 for close shots or a hero cut; at ~36 min
+per 10 s line it adds about 7 h to a 12-line video.
 
 ## 5. Master, music
 

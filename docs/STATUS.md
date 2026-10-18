@@ -26,7 +26,9 @@ Same day:
   CRF 12 (H3, H3 reference, LTX refine, SeedVR2) and 14 (RTX master): the
   same take is 7.7 Mbps and its master 56 Mbps, with the forehead texture,
   freckles and lashes back (an A/B at one seed). `final` mode (20 steps)
-  adds a little more at twice the time (11 min per 5 s).
+  adds a little more at twice the time (11 min per 5 s); SeedVR2 ×2 on the
+  take, then RTX ×1.43, gives the most real skin (pores, lashes) for
+  +18 min per 5 s at 1536×2688 (65 Mbps), lip sync kept.
 - **Character library over MCP:** `get_project` with no id lists the
   shared library and `library: true` on a plan asset saves there; a plan
   naming a library character binds to it without rewriting it. Maya is
