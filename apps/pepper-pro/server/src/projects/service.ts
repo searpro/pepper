@@ -84,7 +84,20 @@ export interface PlanInput {
   style?: string;
   /** Replace the project's scenes and shots rather than appending. */
   replace?: boolean;
-  assets?: { ref: string; kind: AssetRow['kind']; name: string; description?: string; images?: string[]; audio?: string; voice?: { upload?: string; description?: string } }[];
+  /**
+   * New or updated assets. A name that matches a library asset binds to it; the
+   * library copy is only changed (or a new one made) when `library` is set.
+   */
+  assets?: {
+    ref: string;
+    kind: AssetRow['kind'];
+    name: string;
+    description?: string;
+    images?: string[];
+    audio?: string;
+    voice?: { upload?: string; description?: string };
+    library?: boolean;
+  }[];
   scenes: {
     title?: string;
     notes?: string;
@@ -455,15 +468,19 @@ export class ProjectService {
     const created: AssetRow[] = [];
     for (const input of plan.assets ?? []) {
       const existing = byRef.get(input.name.toLowerCase());
-      const asset =
-        existing && existing.kind === input.kind
+      // A library character is shared by every project, so one project's plan
+      // naming it must not rewrite it for the rest; it is only edited on purpose.
+      const reuse = existing && existing.kind === input.kind && existing.projectId === null && !input.library;
+      const asset = reuse && existing
+        ? existing
+        : existing && existing.kind === input.kind && (existing.projectId !== null || input.library)
           ? this.updateAsset(existing.id, {
               description: input.description ?? existing.description,
               ...(input.images ? { images: input.images } : {}),
               ...(input.audio ? { audio: input.audio } : {}),
               ...(input.voice ? { voice: input.voice } : {}),
             })
-          : this.createAsset(project.id, {
+          : this.createAsset(input.library ? null : project.id, {
               kind: input.kind,
               name: input.name,
               description: input.description,

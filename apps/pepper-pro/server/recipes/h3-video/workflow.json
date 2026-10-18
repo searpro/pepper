@@ -3,12 +3,13 @@
     "inputs": {
       "filename_prefix": "pepper-pro",
       "format": "auto",
-      "format.codec": "auto",
-      "codec": "auto",
+      "format.codec": "h264",
       "video": [
         "105:91",
         0
-      ]
+      ],
+      "format.codec.encoding": "re-encode",
+      "format.codec.encoding.crf": 12
     },
     "class_type": "SaveVideo",
     "_meta": {

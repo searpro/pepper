@@ -1035,6 +1035,32 @@ describe('api', () => {
     expect((await inject('POST', `/v1/cuts/${cut.json().id}/export`)).statusCode).toBe(400);
   });
 
+  it('binds library characters by name without rewriting them, and saves to the library on request', async () => {
+    const maya = (
+      await inject('POST', '/v1/assets', {
+        kind: 'character',
+        name: 'Maya',
+        description: 'A presenter in a charcoal bomber jacket',
+        voice: { description: 'warm, clear' },
+      })
+    ).json();
+    const project = (await inject('POST', '/v1/projects', { name: 'Explainer' })).json();
+    const plan = (
+      await inject('POST', `/v1/projects/${project.id}/plan`, {
+        assets: [
+          { ref: 'host', kind: 'character', name: 'Maya', description: 'Someone else entirely' },
+          { ref: 'car', kind: 'product', name: 'Roadster', description: 'A white sports car', library: true },
+        ],
+        scenes: [{ shots: [{ prompt: 'Maya explains.', dialogue: [{ speaker: 'host', line: 'Hello.' }], recipe: 'test-video' }] }],
+      })
+    ).json();
+    expect(plan.shots[0].assetIds).toEqual([maya.id]);
+    const library = (await inject('GET', '/v1/assets')).json().assets;
+    expect(library.find((a: { id: string }) => a.id === maya.id).description).toBe('A presenter in a charcoal bomber jacket');
+    expect(library.map((a: { name: string }) => a.name)).toEqual(expect.arrayContaining(['Maya', 'Roadster']));
+    expect(library.find((a: { name: string }) => a.name === 'Roadster').projectId).toBeNull();
+  });
+
   it('holds a commercial project to commercial licences on a personal server', async () => {
     const make = async (licenceMode: string) => {
       const project = (await inject('POST', '/v1/projects', { name: `Ad ${licenceMode}`, licenceMode })).json();

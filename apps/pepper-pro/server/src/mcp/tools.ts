@@ -205,7 +205,9 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         'sound, assets as refs, optional recipe). Returns the project with shot ids to render. ' +
         'Short-drama shots are 3–8 s; a line or two of dialogue per 5 s; faces hold best in close and ' +
         'medium shots. Give recurring characters a fixed visual description (and a voice description) ' +
-        'and reference images, so every shot binds the same person. ' +
+        'and reference images, so every shot binds the same person. Library characters (get_project ' +
+        'lists them) are used by naming them in shots and dialogue; `library: true` on an asset saves it ' +
+        'there for every project. ' +
         PROMPTING,
       inputSchema: {
         project_id: z.string().optional(),
@@ -269,7 +271,8 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
       title: 'Get a project',
       description:
         'A project: its assets, scenes, shots (with their takes, statuses and chosen take) and cuts. ' +
-        'Without project_id, lists projects. To choose a take, pass choose; to export a cut of the ' +
+        'Without project_id, lists projects and the shared library of characters, voices and other ' +
+        'assets every project can use. To choose a take, pass choose; to export a cut of the ' +
         'chosen takes, pass export (creates the cut if none exists).',
       inputSchema: {
         project_id: z.string().optional(),
@@ -280,7 +283,11 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
       annotations: { readOnlyHint: false, openWorldHint: false },
     },
     async ({ project_id, choose, export: doExport, subtitles }) => {
-      if (!project_id) return { content: [json(await call(ctx, 'GET', '/v1/projects'))] };
+      if (!project_id) {
+        const { projects } = await call<{ projects: unknown[] }>(ctx, 'GET', '/v1/projects');
+        const { assets } = await call<{ assets: LibraryAsset[] }>(ctx, 'GET', '/v1/assets');
+        return { content: [json({ projects, library: assets.map(summarizeAsset) })] };
+      }
       const base = `/v1/projects/${encodeURIComponent(project_id)}`;
       if (choose) await call(ctx, 'POST', `/v1/takes/${encodeURIComponent(choose)}/choose`, {});
       if (doExport) {
@@ -324,6 +331,27 @@ async function waitSettled(ctx: ToolContext, id: string, ms: number): Promise<Jo
     await new Promise((r) => setTimeout(r, 500));
   }
   return ctx.jobs.get(id);
+}
+
+interface LibraryAsset {
+  id: string;
+  kind: string;
+  name: string;
+  description: string;
+  images: string[];
+  voice: { upload?: string; description?: string } | null;
+}
+
+/** A library asset as Claude needs it: enough to name it in a plan and know what it brings. */
+function summarizeAsset(a: LibraryAsset): unknown {
+  return defined({
+    id: a.id,
+    kind: a.kind,
+    name: a.name,
+    description: a.description || undefined,
+    images: a.images,
+    voice: a.voice?.upload || a.voice?.description ? a.voice : undefined,
+  });
 }
 
 /** What Claude needs from a project, without every column of every row. */

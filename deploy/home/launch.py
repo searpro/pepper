@@ -327,8 +327,11 @@ def cmd_up(host: Host, env: dict, a) -> None:
         **({"CATALOGUE_URL": CATALOGUE_RAW.format(branch=a.catalogue_branch)} if a.catalogue_branch else {}),
         # Outputs default to the container's /tmp, which every `up` that
         # replaces the container wiped. Here they live with the rest of the
-        # data, so only the retention sweep removes them.
+        # data, and the day-long retention sweep (meant for billed pod disks,
+        # and run on every boot) is off: the box's own disk is the archive,
+        # and the user deletes outputs from the Media page.
         "OUTPUT_DIR": "/data/outputs",
+        "OUTPUT_RETENTION_MS": "0",
     }
     q = shlex.quote(directory)
     # umask 077: the .env is created readable by its owner only.
