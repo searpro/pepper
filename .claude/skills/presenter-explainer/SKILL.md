@@ -160,15 +160,29 @@ project folder. `references/notion.md` has the workspace's IDs.
    `Platforms` (only those get a section; TikTok is inactive because it is
    blocked in India) and the style guide in its page body. The style guide
    wins over anything here.
-2. **Covers.** Two or three variants of different kinds: a clean frame of a
-   presenter take (from `presenter/`, which has no burned-in captions), a
-   pose made for the thumbnail (`qwen-image-edit` of the presenter still,
-   ~25 s; leave sky or dark space for the text), and where there is one a
-   real photo of the subject. Write `covers.json` and run
-   `scripts/covers.py --project DIR`, then look at `covers/sheet.jpg`: the
-   green box is the 3:4 crop Instagram's grid shows, and the text and face
-   must sit inside it. Landscape photos take `"fit": true`; every
-   third-party photo takes a `credit`.
+2. **Covers: let the model design the whole thumbnail.** The user rejected
+   covers made of a frame plus text drawn in PIL. `qwen-image-edit` (~25 s
+   each, `count: 2`) draws the full thumbnail, headline included: `image` is
+   the presenter still (or a pose edited from it), the prompt asks for a
+   bold YouTube-thumbnail design, the exact headline lines and colours
+   ("in a heavy, rounded sans-serif with a thick black outline… 'ORANGE?' in
+   bright yellow… spelled exactly"), and *"leave the top eighth of the
+   picture as plain sky/studio with nothing on it"*, which keeps the
+   headline and face inside Instagram's 3:4 grid crop. For a real subject,
+   pass its photo as a `reference_images` entry (copy it into the box's
+   uploads with `ssh … docker exec -i pepper-pro sh -c 'cat >
+   /data/uploads/NAME.jpg' < file`) and ask for it "as a large straight
+   rectangular photo panel… not tilted". The model redraws that photo, so
+   lay the real one over it: measure the panel's inner edges and give
+   `covers.json` an entry with `"photo"`, `"credit"` and
+   `"photo_box"` (fractions of the final 1080×1920; the source is scaled by
+   1080/768, then 7 px come off the top). Then run `scripts/covers.py
+   --project DIR` and look at `covers/sheet.jpg` (the green box is the 3:4
+   grid crop). Read every headline letter by letter: `flux2-klein-edit`
+   misspelled 2 of 4 ("ORAIGE", "DOVIN"); Qwen spelled all 8 right.
+   **Licence:** `qwen-image-edit` here is Qwen-Image 2.1 under a
+   non-commercial research licence; `flux2-klein-edit` (Apache 2.0) is the
+   commercial-safe fallback. Say which one made the covers.
 3. **Text**, per the style guide: three YouTube titles (the first
    recommended), a description with sources, image credits and the
    disclosure line, tags, an Instagram caption, a Facebook caption, a pinned

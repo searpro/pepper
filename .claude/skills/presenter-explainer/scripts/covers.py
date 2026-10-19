@@ -14,9 +14,12 @@ covers.json:
     {"name": "b", "image": "covers/src/pose.png", "zoom": 1.1, "y": 0.4,
      "text": ["..."], "photo": "event-refs/d1-upside.jpg", "credit": "Tesla livestream",
      "photo_y": 0.68},                                  # centre of the photo card
-    {"name": "c", "image": "event-refs/x.jpg", "fit": true, "credit": "Tesla livestream", "text": ["..."]}
+    {"name": "c", "image": "event-refs/x.jpg", "fit": true, "credit": "Tesla livestream", "text": ["..."]},
                                                          # a landscape photo whole, over a blurred fill
-  ]}
+    {"name": "d", "image": "covers/src/qwen-thumb.png", "photo": "event-refs/x.jpg", "credit": "Tesla",
+     "photo_box": [0.018, 0.636, 0.997, 0.979]}           # a model-made thumbnail (its own text, so no
+  ]}                                                     # "text"), with the real photo laid over the panel
+                                                         # it drew: x0 y0 x1 y1 as fractions of the image
 Paths are relative to the project. Needs pillow; fonts are macOS's Avenir Next.
 """
 import argparse, io, json, subprocess
@@ -111,6 +114,24 @@ def title(frame, lines, cy):
         y += lh
 
 
+def photo_in_box(frame, path, credit, box):
+    """The real photo, cropped to fill `box`, over a panel an image model drew,
+    so the thumbnail keeps the model's design but shows the genuine picture."""
+    x0, y0, x1, y1 = (round(v * (W if i % 2 == 0 else H)) for i, v in enumerate(box))
+    im = Image.open(path).convert('RGB')
+    bw, bh = x1 - x0, y1 - y0
+    r = max(bw / im.width, bh / im.height)
+    im = im.resize((round(im.width * r), round(im.height * r)), Image.LANCZOS)
+    im = im.crop(((im.width - bw) // 2, (im.height - bh) // 2, (im.width - bw) // 2 + bw, (im.height - bh) // 2 + bh))
+    rad, edge = 22, 6
+    ImageDraw.Draw(frame).rounded_rectangle([x0 - edge, y0 - edge, x1 + edge, y1 + edge], rad + edge, fill=(255, 255, 255))
+    mask = Image.new('L', im.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, bw - 1, bh - 1], rad, fill=255)
+    frame.paste(im, (x0, y0), mask)
+    if credit:
+        credit_pill(frame, credit, x1, y1)
+
+
 def photo_card(frame, path, credit, cy):
     im = Image.open(path).convert('RGB')
     maxw, maxh = int(W * 0.86), int(H * 0.27)
@@ -145,12 +166,16 @@ def main():
             frame, photo_bottom = fit_photo(base)
         else:
             frame = fill_frame(base, c.get('zoom', 1.0), c.get('y', 0.5))
-        shade(frame, cy)
+        if c.get('text'):
+            shade(frame, cy)
         if c.get('fit') and c.get('credit'):
             credit_pill(frame, c['credit'], W - 10, photo_bottom)
-        if c.get('photo'):
+        if c.get('photo_box'):
+            photo_in_box(frame, root / c['photo'], c.get('credit', ''), c['photo_box'])
+        elif c.get('photo'):
             photo_card(frame, root / c['photo'], c.get('credit', ''), H * c.get('photo_y', 0.68))
-        title(frame, c['text'], cy)
+        if c.get('text'):
+            title(frame, c['text'], cy)
         path = out / f"{c['name']}.jpg"
         frame.save(path, quality=92)
         made.append(frame)
