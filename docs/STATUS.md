@@ -17,6 +17,19 @@ smile through the line (the mouth froze in a grin); the skill now says how
 to direct around it. The box runs the published `pepper-pro:cu130` image.
 The files live outside the repo in `~/projects/maya-intro`.
 
+**Publishing is manual, through Notion** (2026-10-19): no upload automation
+and no platform API reviews. The `presenter-explainer` skill's step 7 writes a
+publishing kit per video (Qwen-Image-designed thumbnails with real subject
+photos laid in by `scripts/covers.py`, titles, descriptions, tags and
+captions per platform) to `publish-kit.md` and to the **Video Publishing**
+workspace in Notion (Channels, Videos, Performance; IDs in
+`presenter-explainer/references/notion.md`). Performance is logged from
+analytics screenshots at 24 h, 7 d and 30 d. Active platforms: YouTube
+Shorts, Instagram Reels, Facebook Reels; TikTok is inactive (blocked in
+India). First channel: Now It Clicks · by Maya, with the intro and the
+Roadster explainer ready to post. The `qwen-image-edit` model is
+non-commercial: check before the channel is monetised.
+
 **A researched presenter explainer, end to end on the home box** (2026-10-18):
 "How the Tesla Roadster defies gravity", 2:04, 9:16 4K. Maya (a Krea 2
 still) speaks every line in one Qwen3-TTS voice, cloned from one designed
@@ -51,8 +64,8 @@ Same day:
 
 Next:
 
-1. **Distribution for Maya's channel:** platforms, channel names, bios,
-   titles, descriptions and tags (being planned 2026-10-19).
+1. **More channels:** each is a row in Notion's Channels database with its
+   own style guide; the user wants to grow aggressively.
 2. **Explainers inside Pepper:** a cut that overlays photos, captions and
    stat callouts (what `presenter-explainer/scripts/compose.py` does on the
    laptop), and a route to import a finished file as a take, so a video
