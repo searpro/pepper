@@ -87,10 +87,24 @@ non_diegetic_music: N/A
   digits on screen; "a little shrug / skeptical" turned her sideways and off
   camera; one take grimaced on a line. The "clean frame" and "shoulders
   square" sentences above came from those.
+- **Never ask for a smile through a line.** "A warm, friendly smile" or
+  "sincere, warm expression" froze the mouth in a grin for the whole take, with
+  no lip sync (2 of 8 takes on the channel intro). Say instead: "She speaks
+  every word clearly, her lips, jaw and mouth forming each syllable in sync
+  with her voice", and put any smile "only after the last word". Whisper
+  can't catch this (it hears the input audio); look at the mouth.
+- **Camera moves work** (channel intro, 2026-10-19), all with eye contact
+  kept: a push-in to a close-up, a ~20° arc ("she turns her head with it so
+  her eyes stay fixed just past the lens"), a sideways truck, a walk toward a
+  steadicam tracking backward, a pull-back that ends on a wave. Arcs and
+  trucks travel further than "small amplitude" and can drift the light to
+  afternoon; "the warm golden-hour backlight … stays the same throughout the
+  shot" held it.
 - **QC every take as it lands**: `scripts/qc.py --project DIR --jobs
   h3-jobs.json S03` saves the take, a 7-frame strip of the upper frame and the
-  transcript. Look at the strip; retake (new seed, adjusted direction) or
-  plan a photo over the bad stretch. A monitor that polls the job ids and
+  transcript. Look at the strip, and at a dense run of mouth frames when the
+  expression barely changes across it; retake (new seed, adjusted direction)
+  or plan a photo over the bad stretch. A monitor that polls the job ids and
   prints each completion saves polling by hand.
 
 **Detail** (measured on one 5 s take, 2026-10-18). The recipes save takes
@@ -119,7 +133,8 @@ frame at 2160×3840 in PIL and encodes with x264 CRF 16; ~9 min for 2 min of
 4K on an M-series Mac, ~1.5 min at `--scale 0.5`.
 
 - The project's `script.json`: `photo_dirs`, `credits` (per photo, else
-  `default_credit`), an optional `hook` (a title over the first seconds), and
+  `default_credit`), an optional `hook` (a title over the first seconds; give
+  it `fill: [0,0,0,150]` over a bright opening and `y` to clear the head), and
   per segment its `text`, `chip` (section label), `stats` (`[word, label]`
   pills) and `cues` (photos: `at`/`until` words, `style` card | fit | pan,
   pan's `x0 x1 y0 y1 zoom`). See `examples/roadster-script.json`.

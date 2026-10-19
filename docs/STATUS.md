@@ -4,9 +4,18 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-18 (Roadster explainer, character library, high-quality saves).
+Last updated: 2026-10-19 (Maya's channel intro with camera moves; Roadster explainer, character library, high-quality saves).
 
 ## Resume here
+
+**Maya's channel intro** (2026-10-19): 58 s, 9:16 4K, outdoors at golden
+hour in a new outfit (a Qwen-Image edit of her library still, 26 s on
+`16gb`), every line with its own camera move: push-in, ~20° arc, sideways
+truck, walk toward a backward-tracking steadicam, pull-back. All held eye
+contact and lip sync. Two takes failed because the direction asked for a
+smile through the line (the mouth froze in a grin); the skill now says how
+to direct around it. The box runs the published `pepper-pro:cu130` image.
+The files live outside the repo in `~/projects/maya-intro`.
 
 **A researched presenter explainer, end to end on the home box** (2026-10-18):
 "How the Tesla Roadster defies gravity", 2:04, 9:16 4K. Maya (a Krea 2
@@ -42,9 +51,8 @@ Same day:
 
 Next:
 
-1. **`up` the box from the published `cu130` image** once `image-pro` has
-   rebuilt from main (PR #17 merged), so it stops depending on a local
-   build.
+1. **Distribution for Maya's channel:** platforms, channel names, bios,
+   titles, descriptions and tags (being planned 2026-10-19).
 2. **Explainers inside Pepper:** a cut that overlays photos, captions and
    stat callouts (what `presenter-explainer/scripts/compose.py` does on the
    laptop), and a route to import a finished file as a take, so a video

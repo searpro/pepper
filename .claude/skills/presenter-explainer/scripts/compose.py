@@ -53,7 +53,11 @@ def configure(project):
     CHIPS = {s['id']: s['chip'] for s in cfg['segments'] if s.get('chip')}
     STATS = {s['id']: [tuple(x) for x in s.get('stats', [])] for s in cfg['segments']}
     hook = cfg.get('hook')
-    HOOK = (hook['from'], hook['to'], hook['text']) if hook else None
+    # `fill` (RGBA) backs the hook's lines: transparent suits a dark opening
+    # frame, a bright sky needs a dark pill to stay readable. `y` is the first
+    # line's centre as a fraction of the height; raise it when the presenter's
+    # head sits high in the opening shot.
+    HOOK = (hook['from'], hook['to'], hook['text'], tuple(hook.get('fill', (0, 0, 0, 0))), hook.get('y', 0.12)) if hook else None
 
 
 def norm(w):
@@ -390,7 +394,7 @@ def render(scale, out, start=0.0, end=None):
         if HOOK and HOOK[0] <= t < HOOK[1]:
             a = ease((t - HOOK[0]) / 0.2) * (1 - ease((t - HOOK[1] + 0.25) / 0.25))
             for k, line in enumerate(HOOK[2].split('\n')):
-                p.pill(frame, line, p.f_hook, p.H * (0.12 + 0.065 * k), fill=(0, 0, 0, 0), alpha=a)
+                p.pill(frame, line, p.f_hook, p.H * (HOOK[4] + 0.065 * k), fill=HOOK[3], alpha=a)
         g = next((g for g in captions if g['s'] <= t < g['e']), None)
         if g:
             p.caption(frame, g, t)
