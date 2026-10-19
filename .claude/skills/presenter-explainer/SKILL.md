@@ -1,6 +1,6 @@
 ---
 name: presenter-explainer
-description: Make a researched explainer video on Pepper Pro with a recurring on-camera presenter — research the facts, write a line-by-line script, give the presenter one consistent cloned voice (Qwen3-TTS), lip-sync every line with MiniMax H3 driven by that audio, master to 4K with RTX Video, and compose the cut on the laptop with real photos of the subject coming and going, word-by-word captions, stat callouts and an ACE-Step music bed. Use when asked for an explainer, a news or product breakdown, a "science behind it" video, or any talking-head piece that has to show real images of a real thing (a car, a launch, a gadget, an event).
+description: Make a researched explainer video on Pepper Pro with a recurring on-camera presenter — research the facts, write a line-by-line script, give the presenter one consistent cloned voice (Qwen3-TTS), lip-sync every line with MiniMax H3 driven by that audio, master to 4K with RTX Video, and compose the cut on the laptop with real photos of the subject coming and going, word-by-word captions, stat callouts and an ACE-Step music bed, then write its publishing kit (titles, descriptions, tags, covers per platform) to the Video Publishing workspace in Notion and log its performance there. Use when asked for an explainer, a news or product breakdown, a "science behind it" video, or any talking-head piece that has to show real images of a real thing (a car, a launch, a gadget, an event).
 ---
 
 # Presenter explainer
@@ -8,8 +8,10 @@ description: Make a researched explainer video on Pepper Pro with a recurring on
 Built for the Tesla Roadster explainer (2026-10-18, 2:04, 9:16 4K): Maya, a
 fictional presenter, explains the car with Tesla's photos and livestream frames
 appearing over her. `examples/roadster-script.json` is that video's script and
-every cue. The two scripts here do the parts Pepper Pro can't:
-`scripts/compose.py` (the cut) and `scripts/qc.py` (checking takes).
+every cue. The scripts here do the parts Pepper Pro can't:
+`scripts/compose.py` (the cut), `scripts/qc.py` (checking takes) and
+`scripts/covers.py` (thumbnails). Step 7 hands the finished video to the
+user's manual posting through Notion.
 
 ## Rules the user set
 
@@ -147,6 +149,54 @@ frame at 2160×3840 in PIL and encodes with x264 CRF 16; ~9 min for 2 min of
 - Render a half-size preview, make a contact sheet of ~30 frames, fix, then
   render 4K. Deliver the 4K file and a 1080p copy under 30 MB for the phone
   (`-b:v 1650k` for 2 min).
+
+## 7. Publishing kit (Notion)
+
+The user posts by hand: no upload automation, no platform API reviews. This
+step gives them everything to copy for each platform, in Notion and in the
+project folder. `references/notion.md` has the workspace's IDs.
+
+1. **Read the channel's row** in Notion's Channels database: its active
+   `Platforms` (only those get a section; TikTok is inactive because it is
+   blocked in India) and the style guide in its page body. The style guide
+   wins over anything here.
+2. **Covers.** Two or three variants of different kinds: a clean frame of a
+   presenter take (from `presenter/`, which has no burned-in captions), a
+   pose made for the thumbnail (`qwen-image-edit` of the presenter still,
+   ~25 s; leave sky or dark space for the text), and where there is one a
+   real photo of the subject. Write `covers.json` and run
+   `scripts/covers.py --project DIR`, then look at `covers/sheet.jpg`: the
+   green box is the 3:4 crop Instagram's grid shows, and the text and face
+   must sit inside it. Landscape photos take `"fit": true`; every
+   third-party photo takes a `credit`.
+3. **Text**, per the style guide: three YouTube titles (the first
+   recommended), a description with sources, image credits and the
+   disclosure line, tags, an Instagram caption, a Facebook caption, a pinned
+   comment. Every number in the copy must be one the video says.
+4. **`publish-kit.md`** in the project folder
+   (`~/projects/maya-intro/publish-kit.md` is the model): files (the 4K
+   master for YouTube, the 1080p copy for Instagram and Facebook), covers,
+   then one section per platform with settings (the AI label on every one).
+5. **The Videos page**, status `Ready to post`, related to the channel:
+   upload each cover with `notion-create-file-upload` and a `curl -F
+   file=@…` POST to the returned URL, then place them in the body (an upload
+   can be placed once, so upload the recommended cover a second time for the
+   `Cover` property, set with `notion-update-page` as
+   `[{"type":"file_upload","file_upload":{"id":…}}]`). The body has a
+   callout (order and timing), a Covers row, a `<tabs>` block with one tab per
+   platform whose copy sits in `plain text` code blocks (Notion gives those a
+   copy button), the pinned comment and the posting checklist. Put file
+   paths in backticks: Notion turns `.mp4` names into links otherwise.
+
+**Tracking.** After posting, the user pastes the links into the page and sets
+`Posted on` and `Next check`. At 24 h, 7 d and 30 d they send screenshots of
+each platform's analytics; add one Performance row per platform and
+checkpoint, named `<video> · <platform> · <checkpoint>`, related to the video,
+with whatever the screenshot shows (leave a metric empty rather than
+guessing), attach the screenshot, and move `Next check` to the next
+checkpoint (clear it after 30 d). When asked how videos are doing, query
+Performance at one checkpoint across videos and say which topics, titles and
+covers are winning.
 
 ## Gotchas
 
