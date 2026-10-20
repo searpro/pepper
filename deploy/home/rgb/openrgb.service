@@ -1,0 +1,11 @@
+[Unit]
+Description=OpenRGB SDK server (localhost only)
+After=systemd-udev-settle.service
+
+[Service]
+ExecStart=/usr/bin/openrgb --server --server-host 127.0.0.1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

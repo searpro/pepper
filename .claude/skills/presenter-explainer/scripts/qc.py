@@ -33,12 +33,16 @@ model = None
 for sid in a.ids:
     raw = ssh(CURL.format(jobs[sid]))
     job = json.loads(raw)
-    name = re.search(r'[a-z0-9-]+-\d{4}-\d\d-\d\dT[0-9-]+Z-[0-9a-f]+\.mp4', raw)
+    # The result names the output; a master's params also name its input
+    # (from-h3-video-…), so searching the raw JSON can pick the wrong file.
+    outputs = [o['name'] for o in (job.get('result') or {}).get('outputs', []) if o.get('name', '').endswith('.mp4')]
+    found = re.search(r'(?<!from-)\b[a-z0-9-]+-\d{4}-\d\d-\d\dT[0-9-]+Z-[0-9a-f]+\.mp4', raw)
+    name = outputs[0] if outputs else found and found.group(0)
     if job.get('status') != 'completed' or not name:
         print(sid, job.get('status'), (job.get('error') or {}).get('message', ''))
         continue
     path = out_dir / f'{sid}.mp4'
-    path.write_bytes(ssh(f'docker exec pepper-pro cat /data/outputs/{name.group(0)}', text=False))
+    path.write_bytes(ssh(f'docker exec pepper-pro cat /data/outputs/{name}', text=False))
     probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,bit_rate:format=duration',
                             '-of', 'json', str(path)], capture_output=True, text=True).stdout
     info = json.loads(probe)
@@ -63,4 +67,4 @@ for sid in a.ids:
                                            capture_output=True).stdout, np.float32)
         segs, _ = model.transcribe(pcm)
         heard = ' '.join(s.text.strip() for s in segs)
-    print(sid, name.group(0), f"{st['width']}x{st['height']}", f"{int(st.get('bit_rate', 0)) / 1e6:.1f} Mbps", f'{dur:.2f}s', '|', heard)
+    print(sid, name, f"{st['width']}x{st['height']}", f"{int(st.get('bit_rate', 0)) / 1e6:.1f} Mbps", f'{dur:.2f}s', '|', heard)
