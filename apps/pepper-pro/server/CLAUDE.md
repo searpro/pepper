@@ -39,6 +39,17 @@ Everything else (jobs, downloads, logs, auth, media, MCP) is `@pepper/core`.
   recipe's `prompt_format` (`h3-base`, `h3-reference`) composes MiniMax's
   structured H3 prompts (docs/H3-16GB.md §3); a prompt already in that
   format passes through.
+- `src/loras/`: the LoRA library. `sources.ts` looks a link up (Civitai's
+  and HuggingFace's APIs, else a direct `.safetensors` link; pickled files
+  are refused), `bases.ts` lists the base models a LoRA can be for,
+  `service.ts` keeps the rows (state read from disk and the download table)
+  and `resolve`s a request's LoRAs against a recipe's `lora_base`; the
+  engine passes them to `buildPrompt`, which chains them after the
+  workflow's `lora_targets` (`insertLoras` in `graph.ts`). Assets and shots
+  carry `loras` too: `ProjectService.shotLoras` merges the cast's with the
+  shot's (the shot's strength wins, 0 mutes), keeps those for the recipe's
+  base (`LoraService.fitting`), and `withTriggerWords` adds their words to a
+  composed prompt; a chain stores them so every segment matches.
 - `src/golden/`: golden-shot runs and the blind A/B (`golden/shots.json`).
 - `src/mcp/tools.ts`: Claude's tools. Keep them few: pro_status,
   list_models, install_model, generate_image / generate_video /

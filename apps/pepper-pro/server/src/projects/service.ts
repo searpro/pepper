@@ -5,6 +5,7 @@ import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Db } from '@pepper/core/db/client.js';
 import { errors } from '@pepper/core/errors.js';
+import { describeGeneration, type Generation } from '@pepper/core/jobs/generation.js';
 import type { Job, JobManager } from '@pepper/core/jobs/manager.js';
 import { safeResolve } from '@pepper/core/paths.js';
 import type { LicenceMode, ProConfig } from '../config.js';
@@ -16,6 +17,7 @@ import type { Recipe, RecipeParam } from '../recipes/schema.js';
 import type { RecipeStore } from '../recipes/store.js';
 import { joinArgs, planSegments, type JoinPart, type TakeChain } from './chain.js';
 import { composePrompt, deriveParams } from './derive.js';
+import type { LoraService } from '../loras/service.js';
 import {
   assets,
   cuts,
@@ -45,6 +47,7 @@ export interface ProjectServiceDeps {
   jobs: JobManager;
   comfy: ComfyEngine;
   recipes: RecipeStore;
+  loras: LoraService;
   paths: ProPaths;
   config: ProConfig;
   log: FastifyBaseLogger;
@@ -56,7 +59,7 @@ export function newId(prefix: string): string {
 
 /** Only the fields a caller may set; ids, positions and timestamps are the service's. */
 export type ProjectInput = Partial<Pick<ProjectRow, 'name' | 'description' | 'aspect' | 'fps' | 'style' | 'lut' | 'licenceMode' | 'script'>>;
-export type AssetInput = Partial<Pick<AssetRow, 'kind' | 'name' | 'description' | 'images' | 'voice' | 'audio' | 'meta'>>;
+export type AssetInput = Partial<Pick<AssetRow, 'kind' | 'name' | 'description' | 'images' | 'voice' | 'audio' | 'loras' | 'meta'>>;
 export type SceneInput = Partial<Pick<SceneRow, 'title' | 'notes'>>;
 export type ShotInput = Partial<
   Pick<
@@ -73,6 +76,7 @@ export type ShotInput = Partial<
     | 'audioAssetId'
     | 'recipeId'
     | 'params'
+    | 'loras'
     | 'continues'
   >
 >;
@@ -96,6 +100,8 @@ export interface PlanInput {
     images?: string[];
     audio?: string;
     voice?: { upload?: string; description?: string };
+    /** LoRAs from the library that belong to it (a character's likeness). */
+    loras?: { id: string; strength?: number }[];
     library?: boolean;
   }[];
   scenes: {
@@ -115,6 +121,7 @@ export interface PlanInput {
       audio?: string;
       recipe?: string;
       params?: Record<string, unknown>;
+      loras?: { id: string; strength?: number }[];
       continues?: boolean;
     }[];
   }[];
@@ -180,6 +187,7 @@ export interface TakeView extends Omit<TakeRow, 'chain' | 'master'> {
   error?: Job['error'];
   url?: string;
   kind?: 'image' | 'video' | 'audio';
+  generation?: Generation;
 }
 
 export class ProjectService {
@@ -288,6 +296,7 @@ export class ProjectService {
 
   createAsset(projectId: string | null, input: AssetInput & { name: string; kind: AssetRow['kind'] }): AssetRow {
     if (projectId) this.requireProject(projectId);
+    this.checkLoras(input.loras);
     const now = Date.now();
     const row: AssetRow = {
       id: newId('ast'),
@@ -298,6 +307,7 @@ export class ProjectService {
       images: input.images ?? [],
       voice: input.voice ?? null,
       audio: input.audio ?? null,
+      loras: input.loras ?? [],
       meta: input.meta ?? {},
       createdAt: now,
       updatedAt: now,
@@ -309,6 +319,7 @@ export class ProjectService {
 
   updateAsset(id: string, input: AssetInput): AssetRow {
     this.requireAsset(id);
+    this.checkLoras(input.loras);
     this.db.update(assets).set({ ...input, updatedAt: Date.now() }).where(eq(assets.id, id)).run();
     return this.requireAsset(id);
   }
@@ -372,6 +383,7 @@ export class ProjectService {
   createShot(sceneId: string, input: ShotInput = {}): ShotRow {
     const scene = this.requireScene(sceneId);
     if (input.recipeId) this.deps.recipes.require(input.recipeId);
+    this.checkLoras(input.loras);
     const position = this.listShots(scene.projectId, sceneId).length;
     const now = Date.now();
     const row: ShotRow = {
@@ -391,6 +403,7 @@ export class ProjectService {
       audioAssetId: input.audioAssetId ?? null,
       recipeId: input.recipeId ?? null,
       params: input.params ?? {},
+      loras: input.loras ?? [],
       continues: input.continues ?? false,
       chosenTakeId: null,
       createdAt: now,
@@ -404,6 +417,7 @@ export class ProjectService {
   updateShot(id: string, input: ShotInput & { sceneId?: string; position?: number }): ShotRow {
     const shot = this.requireShot(id);
     if (input.recipeId) this.deps.recipes.require(input.recipeId);
+    this.checkLoras(input.loras);
     const { position, ...fields } = input;
     this.db.update(shots).set({ ...fields, updatedAt: Date.now() }).where(eq(shots.id, id)).run();
     if (position !== undefined || input.sceneId) this.move(id, input.sceneId ?? shot.sceneId, position ?? Number.MAX_SAFE_INTEGER);
@@ -479,6 +493,7 @@ export class ProjectService {
               ...(input.images ? { images: input.images } : {}),
               ...(input.audio ? { audio: input.audio } : {}),
               ...(input.voice ? { voice: input.voice } : {}),
+              ...(input.loras ? { loras: input.loras } : {}),
             })
           : this.createAsset(input.library ? null : project.id, {
               kind: input.kind,
@@ -487,6 +502,7 @@ export class ProjectService {
               images: input.images,
               audio: input.audio,
               voice: input.voice,
+              loras: input.loras,
             });
       created.push(asset);
       byRef.set(input.ref, asset);
@@ -521,6 +537,7 @@ export class ProjectService {
             audioAssetId: s.audio ? (resolve(s.audio)?.id ?? null) : null,
             recipeId: s.recipe ?? null,
             params: s.params ?? {},
+            loras: s.loras,
             continues: s.continues ?? false,
           }),
         );
@@ -572,7 +589,49 @@ export class ProjectService {
     const recipe = await this.recipeFor(shot);
     const chosen = mode ?? recipe.default_mode;
     const params = deriveParams({ project, shot, assets: this.listAssets(project.id), recipe, mode: chosen });
-    return { recipe: recipe.id, mode: chosen, params, shot_id: shot.id };
+    const { loras } = this.shotLoras(shot, recipe, chosen);
+    return {
+      recipe: recipe.id,
+      mode: chosen,
+      params: this.withTriggerWords(shot, recipe, chosen, params),
+      shot_id: shot.id,
+      ...(loras.length ? { loras } : {}),
+    };
+  }
+
+  /** Every LoRA an asset or shot names must be in the library. */
+  private checkLoras(list: { id: string }[] | undefined): void {
+    for (const lora of list ?? []) this.deps.loras.baseOf(lora.id);
+  }
+
+  /**
+   * The LoRAs a shot renders with on a recipe: its assets' (in the shot's
+   * order), then its own, which set the strength of one an asset already
+   * has (0 leaves it out). Only those made for the recipe's base model run;
+   * a character can carry one LoRA per model it is rendered with.
+   */
+  private shotLoras(shot: ShotRow, recipe: Recipe, mode: string): { loras: { id: string; strength: number }[]; words: string[] } {
+    const workflow = recipe.modes[mode] ? recipe.workflows[recipe.modes[mode].workflow] : undefined;
+    if (!recipe.lora_base || !workflow?.lora_targets.length) return { loras: [], words: [] };
+    const assetsById = new Map(this.listAssets(shot.projectId).map((asset) => [asset.id, asset]));
+    const wanted = new Map<string, { id: string; strength?: number }>();
+    for (const id of shot.assetIds as string[]) {
+      for (const lora of assetsById.get(id)?.loras ?? []) if (!wanted.has(lora.id)) wanted.set(lora.id, lora);
+    }
+    for (const lora of shot.loras) wanted.set(lora.id, lora);
+    return this.deps.loras.fitting([...wanted.values()].filter((lora) => lora.strength !== 0), recipe.lora_base);
+  }
+
+  /**
+   * A LoRA does little unless its trigger words are in the prompt, so a
+   * composed prompt gets those it lacks. A prompt the shot pins in its own
+   * parameters is used as written.
+   */
+  private withTriggerWords(shot: ShotRow, recipe: Recipe, mode: string, params: Record<string, unknown>): Record<string, unknown> {
+    if (typeof params.prompt !== 'string' || (shot.params as Record<string, unknown>).prompt !== undefined) return params;
+    const prompt = params.prompt;
+    const missing = this.shotLoras(shot, recipe, mode).words.filter((word) => !prompt.toLowerCase().includes(word.toLowerCase()));
+    return missing.length ? { ...params, prompt: `${prompt.trimEnd()}\n${missing.join(', ')}` } : params;
   }
 
   /**
@@ -585,7 +644,11 @@ export class ProjectService {
     for (const shotId of shotIds) {
       const request = await this.requestFor(shotId, options.mode);
       const continuing = this.requireShot(shotId);
-      if (continuing.continues) request.params = await this.continueFrom(continuing, this.deps.recipes.require(request.recipe), request.params ?? {});
+      if (continuing.continues) {
+        const recipe = this.deps.recipes.require(request.recipe);
+        const params = await this.continueFrom(continuing, recipe, request.params ?? {});
+        request.params = this.withTriggerWords(continuing, recipe, request.mode ?? recipe.default_mode, params);
+      }
       if (options.fromTake) {
         const take = this.requireTake(options.fromTake);
         if (take.seed !== null) request.params = { ...request.params, seed: take.seed };
@@ -605,6 +668,7 @@ export class ProjectService {
           recipe: prepared.recipe.id,
           mode: prepared.mode,
           params: prepared.values,
+          ...(prepared.loras.length ? { loras: prepared.loras } : {}),
           shot_id: shotId,
           take_id: takeId,
         });
@@ -621,7 +685,7 @@ export class ProjectService {
           notes: '',
           review: null,
           // Every segment of a long take renders with the first one's seed.
-          chain: chain ? { ...chain.chain, next: { ...chain.chain.next, ...(seed !== null ? { seed } : {}) }, segments: chain.chain.segments.map((s, k) => (k === 0 ? { ...s, jobId: job.id } : { ...s })) } : null,
+          chain: chain ? { ...chain.chain, ...(prepared.loras.length ? { loras: prepared.loras } : {}), next: { ...chain.chain.next, ...(seed !== null ? { seed } : {}) }, segments: chain.chain.segments.map((s, k) => (k === 0 ? { ...s, jobId: job.id } : { ...s })) } : null,
           master: null,
           createdAt: Date.now(),
         };
@@ -746,7 +810,7 @@ export class ProjectService {
       continuing: true,
     });
     for (const name of ['first_frame', 'image', 'audio', 'last_frame']) delete next[name];
-    return { next, last: params.last_frame !== undefined ? { last_frame: params.last_frame } : {} };
+    return { next: this.withTriggerWords(shot, recipe, mode, next), last: params.last_frame !== undefined ? { last_frame: params.last_frame } : {} };
   }
 
   /**
@@ -800,6 +864,7 @@ export class ProjectService {
       total: info.duration,
       next,
       last,
+      ...(request.loras?.length ? { loras: request.loras.map((l) => ({ id: l.id, strength: l.strength ?? 1 })) } : {}),
       head,
       from,
       sourceTakeId: source.id,
@@ -847,13 +912,14 @@ export class ProjectService {
       [chain.durationParam]: chain.segments[k].duration,
     };
     const prepared = await this.deps.comfy.prepareRequest(
-      { recipe: recipeId, mode: take.mode, params, shot_id: take.shotId },
+      { recipe: recipeId, mode: take.mode, params, shot_id: take.shotId, loras: chain.loras },
       { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
     );
     const job = this.deps.jobs.create(prepared.recipe.kind, {
       recipe: prepared.recipe.id,
       mode: prepared.mode,
       params: prepared.values,
+      ...(prepared.loras.length ? { loras: prepared.loras } : {}),
       shot_id: take.shotId,
       take_id: take.id,
       segment: k,
@@ -958,6 +1024,8 @@ export class ProjectService {
       progress: chain ? 1 : (job?.progress ?? (take.file ? 1 : 0)),
       error: chain ? undefined : job?.error,
       kind: kind ?? (take.file ? kindOf(take.file) : undefined),
+      // A chain's job is only its last segment, so its time would mislead.
+      generation: job && !chain ? describeGeneration(job) : undefined,
       url: take.file
         ? `/v1/projects/${encodeURIComponent(take.projectId)}/files/${encodeURIComponent(take.file)}`
         : ((result.video_url ?? result.image_url ?? result.audio_url) as string | undefined),

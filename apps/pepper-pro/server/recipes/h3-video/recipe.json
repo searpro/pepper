@@ -18,6 +18,7 @@
     "product"
   ],
   "prompt_format": "h3-base",
+  "lora_base": "minimax-h3",
   "licence": {
     "id": "minimax-h3-community",
     "name": "MiniMax H3 Community Licence",
@@ -369,6 +370,12 @@
           "through": {
             "0": "positive"
           }
+        }
+      ],
+      "lora_targets": [
+        {
+          "node": "105:6",
+          "output": 0
         }
       ]
     }

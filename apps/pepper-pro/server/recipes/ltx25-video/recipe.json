@@ -13,6 +13,7 @@
     "native-audio",
     "broll"
   ],
+  "lora_base": "ltx-2.5",
   "licence": {
     "id": "ltx-2.x-community",
     "name": "LTX-2.x Community Licence",
@@ -255,6 +256,12 @@
             "1": "negative",
             "2": "latent"
           }
+        }
+      ],
+      "lora_targets": [
+        {
+          "node": "251:230",
+          "output": 0
         }
       ]
     }

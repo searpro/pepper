@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TIERS } from '../config.js';
+import { LORA_BASE_IDS } from '../loras/bases.js';
 import { COMFY_FOLDERS } from '../paths.js';
 
 /**
@@ -143,6 +144,12 @@ const workflowSchema = z.object({
    * checkpoint by convention (Qwen3-TTS picks a directory by model type).
    */
   requires_files: z.array(z.string()).default([]),
+  /**
+   * Where LoRAs from the library attach: nodes whose MODEL output (`output`,
+   * usually 0 of the diffusion model's loader) a chain of LoraLoaderModelOnly
+   * nodes patches before anything reads it. Empty: this workflow takes none.
+   */
+  lora_targets: z.array(z.object({ node: z.string(), output: z.number().int().min(0).default(0) })).default([]),
 });
 export type WorkflowSpec = z.infer<typeof workflowSchema>;
 
@@ -196,6 +203,12 @@ export const recipeSchema = z
      * H3's FL2VA and Ref2VA checkpoints; absent, a plain prompt.
      */
     prompt_format: z.enum(['h3-base', 'h3-reference']).optional(),
+    /**
+     * The base model LoRAs from the library must be made for to run with this
+     * recipe (`src/loras/bases.ts`); its workflows' `lora_targets` say where
+     * they attach. Absent: the recipe takes no LoRAs.
+     */
+    lora_base: z.enum(LORA_BASE_IDS).optional(),
     licence: licenceSchema,
     /** Custom node packs, by directory name, each pinned to a commit in the image. */
     nodes: z
@@ -255,6 +268,13 @@ export const recipeSchema = z
       for (const key of Object.keys(mode.defaults)) {
         if (!params.has(key)) ctx.addIssue({ code: 'custom', message: `mode "${name}" defaults unknown param "${key}"` });
       }
+    }
+    const lorasAttach = Object.values(recipe.workflows).some((workflow) => workflow.lora_targets.length > 0);
+    if (recipe.lora_base && !lorasAttach) {
+      ctx.addIssue({ code: 'custom', message: 'lora_base is set but no workflow has lora_targets' });
+    }
+    if (!recipe.lora_base && lorasAttach) {
+      ctx.addIssue({ code: 'custom', message: 'a workflow has lora_targets but the recipe names no lora_base' });
     }
     for (const [name, workflow] of Object.entries(recipe.workflows)) {
       for (const id of workflow.requires_files) {

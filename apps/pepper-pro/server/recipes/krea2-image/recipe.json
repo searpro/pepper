@@ -11,6 +11,7 @@
     "photoreal",
     "keyframe"
   ],
+  "lora_base": "krea-2",
   "licence": {
     "id": "krea-2-community",
     "name": "Krea 2 Community Licence",
@@ -165,6 +166,12 @@
         {
           "node": "29",
           "kind": "image"
+        }
+      ],
+      "lora_targets": [
+        {
+          "node": "30:10",
+          "output": 0
         }
       ]
     }

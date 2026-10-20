@@ -91,6 +91,8 @@ export interface CoreConfig {
   // --- Credentials ---
   /** HuggingFace token for gated/private repos. Never logged or echoed. */
   hfToken?: string;
+  /** Civitai API key, for files that download only for a signed-in account. Never logged or echoed. */
+  civitaiToken?: string;
   /**
    * Shared secret every API, MCP and docs request must present (see
    * `auth.ts`). Unset leaves the server open, which is what local
@@ -217,16 +219,22 @@ export function loadCoreConfig(env: NodeJS.ProcessEnv, defaults: CoreConfigDefau
     catalogueTtlMs: positiveNum('CATALOGUE_TTL_MS', env.CATALOGUE_TTL_MS, CORE_DEFAULTS.catalogueTtlMs),
 
     hfToken: env.HF_TOKEN?.trim() || env.HUGGING_FACE_HUB_TOKEN?.trim() || undefined,
+    civitaiToken: env.CIVITAI_TOKEN?.trim() || env.CIVITAI_API_KEY?.trim() || undefined,
     apiToken: env.PEPPER_API_TOKEN?.trim() || undefined,
   };
 }
 
 /**
  * Config as it is safe to hand to the UI: same shape, minus anything secret.
- * `hfToken` and `apiToken` are replaced by booleans — the UI only ever needs to
+ * `hfToken`, `civitaiToken` and `apiToken` are replaced by booleans — the UI only ever needs to
  * know whether a token is configured, never what it is.
  */
 export function publicConfig(config: CoreConfig): Record<string, unknown> {
-  const { hfToken, apiToken, ...rest } = config;
-  return { ...rest, hfTokenConfigured: Boolean(hfToken), apiTokenConfigured: Boolean(apiToken) };
+  const { hfToken, civitaiToken, apiToken, ...rest } = config;
+  return {
+    ...rest,
+    hfTokenConfigured: Boolean(hfToken),
+    civitaiTokenConfigured: Boolean(civitaiToken),
+    apiTokenConfigured: Boolean(apiToken),
+  };
 }

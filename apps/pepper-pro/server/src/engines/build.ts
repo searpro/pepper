@@ -1,5 +1,5 @@
 import type { ObjectInfo, Prompt } from '../comfy/client.js';
-import { clonePrompt, prune, retainReachable, setInput, validatePrompt, type ValidateOptions } from '../comfy/graph.js';
+import { clonePrompt, insertLoras, prune, retainReachable, setInput, validatePrompt, type LoraPatch, type ValidateOptions } from '../comfy/graph.js';
 import { errors } from '@pepper/core/errors.js';
 import type { ResolvedFile } from '../recipes/store.js';
 import type { ModeSpec, Recipe, WorkflowSpec } from '../recipes/schema.js';
@@ -28,12 +28,17 @@ export interface BuildInput {
    * the save node run again, with everything upstream still cached.
    */
   outputPrefix?: string;
+  /** LoRAs from the library, chained after the workflow's `lora_targets`. */
+  loras?: LoraPatch[];
 }
 
 export function buildPrompt(input: BuildInput): Prompt {
   const { recipe, mode, workflow, values, files } = input;
   const prompt = clonePrompt(input.template);
   const unused = new Set<string>();
+  if (input.loras?.length && workflow.lora_targets.length === 0) {
+    throw errors.validation(`Recipe "${recipe.id}" takes no LoRAs in this mode`);
+  }
 
   try {
     for (const { node, input: name, value } of mode.set) setInput(prompt, node, name, value);
@@ -61,6 +66,7 @@ export function buildPrompt(input: BuildInput): Prompt {
         setInput(prompt, binding.node, binding.input, binding.map ? binding.map[String(value)] : value);
       }
     }
+    if (input.loras?.length) insertLoras(prompt, workflow.lora_targets, input.loras);
   } catch (err) {
     if (err instanceof Error && err.name === 'AppError') throw err;
     throw errors.validation(`Recipe "${recipe.id}" does not match its workflow: ${(err as Error).message}`);

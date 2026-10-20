@@ -172,8 +172,11 @@ export function Select({
           className,
         )}
       >
-        <SelectPrimitive.Value placeholder={placeholder} />
-        <SelectPrimitive.Icon>
+        {/* One line, cut short, however narrow the field gets on a phone. */}
+        <span className="min-w-0 truncate text-left">
+          <SelectPrimitive.Value placeholder={placeholder} />
+        </span>
+        <SelectPrimitive.Icon className="shrink-0">
           <ChevronDown className="size-4 opacity-60" />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
@@ -181,7 +184,8 @@ export function Select({
         <SelectPrimitive.Content
           position="popper"
           sideOffset={4}
-          className="z-50 max-h-72 min-w-[10rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
+          // At least the trigger's width, at most the screen's: a long option wraps rather than running off a phone.
+          className="z-50 max-h-72 min-w-[max(10rem,var(--radix-select-trigger-width))] max-w-[calc(100vw-1rem)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-lg"
         >
           <SelectPrimitive.Viewport className="p-1">
             {options.map((option) => (
@@ -197,7 +201,7 @@ export function Select({
                 </span>
                 <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
                 {option.description ? (
-                  <span className="text-[11px] text-muted-foreground">{option.description}</span>
+                  <span className="line-clamp-2 text-[11px] text-muted-foreground">{option.description}</span>
                 ) : null}
               </SelectPrimitive.Item>
             ))}

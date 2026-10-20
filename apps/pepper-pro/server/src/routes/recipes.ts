@@ -28,7 +28,14 @@ export function recipeSummary(recipe: Recipe, status: RecipeStatus) {
     capabilities: recipe.capabilities,
     licence: recipe.licence,
     tiers: recipe.tiers,
-    modes: Object.entries(recipe.modes).map(([id, mode]) => ({ id, label: mode.label, description: mode.description })),
+    modes: Object.entries(recipe.modes).map(([id, mode]) => ({
+      id,
+      label: mode.label,
+      description: mode.description,
+      /** Whether this mode's workflow takes LoRAs from the library. */
+      loras: recipe.workflows[mode.workflow].lora_targets.length > 0,
+    })),
+    lora_base: recipe.lora_base,
     default_mode: recipe.default_mode,
     params: recipe.params,
     samples: recipe.samples,

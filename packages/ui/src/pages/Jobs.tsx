@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Ban, ChevronDown, ListChecks, RefreshCw, Trash2 } from 'lucide-react';
+import { Ban, ChevronDown, ListChecks, Maximize2, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { api, useEventStream, useResource, type Job } from '../lib/api';
 import {
   Badge,
@@ -10,7 +10,8 @@ import {
   Tooltip,
 } from '../components/ui';
 import { Page } from '../components/layout';
-import { cn, formatDuration, timeAgo } from '../lib/utils';
+import { cn, timeAgo } from '../lib/utils';
+import { GenerationTime, MediaViewer, generationOf, jobMedia } from '../components/media';
 
 const STATUS_VARIANT = {
   queued: 'outline',
@@ -147,10 +148,10 @@ function JobRow({
               lastUserMessage ??
               (recipeParams ? `${String(job.params.recipe)} · ${String(recipeParams.prompt ?? '')}` : ''),
           );
-  const duration = (job.result?.metadata as { duration_ms?: number } | undefined)?.duration_ms;
-  const resultUrl = (job.result?.image_url ?? job.result?.video_url ?? job.result?.audio_url) as
-    | string
-    | undefined;
+  const generation = generationOf(job);
+  const files = job.status === 'completed' ? jobMedia(job) : [];
+  const [open, setOpen] = React.useState<number>();
+  const resultUrl = files[0]?.url;
   // Text is the one kind whose result is the payload rather than a file.
   const resultText = job.result?.text as string | undefined;
 
@@ -159,7 +160,7 @@ function JobRow({
       <div className="flex flex-wrap items-center gap-3 p-3">
         <button
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+          className="flex min-w-0 flex-1 basis-64 items-center gap-3 text-left"
           aria-expanded={expanded}
         >
           <ChevronDown
@@ -174,12 +175,9 @@ function JobRow({
           </span>
         </button>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {duration ? (
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {formatDuration(duration)}
-            </span>
-          ) : null}
+        {/* Below the summary on a phone, rather than squeezing it to nothing. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          <GenerationTime generation={generation} status={job.status} className="text-[11px] text-muted-foreground" />
           {job.attempts > 0 ? <Badge variant="outline">retry {job.attempts}</Badge> : null}
           <Tooltip label={new Date(job.createdAt).toLocaleString()}>
             <span className="text-[11px] text-muted-foreground">{timeAgo(job.createdAt)}</span>
@@ -247,14 +245,29 @@ function JobRow({
             </pre>
           </div>
           {resultUrl ? (
-            <div className="flex w-full justify-center lg:w-56">
-              {job.result?.video_url ? (
-                <video src={resultUrl} controls className="max-h-48 rounded-md" preload="metadata" />
-              ) : job.result?.audio_url ? (
+            <div className="flex w-full flex-col items-center gap-2 lg:w-56">
+              {files[0].kind === 'audio' ? (
                 <audio src={resultUrl} controls className="w-full self-center" preload="metadata" />
               ) : (
-                <img src={resultUrl} alt="" className="max-h-48 rounded-md object-contain" />
+                <button type="button" onClick={() => setOpen(0)} aria-label="Open full size, with its details" className="relative">
+                  {files[0].kind === 'video' ? (
+                    <video src={`${resultUrl}#t=0.1`} muted className="max-h-48 rounded-md bg-black" preload="metadata" />
+                  ) : (
+                    <img src={resultUrl} alt="" className="max-h-48 rounded-md object-contain" />
+                  )}
+                  <Play className="absolute left-1/2 top-1/2 size-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-2 text-white" />
+                </button>
               )}
+              <Button variant="ghost" size="sm" onClick={() => setOpen(0)}>
+                <Maximize2 /> Details{files.length > 1 ? ` (${files.length} files)` : ''}
+              </Button>
+              <MediaViewer
+                item={open !== undefined ? files[open] : undefined}
+                position={open !== undefined && files.length > 1 ? `${open + 1} of ${files.length}` : undefined}
+                onPrev={open ? () => setOpen(open - 1) : undefined}
+                onNext={open !== undefined && open < files.length - 1 ? () => setOpen(open + 1) : undefined}
+                onClose={() => setOpen(undefined)}
+              />
             </div>
           ) : resultText ? (
             <pre className="max-h-48 w-full overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs lg:w-56">

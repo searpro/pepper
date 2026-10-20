@@ -76,6 +76,44 @@ export function prune(prompt: Prompt, remove: Iterable<string>, info?: ObjectInf
   applyBypasses(prompt, bypasses);
 }
 
+/** One LoRA as a graph takes it: the file name ComfyUI loads (`library/x.safetensors`) and its weight. */
+export interface LoraPatch {
+  name: string;
+  strength: number;
+}
+
+/**
+ * Patch a model with LoRAs: after each target's MODEL output, a chain of
+ * LoraLoaderModelOnly nodes, one per LoRA, and every input that read that
+ * output reads the chain's end instead. Model-only, because the models
+ * recipes run (DiT image and video models) are trained and patched there;
+ * their text encoders are large LLMs no LoRA here touches.
+ */
+export function insertLoras(prompt: Prompt, targets: { node: string; output: number }[], loras: LoraPatch[]): void {
+  if (loras.length === 0) return;
+  targets.forEach((target, t) => {
+    if (!prompt[target.node]) throw new GraphError(`the workflow has no LoRA target node "${target.node}"`);
+    const chain: string[] = [];
+    let from: Link = [target.node, target.output];
+    loras.forEach((lora, i) => {
+      const id = `pepper-lora-${t}-${i}`;
+      prompt[id] = {
+        class_type: 'LoraLoaderModelOnly',
+        inputs: { model: from, lora_name: lora.name, strength_model: lora.strength },
+        _meta: { title: `LoRA ${lora.name}` },
+      };
+      chain.push(id);
+      from = [id, 0];
+    });
+    for (const [id, node] of Object.entries(prompt)) {
+      if (chain.includes(id)) continue;
+      for (const [input, value] of Object.entries(node.inputs)) {
+        if (isLink(value) && value[0] === target.node && value[1] === target.output) node.inputs[input] = from;
+      }
+    }
+  });
+}
+
 export interface ValidationIssue {
   node: string;
   message: string;
@@ -112,7 +150,11 @@ export function validatePrompt(prompt: Prompt, info: ObjectInfo, options: Valida
     for (const input of Object.keys(spec.input.required ?? {})) {
       // A dynamic group (`values`, `images`) is present as its members (`values.a`).
       const present = input in node.inputs || Object.keys(node.inputs).some((name) => name.startsWith(`${input}.`));
-      if (!present) issues.push({ node: id, message: `${node.class_type} is missing required input "${input}"` });
+      // A group declared with `min: 0` may be empty: Qwen-Image 2.1's encoder
+      // takes no images for text to image.
+      const decl = spec.input.required?.[input];
+      const emptyAllowed = decl?.[0] === 'COMFY_AUTOGROW_V3' && (decl[1] as { template?: { min?: number } } | undefined)?.template?.min === 0;
+      if (!present && !emptyAllowed) issues.push({ node: id, message: `${node.class_type} is missing required input "${input}"` });
     }
     const declared = { ...(spec.input.required ?? {}), ...(spec.input.optional ?? {}) };
     for (const [input, value] of Object.entries(node.inputs)) {

@@ -452,4 +452,31 @@ export interface MediaItem {
   size: number;
   modified: string;
   url: string;
+  /** How it was made, while its job is still on record. */
+  generation?: Generation;
+}
+
+/**
+ * What a screen shows beside a generated file (core's `jobs/generation.ts`,
+ * which `/v1/outputs` and `/v1/outputs/:name/info` return; `generationOf` in
+ * `components/media.tsx` builds the same from a job the screen holds).
+ */
+export interface Generation {
+  job_id: string;
+  source?: string;
+  mode?: string;
+  task?: string;
+  prompt?: string;
+  negative_prompt?: string;
+  seed?: number;
+  width?: number;
+  height?: number;
+  /** LoRAs it was made with, at the strength used. */
+  loras?: { id?: string; name: string; strength: number }[];
+  /** From the job starting to it finishing: model loading included, queueing not. */
+  duration_ms?: number;
+  wait_ms?: number;
+  created_at: string;
+  started_at?: string;
+  finished_at?: string;
 }

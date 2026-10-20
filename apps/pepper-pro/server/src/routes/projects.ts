@@ -16,6 +16,15 @@ const aspect = z.enum(ASPECTS);
 const assetKind = z.enum(ASSET_KINDS);
 const shotKind = z.enum(SHOT_KINDS);
 
+/**
+ * LoRAs from the library that an asset or shot carries: ids, or ids with a
+ * strength. A take uses those made for its recipe's base model.
+ */
+const loraUses = z
+  .array(z.union([z.string().min(1), z.object({ id: z.string().min(1), strength: z.number().min(0).max(4).optional() })]))
+  .max(8)
+  .transform((list) => list.map((item) => (typeof item === 'string' ? { id: item } : item)));
+
 const projectBody = z.object({
   name: z.string().min(1).max(200),
   description: z.string().max(4000).optional(),
@@ -34,6 +43,7 @@ const assetBody = z.object({
   images: z.array(z.string()).max(16).optional(),
   voice: z.object({ upload: z.string().optional(), description: z.string().optional() }).nullable().optional(),
   audio: z.string().nullable().optional(),
+  loras: loraUses.optional(),
   meta: z.record(z.unknown()).optional(),
 });
 
@@ -58,6 +68,8 @@ const shotBody = z.object({
   audioAssetId: z.string().nullable().optional(),
   recipeId: z.string().nullable().optional(),
   params: z.record(z.unknown()).optional(),
+  /** On top of its assets' LoRAs; the same id sets that LoRA's strength for this shot, 0 leaves it out. */
+  loras: loraUses.optional(),
   /** Carry straight on from the previous shot of the scene (its chosen take), as one continuous take. */
   continues: z.boolean().optional(),
 });
@@ -77,6 +89,8 @@ export const planSchema = z.object({
         images: z.array(z.string()).optional(),
         audio: z.string().optional(),
         voice: z.object({ upload: z.string().optional(), description: z.string().optional() }).optional(),
+        /** LoRA ids from the library that belong to it (a character's likeness). */
+        loras: loraUses.optional(),
         /** Save (or update) it in the shared library, so every project can name it. */
         library: z.boolean().optional(),
       }),
@@ -101,6 +115,7 @@ export const planSchema = z.object({
               audio: z.string().optional(),
               recipe: z.string().optional(),
               params: z.record(z.unknown()).optional(),
+              loras: loraUses.optional(),
               /** Carries straight on from the shot before it, as one continuous take. */
               continues: z.boolean().optional(),
             }),

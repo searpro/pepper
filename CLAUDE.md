@@ -55,7 +55,7 @@ There is no linter or formatter configured; match the surrounding style
 | `apps/pepper/server/src/models/bundle.ts` | Model bundle layout / slot detection |
 | `packages/core/src/jobs`, `downloads`, `logs`, `db` | Persistent job queue, resumable downloads, log buffer, SQLite |
 | `apps/pepper/server/python/pepper_runner` | One-shot Python runners (Wan 2.2 5B, LTX, EchoMimicV3, upscale, SeedVR2, YuE2) |
-| `apps/pepper-pro/server/src/{comfy,engines,recipes,projects,golden}` | ComfyUI client and graph editing, the ComfyUI/render/analyze engines, recipes, projects, golden shots |
+| `apps/pepper-pro/server/src/{comfy,engines,recipes,projects,golden,loras}` | ComfyUI client and graph editing, the ComfyUI/render/analyze engines, recipes, projects, golden shots, the LoRA library |
 | `apps/pepper-pro/server/recipes/<id>/` | Recipes: `recipe.json` plus ComfyUI API-format workflows; `recipes/README.md` is the contract |
 | `apps/*/web/src/pages/*`, `packages/ui/src/*` | SPA screens; `packages/ui/src/lib/api.ts` is the API client |
 | `deploy/runpod` | RunPod launcher (`launch.py` local; `--product pro --tier …` for Pro) and container `entrypoint.mjs` (tunnel, idle shutdown) |

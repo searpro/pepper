@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { errors } from '../errors.js';
+import { describeGeneration } from '../jobs/generation.js';
 import type { JobManager } from '../jobs/manager.js';
 import { safeResolve, type Paths } from '../paths.js';
 import { listFiles } from '../util/files.js';
@@ -77,14 +78,22 @@ export async function mediaRoutes(fastify: FastifyInstance, options: MediaRoutes
     },
     async (req) => {
       const files = await listFiles(paths.outputDir);
+      const made = jobs.outputIndex();
       const outputs = files
-        .map((file) => ({
-          name: file.name,
-          kind: mediaKind(file.name),
-          size: file.size,
-          modified: new Date(file.modified).toISOString(),
-          url: `/v1/outputs/${encodeURIComponent(file.name)}`,
-        }))
+        .map((file) => {
+          const url = `/v1/outputs/${encodeURIComponent(file.name)}`;
+          const job = made.get(url);
+          return {
+            name: file.name,
+            kind: mediaKind(file.name),
+            size: file.size,
+            modified: new Date(file.modified).toISOString(),
+            url,
+            // How long it took and from what, so a library can say so without
+            // a request per file. Absent when its job is gone.
+            generation: job ? describeGeneration(job) : undefined,
+          };
+        })
         .filter((output) => !req.query.kind || output.kind === req.query.kind)
         .sort((a, b) => b.modified.localeCompare(a.modified))
         .slice(0, req.query.limit);
@@ -166,9 +175,11 @@ export async function mediaRoutes(fastify: FastifyInstance, options: MediaRoutes
               params: job.params,
               metadata: (job.result?.metadata as Record<string, unknown> | undefined) ?? null,
               createdAt: job.createdAt,
+              startedAt: job.startedAt,
               finishedAt: job.finishedAt,
             }
           : null,
+        generation: job ? describeGeneration(job) : null,
       };
     },
   );

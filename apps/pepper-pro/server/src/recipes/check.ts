@@ -31,6 +31,11 @@ const SAMPLE: Partial<Record<RecipeParam['type'], unknown>> = {
   boolean: true,
 };
 
+const SAMPLE_LORAS = [
+  { name: 'library/sample-a.safetensors', strength: 0.8 },
+  { name: 'library/sample-b.safetensors', strength: 1 },
+];
+
 /** A value for a parameter; lists get one item, or every slot when filling all inputs. */
 function sample(param: RecipeParam, inputs: 'required' | 'all'): unknown {
   const count = inputs === 'all' ? (param.max_items ?? 1) : 1;
@@ -87,6 +92,9 @@ export function checkRecipe(
     for (const inputs of ['required', 'all'] as const) {
       const issues: string[] = [];
       try {
+        // With every input filled, two LoRAs too where the workflow takes
+        // them, so a target that is not a MODEL output fails here.
+        const loras = inputs === 'all' && workflow.lora_targets.length > 0 ? SAMPLE_LORAS : undefined;
         const prompt = buildPrompt({
           recipe,
           mode,
@@ -96,7 +104,11 @@ export function checkRecipe(
           files,
           objectInfo: options.objectInfo,
           validate: { ignoreFileChoices: true },
+          loras,
         });
+        if (loras && !Object.values(prompt).some((node) => node.class_type === 'LoraLoaderModelOnly' && node.inputs.lora_name === loras[1].name)) {
+          issues.push('the LoRAs were pruned away: a lora_target feeds nothing that runs');
+        }
         issues.push(...danglingLinks(prompt));
         for (const output of workflow.outputs) {
           if (!prompt[output.node]) issues.push(`output node ${output.node} was pruned away`);

@@ -88,6 +88,10 @@ export interface ModelDescription {
   verified?: { date: string; gpu: string; seconds?: number };
   licence: { name: string; commercial: string };
   install_bytes: number;
+  /** The base model LoRAs must be made for; absent when it takes none. */
+  lora_base?: string;
+  /** Downloaded LoRAs from the library that fit it, with the words that trigger them. */
+  loras?: { id: string; name: string; trigger_words: string[]; strength: number }[];
 }
 
 export function describeModel(recipe: Recipe, status: RecipeStatus): ModelDescription {
@@ -123,6 +127,7 @@ export function describeModel(recipe: Recipe, status: RecipeStatus): ModelDescri
     verified: recipe.verified ? { date: recipe.verified.date, gpu: recipe.verified.gpu, seconds: recipe.verified.seconds } : undefined,
     licence: { name: recipe.licence.name, commercial: recipe.licence.commercial },
     install_bytes: status.installBytes,
+    lora_base: recipe.lora_base,
   };
 }
 
@@ -158,7 +163,7 @@ export function mismatch(model: ModelDescription, request: GenericRequest): stri
  */
 const PREFERENCE: Record<string, string[]> = {
   video: ['h3-video', 'h3-reference', 'ltx25-video', 'wan22-video', 'infinitetalk', 'infinitetalk-duo', 'longcat-avatar', 'ltx23-audio-to-video', 'wan-animate2', 'scail2-replace', 'wan-dancer', 'seedvr2-upscale-video'],
-  image: ['krea2-image', 'zimage-turbo', 'flux2-klein-edit', 'qwen-image-edit', 'seedvr2-upscale-image'],
+  image: ['krea2-image', 'zimage-turbo', 'qwen-image-turbo', 'flux2-klein-edit', 'qwen-image-turbo-edit', 'qwen-image-edit', 'seedvr2-upscale-image'],
   audio: ['qwen3-tts', 'ace-step-music', 'minimax-music-3'],
 };
 

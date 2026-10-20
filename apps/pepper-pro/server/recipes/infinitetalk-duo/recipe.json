@@ -12,6 +12,7 @@
     "audio-driven",
     "two-person"
   ],
+  "lora_base": "wan-2.1-14b",
   "licence": {
     "id": "apache-2.0",
     "name": "Apache 2.0 (Wan and its LoRAs)",
@@ -240,7 +241,13 @@
       ],
       "progress": {
         "188:194": 1
-      }
+      },
+      "lora_targets": [
+        {
+          "node": "188:13",
+          "output": 0
+        }
+      ]
     },
     "medium": {
       "file": "workflow-6s.json",
@@ -332,7 +339,13 @@
       "progress": {
         "188:194": 1,
         "c2:sample": 1
-      }
+      },
+      "lora_targets": [
+        {
+          "node": "188:13",
+          "output": 0
+        }
+      ]
     },
     "long": {
       "file": "workflow-12s.json",
@@ -426,7 +439,13 @@
         "c2:sample": 1,
         "c3:sample": 1,
         "c4:sample": 1
-      }
+      },
+      "lora_targets": [
+        {
+          "node": "188:13",
+          "output": 0
+        }
+      ]
     }
   },
   "modes": {

@@ -22,7 +22,8 @@ import { api, ApiRequestError, useResource } from '@pepper/ui/lib/api';
 import { cn } from '@pepper/ui/lib/utils';
 import { AssetsPanel } from '@/components/Assets';
 import { CutEditor } from '@/components/CutEditor';
-import { ShotDialog, TakeMedia } from '@/components/ShotDialog';
+import { MediaPreview } from '@pepper/ui/components/media';
+import { ShotDialog } from '@/components/ShotDialog';
 import { ASPECTS, isActive, upload, type ProjectDetail, type RecipeList, type Scene, type Shot } from '@/lib/pro';
 
 /**
@@ -234,9 +235,14 @@ function ShotCard({ shot, onOpen }: { shot: Shot; onOpen: () => void }) {
       onClick={onOpen}
       className={cn('flex w-56 shrink-0 cursor-pointer flex-col gap-2 p-2 transition-colors hover:bg-accent/40', chosen && 'border-primary/60')}
     >
-      <div className="flex aspect-video items-center justify-center overflow-hidden rounded-md bg-muted">
-        {latest ? <TakeMedia take={latest} className="pointer-events-none max-h-full" /> : <Clapperboard className="size-5 text-muted-foreground/50" />}
-      </div>
+      {latest?.url && latest.kind ? (
+        // The take a cut would play: its master once done, whole whatever the project's aspect.
+        <MediaPreview url={latest.master?.url ?? latest.url} kind={latest.kind} className="rounded-md" />
+      ) : (
+        <div className="flex aspect-square items-center justify-center rounded-md bg-muted">
+          <Clapperboard className="size-5 text-muted-foreground/50" />
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-1">
         <Badge variant="outline">{shot.kind}</Badge>
         <Badge>{shot.durationS}s</Badge>

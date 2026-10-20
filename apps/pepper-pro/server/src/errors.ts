@@ -18,4 +18,5 @@ export const proErrors = {
   projectNotFound: (id: string) => new AppError('PROJECT_NOT_FOUND', `Project not found: ${id}`, 404),
   shotNotFound: (id: string) => new AppError('SHOT_NOT_FOUND', `Shot not found: ${id}`, 404),
   takeNotFound: (id: string) => new AppError('TAKE_NOT_FOUND', `Take not found: ${id}`, 404),
+  loraNotFound: (id: string) => new AppError('LORA_NOT_FOUND', `LoRA not found: ${id}`, 404),
 };

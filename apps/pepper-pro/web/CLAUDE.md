@@ -13,7 +13,10 @@ Loaded when working under `apps/pepper-pro/web/`. Root `CLAUDE.md` has commands 
   filters, install, and a delete dialog that keeps or removes files shared
   with other installed recipes; golden shots in `components/Golden.tsx`),
   `Media.tsx` (generated and uploaded files: search, kind/model filters and
-  sort, select all and bulk delete, a full-size viewer with arrow keys).
+  sort, select all and bulk delete, a full-size viewer with arrow keys),
+  `Loras.tsx` (the LoRA library: add by link after a lookup, edit, delete;
+  Generate's picker is `components/loras.tsx`, shown for modes that take LoRAs;
+  `LoraRefs` there is the cast and shot editors' list, from the whole library).
 - Media inputs (`components/inputs.tsx` `MediaField`) take a file from the
   computer or one from the library: an earlier upload is reused as is, a
   generated file is linked in through `POST /v1/inputs/from-output`. Uploads

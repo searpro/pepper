@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Check, FileAudio, FileVideo, ImagePlus, Library, Music, Upload, X } from 'lucide-react';
+import { Check, FileAudio, FileVideo, ImagePlus, Library, Upload, X } from 'lucide-react';
+import { MediaPreview, MediaTile, MediaViewer } from '@pepper/ui/components/media';
 import {
   Button,
   Dialog,
@@ -17,18 +18,27 @@ import {
   Textarea,
 } from '@pepper/ui/components/ui';
 import { api, useResource, type MediaItem } from '@pepper/ui/lib/api';
-import { cn, timeAgo } from '@pepper/ui/lib/utils';
+import { cn } from '@pepper/ui/lib/utils';
 import { inputUrl, upload, type RecipeParam } from '@/lib/pro';
 
 type MediaKind = 'image' | 'audio' | 'video';
 
 const ACCEPT: Record<MediaKind, string> = { image: 'image/*', audio: 'audio/*', video: 'video/*' };
 
-/** A preview of one upload, by kind. */
+/** A preview of one upload, by kind: the whole frame whatever its shape, or a player for audio. */
 export function MediaThumb({ name, kind, className }: { name: string; kind: MediaKind; className?: string }) {
-  if (kind === 'image') return <img src={inputUrl(name)} alt="" className={cn('size-16 rounded-md object-cover', className)} />;
   if (kind === 'audio') return <audio src={inputUrl(name)} controls preload="none" className={cn('h-8 w-56', className)} />;
-  return <video src={inputUrl(name)} muted preload="metadata" className={cn('size-16 rounded-md object-cover', className)} />;
+  return <MediaPreview url={inputUrl(name)} kind={kind} className={cn('size-24 rounded-md', className)} />;
+}
+
+/** An upload as a media item, for the viewer. */
+function uploadItem(name: string, kind: MediaKind): MediaItem {
+  return { name, kind, size: 0, modified: '', url: inputUrl(name) };
+}
+
+/** The output an upload was linked from (`POST /v1/inputs/from-output` names it `from-<output>`), whose job says how it was made. */
+function sourceOutput(name: string): string | undefined {
+  return name.startsWith('from-') ? name.slice('from-'.length) : undefined;
 }
 
 /**
@@ -54,6 +64,7 @@ export function MediaField({
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
   const [library, setLibrary] = React.useState(false);
+  const [viewing, setViewing] = React.useState<number>();
   const full = !multiple ? value.length >= 1 : max !== undefined && value.length >= max;
   const room = multiple ? (max ?? Infinity) - value.length : 1;
 
@@ -79,7 +90,13 @@ export function MediaField({
       <div className="flex flex-wrap items-center gap-2">
         {value.map((name, index) => (
           <div key={`${name}-${index}`} className="relative flex items-center gap-1 rounded-md border border-border p-1">
-            <MediaThumb name={name} kind={kind} />
+            {kind === 'audio' ? (
+              <MediaThumb name={name} kind={kind} />
+            ) : (
+              <button type="button" onClick={() => setViewing(index)} aria-label={`View ${name} full size`} title="View full size" className="rounded-md">
+                <MediaThumb name={name} kind={kind} />
+              </button>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -111,6 +128,14 @@ export function MediaField({
         />
       </div>
       {error ? <ErrorNote>{error}</ErrorNote> : null}
+      <MediaViewer
+        item={viewing !== undefined && value[viewing] ? uploadItem(value[viewing], kind) : undefined}
+        infoFor={viewing !== undefined && value[viewing] ? sourceOutput(value[viewing]) : undefined}
+        position={viewing !== undefined && value.length > 1 ? `${viewing + 1} of ${value.length}` : undefined}
+        onPrev={viewing ? () => setViewing(viewing - 1) : undefined}
+        onNext={viewing !== undefined && viewing < value.length - 1 ? () => setViewing(viewing + 1) : undefined}
+        onClose={() => setViewing(undefined)}
+      />
       <LibraryPicker
         open={library}
         kind={kind}
@@ -146,6 +171,7 @@ function LibraryPicker({
   const [chosen, setChosen] = React.useState<string[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
+  const [viewing, setViewing] = React.useState<string>();
   const outputs = useResource<{ outputs: MediaItem[] }>(open ? `/v1/outputs?kind=${kind}&limit=1000` : null);
   const uploads = useResource<{ uploads: MediaItem[] }>(open ? '/v1/inputs' : null);
 
@@ -159,8 +185,11 @@ function LibraryPicker({
   const resource = tab === 'outputs' ? outputs : uploads;
   const needle = search.trim().toLowerCase();
   const items = ((tab === 'outputs' ? outputs.data?.outputs : uploads.data?.uploads) ?? []).filter(
-    (item) => item.kind === kind && (!needle || item.name.toLowerCase().includes(needle)),
+    (item) =>
+      item.kind === kind &&
+      (!needle || item.name.toLowerCase().includes(needle) || Boolean(item.generation?.prompt?.toLowerCase().includes(needle))),
   );
+  const viewed = viewing ? items.findIndex((item) => item.name === viewing) : -1;
   const key = (item: MediaItem) => `${tab}:${item.name}`;
   const toggle = (item: MediaItem) =>
     setChosen((current) =>
@@ -201,40 +230,25 @@ function LibraryPicker({
                   <TabsTrigger value="uploads">Uploaded</TabsTrigger>
                 </TabsList>
               </Tabs>
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name" className="min-w-40 flex-1" aria-label="Search the library" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or prompt" className="min-w-40 flex-1" aria-label="Search the library" />
             </div>
             {resource.error ? <ErrorNote>{resource.error.message}</ErrorNote> : null}
             {resource.loading && !resource.data ? <Spinner /> : null}
             {resource.data && !items.length ? (
               <EmptyState icon={Library} title={`No ${kind} here`} description={tab === 'outputs' ? 'Generated files are kept for a day.' : undefined} />
             ) : null}
-            <div className="grid max-h-[56vh] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
-              {items.map((item) => {
-                const picked = chosen.includes(key(item));
-                return (
-                  <button
-                    key={item.name}
-                    type="button"
-                    onClick={() => toggle(item)}
-                    aria-pressed={picked}
-                    aria-label={`Choose ${item.name}`}
-                    className={cn('relative flex flex-col gap-1 overflow-hidden rounded-md border border-border p-1 text-left', picked && 'ring-2 ring-primary')}
-                  >
-                    {kind === 'image' ? <img src={item.url} alt="" loading="lazy" className="aspect-video w-full rounded object-cover" /> : null}
-                    {kind === 'video' ? <video src={`${item.url}#t=0.1`} muted preload="metadata" className="aspect-video w-full rounded bg-black object-cover" /> : null}
-                    {kind === 'audio' ? (
-                      <div className="flex aspect-video w-full items-center justify-center rounded bg-muted text-muted-foreground">
-                        <Music className="size-6" />
-                      </div>
-                    ) : null}
-                    <span className="truncate font-mono text-[10px] text-muted-foreground" title={item.name}>
-                      {item.name}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">{timeAgo(item.modified)}</span>
-                    {picked ? <Check className="absolute right-2 top-2 size-5 rounded-full bg-primary p-0.5 text-primary-foreground" /> : null}
-                  </button>
-                );
-              })}
+            <div className="grid max-h-[60vh] grid-cols-2 content-start gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
+              {/* A click picks a file; its full-size button opens it, to check before using it. */}
+              {items.map((item) => (
+                <MediaTile
+                  key={item.name}
+                  item={item}
+                  selected={chosen.includes(key(item))}
+                  onToggle={() => toggle(item)}
+                  onOpen={() => toggle(item)}
+                  onView={() => setViewing(item.name)}
+                />
+              ))}
             </div>
             {error ? <ErrorNote>{error}</ErrorNote> : null}
             <div className="flex items-center justify-end gap-2">
@@ -249,6 +263,28 @@ function LibraryPicker({
           </div>
         </DialogContent>
       ) : null}
+      <MediaViewer
+        item={viewed >= 0 ? items[viewed] : undefined}
+        infoFor={viewed >= 0 && tab === 'uploads' ? sourceOutput(items[viewed].name) : undefined}
+        position={viewed >= 0 ? `${viewed + 1} of ${items.length}` : undefined}
+        onPrev={viewed > 0 ? () => setViewing(items[viewed - 1].name) : undefined}
+        onNext={viewed >= 0 && viewed < items.length - 1 ? () => setViewing(items[viewed + 1].name) : undefined}
+        onClose={() => setViewing(undefined)}
+        actions={
+          viewed >= 0 ? (
+            <Button
+              size="sm"
+              onClick={() => {
+                const item = items[viewed];
+                if (!chosen.includes(key(item))) toggle(item);
+                setViewing(undefined);
+              }}
+            >
+              <Check /> {chosen.includes(key(items[viewed])) ? 'Chosen' : 'Choose'}
+            </Button>
+          ) : null
+        }
+      />
     </Dialog>
   );
 }

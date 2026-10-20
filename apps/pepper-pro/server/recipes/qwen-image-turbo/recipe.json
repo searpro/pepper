@@ -1,0 +1,205 @@
+{
+  "schema": 1,
+  "id": "qwen-image-turbo",
+  "version": 1,
+  "kind": "image",
+  "name": "Qwen-Image 2.1 Turbo — stills in 8 steps",
+  "description": "Text to image in 8 steps, native up to 2K: posters, typography and UI with legible text, portraits, transparent PNGs. Research-only licence: not for commercial work.",
+  "family": "qwen-image-2.1",
+  "capabilities": [
+    "text-to-image",
+    "typography",
+    "photoreal",
+    "keyframe"
+  ],
+  "lora_base": "qwen-image-2.1",
+  "licence": {
+    "id": "qwen-research",
+    "name": "Qwen Research Licence",
+    "url": "https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo/blob/main/LICENSE",
+    "commercial": "no",
+    "obligations": [
+      "Research and evaluation only; outputs may not be used commercially."
+    ]
+  },
+  "files": [
+    {
+      "id": "model",
+      "folder": "diffusion_models",
+      "label": "Qwen-Image 2.1 Turbo",
+      "variants": [
+        {
+          "tiers": [
+            "16gb",
+            "24gb-64ram",
+            "32gb"
+          ],
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors",
+          "bytes": 7256787829,
+          "sha256": "8144a0182964aa8403ad6dbc011db837304167d235161b9aabaa8532e967314c"
+        },
+        {
+          "tiers": [
+            "48gb",
+            "96gb"
+          ],
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "diffusion_models/qwen_image_2.1_turbo_bf16.safetensors",
+          "bytes": 14230280616,
+          "sha256": "8b74237a7f505773e2c66726fa696444b4c704585c93a347cff9044937f7914a"
+        }
+      ]
+    },
+    {
+      "id": "text_encoder",
+      "folder": "text_encoders",
+      "label": "Qwen3-VL 8B",
+      "variants": [
+        {
+          "tiers": [
+            "16gb",
+            "24gb-64ram",
+            "32gb",
+            "48gb"
+          ],
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+          "bytes": 9350798360,
+          "sha256": "8bfd0f6e12abf2d2d697ecc888e5e90b0d6741d6708f05799f53afa560452e8f"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "text_encoders/qwen3vl_8b_bf16.safetensors",
+          "bytes": 17534334616,
+          "sha256": "68bdc82bc1b66851162ae656225e7e2068166b603db19bd5d5a3b90eb12669a9"
+        }
+      ]
+    },
+    {
+      "id": "vae",
+      "folder": "vae",
+      "label": "VAE",
+      "variants": [
+        {
+          "repo": "Comfy-Org/Qwen-Image-2.1",
+          "path": "vae/qwen_image_2.1_vae_bf16.safetensors",
+          "bytes": 675509688,
+          "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Prompt",
+      "required": true,
+      "description": "One long descriptive paragraph works best; quote any text to render. For a transparent PNG, start with \"This is an RGBA format image with transparency.\""
+    },
+    {
+      "name": "width",
+      "type": "int",
+      "label": "Width",
+      "default": 1024,
+      "min": 256,
+      "max": 2752
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "label": "Height",
+      "default": 1024,
+      "min": 256,
+      "max": 2752
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "452",
+          "input": "prompt"
+        },
+        {
+          "param": "width",
+          "node": "456",
+          "input": "width"
+        },
+        {
+          "param": "height",
+          "node": "456",
+          "input": "height"
+        },
+        {
+          "param": "seed",
+          "node": "488",
+          "input": "noise_seed"
+        },
+        {
+          "file": "model",
+          "node": "451",
+          "input": "unet_name"
+        },
+        {
+          "file": "text_encoder",
+          "node": "453",
+          "input": "clip_name"
+        },
+        {
+          "file": "vae",
+          "node": "454",
+          "input": "vae_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "461",
+          "kind": "image"
+        }
+      ],
+      "lora_targets": [
+        {
+          "node": "451",
+          "output": 0
+        }
+      ]
+    }
+  },
+  "modes": {
+    "final": {
+      "label": "Turbo, 1 MP (8 steps)",
+      "workflow": "main"
+    },
+    "2k": {
+      "label": "Turbo, native 2K (8 steps)",
+      "description": "About 4 MP, the size Qwen publishes its presets at (2048×2048, 1536×2752 for 9:16). Slower, more detail.",
+      "workflow": "main",
+      "defaults": {
+        "width": 2048,
+        "height": 2048
+      }
+    }
+  },
+  "default_mode": "final",
+  "tiers": [
+    "16gb",
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "The Turbo checkpoint is distilled for the fixed 8-step schedule in its ManualSigmas node, at CFG 1 (so there is no negative prompt). Sizes should be multiples of 32. Same text encoder and VAE as qwen-image-edit and qwen-image-turbo-edit, stored once."
+}

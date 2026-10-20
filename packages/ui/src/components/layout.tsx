@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { ChevronLeft, Moon, Package, Settings, Sun, type LucideIcon } from 'lucide-react';
+import { ChevronLeft, Menu, Moon, Package, Settings, Sun, X, type LucideIcon } from 'lucide-react';
 import { Badge, Button, Tooltip } from './ui';
 import { BackendPills, ResourceMeters } from './system-status';
 import { cn } from '../lib/utils';
@@ -11,6 +11,9 @@ import type { SystemStatus } from '../lib/api';
  * (requirement 10) and a top bar carrying the Preferences and Catalogue
  * entries on the right, plus a live status pill. The nav items and the
  * product's name are the product's; the frame is shared.
+ *
+ * On a phone the nav is a drawer behind a menu button: a fixed rail would
+ * leave the screen itself a strip a few words wide.
  */
 
 export type Theme = 'light' | 'dark' | 'system';
@@ -62,11 +65,15 @@ export function AppShell({
   const [collapsed, setCollapsed] = React.useState(
     () => localStorage.getItem(COLLAPSE_KEY) === 'true',
   );
+  const [drawer, setDrawer] = React.useState(false);
   const location = useLocation();
 
   React.useEffect(() => {
     localStorage.setItem(COLLAPSE_KEY, String(collapsed));
   }, [collapsed]);
+
+  // Picking a screen from the drawer is the end of using it.
+  React.useEffect(() => setDrawer(false), [location.pathname]);
 
   const groups = React.useMemo(() => {
     const byGroup = new Map<string, NavItem[]>();
@@ -80,19 +87,13 @@ export function AppShell({
 
   const activeJobs = (status?.jobs.running ?? 0) + (status?.jobs.queued ?? 0);
 
-  return (
-    <div className="flex h-dvh w-full overflow-hidden bg-background">
-      <aside
-        className={cn(
-          'flex shrink-0 flex-col border-r border-border bg-card/40 transition-[width] duration-200',
-          collapsed ? 'w-[60px]' : 'w-[212px]',
-        )}
-      >
+  const navigation = (folded: boolean, drawer: boolean) => (
+    <>
         <div className="flex h-14 items-center gap-2 px-3">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <span className="text-sm font-bold">{brand.initial}</span>
           </div>
-          {!collapsed ? (
+          {!folded ? (
             <div className="flex min-w-0 flex-col">
               <span className="truncate text-sm font-semibold leading-tight">{brand.name}</span>
               <span className="truncate text-[10px] leading-tight text-muted-foreground">
@@ -100,12 +101,17 @@ export function AppShell({
               </span>
             </div>
           ) : null}
+          {drawer ? (
+            <Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setDrawer(false)} aria-label="Close navigation">
+              <X />
+            </Button>
+          ) : null}
         </div>
 
         <nav className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 py-2 scrollbar-thin">
           {groups.map(([group, items]) => (
             <div key={group} className="flex flex-col gap-1">
-              {!collapsed ? (
+              {!folded ? (
                 <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   {group}
                 </p>
@@ -118,7 +124,7 @@ export function AppShell({
                     className={({ isActive }) =>
                       cn(
                         'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors',
-                        collapsed && 'justify-center px-0',
+                        folded && 'justify-center px-0',
                         isActive
                           ? 'bg-primary/12 text-primary'
                           : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
@@ -126,8 +132,8 @@ export function AppShell({
                     }
                   >
                     <item.icon className="size-4 shrink-0" />
-                    {!collapsed ? <span className="truncate">{item.label}</span> : null}
-                    {!collapsed && item.to === '/jobs' && activeJobs > 0 ? (
+                    {!folded ? <span className="truncate">{item.label}</span> : null}
+                    {!folded && item.to === '/jobs' && activeJobs > 0 ? (
                       <Badge variant="primary" className="ml-auto">
                         {activeJobs}
                       </Badge>
@@ -135,7 +141,7 @@ export function AppShell({
                   </NavLink>
                 );
                 // A collapsed rail is unusable without labels on hover.
-                return collapsed ? (
+                return folded ? (
                   <Tooltip key={item.to} label={item.label}>
                     <div>{link}</div>
                   </Tooltip>
@@ -147,29 +153,56 @@ export function AppShell({
           ))}
         </nav>
 
-        <div className={cn('border-t border-border py-3', collapsed ? 'px-2' : 'px-3')}>
-          <ResourceMeters resources={status?.resources} collapsed={collapsed} />
+        <div className={cn('border-t border-border py-3', folded ? 'px-2' : 'px-3')}>
+          <ResourceMeters resources={status?.resources} collapsed={folded} />
         </div>
 
-        <div className="border-t border-border p-2">
-          <Button
-            variant="ghost"
-            size={collapsed ? 'icon' : 'sm'}
-            className={cn('w-full text-muted-foreground', collapsed && 'w-full')}
-            onClick={() => setCollapsed((value) => !value)}
-            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-          >
-            <ChevronLeft className={cn('transition-transform', collapsed && 'rotate-180')} />
-            {!collapsed ? <span>Collapse</span> : null}
-          </Button>
-        </div>
+        {drawer ? null : (
+          <div className="border-t border-border p-2">
+            <Button
+              variant="ghost"
+              size={folded ? 'icon' : 'sm'}
+              className={cn('w-full text-muted-foreground', folded && 'w-full')}
+              onClick={() => setCollapsed((value) => !value)}
+              aria-label={folded ? 'Expand navigation' : 'Collapse navigation'}
+            >
+              <ChevronLeft className={cn('transition-transform', folded && 'rotate-180')} />
+              {!folded ? <span>Collapse</span> : null}
+            </Button>
+          </div>
+        )}
+    </>
+  );
+
+  return (
+    <div className="flex h-dvh w-full overflow-hidden bg-background">
+      <aside
+        className={cn(
+          'hidden shrink-0 flex-col border-r border-border bg-card/40 transition-[width] duration-200 md:flex',
+          collapsed ? 'w-[60px]' : 'w-[212px]',
+        )}
+      >
+        {navigation(collapsed, false)}
       </aside>
 
+      {drawer ? (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div className="absolute inset-0 bg-black/45" onClick={() => setDrawer(false)} aria-hidden />
+          <aside className="absolute inset-y-0 left-0 flex w-[min(80vw,260px)] flex-col border-r border-border bg-card shadow-2xl">
+            {navigation(false, true)}
+          </aside>
+        </div>
+      ) : null}
+
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
-          <div className="flex min-w-0 items-center gap-3">
+        <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-2 sm:gap-3 sm:px-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setDrawer(true)} aria-label="Open navigation">
+              <Menu />
+            </Button>
             <h1 className="truncate text-sm font-semibold capitalize">
-              {location.pathname.split('/')[1] || brand.home}
+              {/* The nav's own label where there is one: "LoRAs", not "Loras". */}
+              {nav.find((item) => item.to === `/${location.pathname.split('/')[1]}`)?.label ?? (location.pathname.split('/')[1] || brand.home)}
             </h1>
             <BackendPills status={status} onChanged={onStatusChanged} />
           </div>

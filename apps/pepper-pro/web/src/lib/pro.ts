@@ -1,4 +1,4 @@
-import { api, type Job } from '@pepper/ui/lib/api';
+import { api, type Generation, type Job } from '@pepper/ui/lib/api';
 
 /**
  * Pepper Pro's API types, as the server returns them (routes/recipes.ts,
@@ -40,8 +40,11 @@ export interface Recipe {
   capabilities: string[];
   licence: Licence;
   tiers: string[];
-  modes: { id: string; label: string; description?: string }[];
+  /** `loras`: the mode's workflow takes LoRAs from the library. */
+  modes: { id: string; label: string; description?: string; loras: boolean }[];
   default_mode: string;
+  /** The base model LoRAs must be made for; absent when it takes none. */
+  lora_base?: string;
   params: RecipeParam[];
   verified?: { date: string; gpu: string; seconds?: number; notes?: string };
   notes?: string;
@@ -73,6 +76,70 @@ export interface DeletePlan {
   shared_bytes: number;
 }
 
+export type LoraState = 'installed' | 'queued' | 'downloading' | 'failed' | 'missing';
+
+/** A LoRA in the library (routes/loras.ts). */
+export interface Lora {
+  id: string;
+  name: string;
+  base: string;
+  base_label: string;
+  file: string;
+  url: string;
+  source: 'huggingface' | 'civitai' | 'url';
+  page_url: string | null;
+  source_base: string | null;
+  trigger_words: string[];
+  strength: number;
+  description: string;
+  preview_url: string | null;
+  bytes: number | null;
+  sha256: string | null;
+  created_at: number;
+  updated_at: number;
+  state: LoraState;
+  download?: { id: string; received: number; total: number | null; error?: string };
+  /** Installed recipes it can run with. */
+  recipes: string[];
+}
+
+export interface LoraBase {
+  id: string;
+  label: string;
+  recipes: string[];
+}
+
+export interface LoraList {
+  loras: Lora[];
+  bases: LoraBase[];
+}
+
+/** POST /v1/loras/lookup: what a link would add. */
+export interface LoraCandidate {
+  source: Lora['source'];
+  url: string;
+  file: string;
+  /** The file as the source names it; what `choices` lists. */
+  source_file: string;
+  name: string;
+  page_url?: string;
+  source_base?: string;
+  base?: string;
+  trigger_words: string[];
+  description?: string;
+  preview_url?: string;
+  bytes?: number;
+  sha256?: string;
+  choices?: { file: string; bytes?: number }[];
+  existing?: string;
+}
+
+/** A LoRA as a request takes it. */
+export interface LoraUse {
+  id: string;
+  strength: number;
+}
+
 export const ASPECTS = ['9:16', '16:9', '1:1', '4:5', '4:3', '3:4', '21:9'] as const;
 export const SHOT_KINDS = ['dialogue', 'action', 'talking', 'performance', 'broll', 'product', 'establishing'] as const;
 export const ASSET_KINDS = ['character', 'location', 'prop', 'product', 'voice', 'audio', 'style'] as const;
@@ -100,6 +167,8 @@ export interface Asset {
   images: string[];
   voice: { upload?: string; description?: string } | null;
   audio: string | null;
+  /** LoRAs from the library that belong to it; shots it is in use those their recipe can run. */
+  loras: { id: string; strength?: number }[];
   meta: Record<string, unknown>;
 }
 
@@ -124,6 +193,8 @@ export interface Take {
   error?: { code: string; message: string };
   url?: string;
   kind?: RecipeKind;
+  /** How long the take took and from what; absent for a long take (its job is only the last segment). */
+  generation?: Generation;
   /** A vision model's check against the shot (analyze task `check`). */
   review: { ok: boolean; score: number; issues: string[]; model: string; at: number } | null;
   /** A long take rendered in segments, or a retake of part of another take. */
@@ -167,6 +238,8 @@ export interface Shot {
   audioAssetId: string | null;
   recipeId: string | null;
   params: Record<string, unknown>;
+  /** On top of its cast's LoRAs; strength 0 leaves one of theirs out. */
+  loras: { id: string; strength?: number }[];
   /** Carries straight on from the previous shot of its scene, as one continuous take. */
   continues: boolean;
   chosenTakeId: string | null;

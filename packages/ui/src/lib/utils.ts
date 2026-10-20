@@ -21,10 +21,12 @@ export function formatBytes(bytes: number | null | undefined, { decimal = false 
 
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}m ${Math.round(seconds % 60)}s`;
+  if (ms < 59_950) return `${(ms / 1000).toFixed(1)}s`;
+  // Whole seconds from here, so a minute never reads "1m 60s".
+  const total = Math.round(ms / 1000);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return hours ? `${hours}h ${minutes}m` : `${minutes}m ${total % 60}s`;
 }
 
 /** Relative time, which is what a job list actually wants to show. */

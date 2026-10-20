@@ -18,7 +18,9 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
-        "dev:pro-web",
+        "dev",
+        "--workspace",
+        "@pepper-pro/web",
         "--",
         "--port",
         "5174"

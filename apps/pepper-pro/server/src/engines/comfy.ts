@@ -15,6 +15,7 @@ import type { ProPaths } from '../paths.js';
 import type { Recipe, WorkflowSpec } from '../recipes/schema.js';
 import type { RecipeStore } from '../recipes/store.js';
 import { licenceBlock } from '../recipes/store.js';
+import type { LoraRequest, LoraService } from '../loras/service.js';
 import { buildPrompt } from './build.js';
 import { checkUploads, resolveParams, type ParamValues } from './params.js';
 
@@ -43,6 +44,8 @@ export interface RecipeJobParams {
   segment?: number;
   /** The job masters its take (upscales it for delivery) rather than rendering it. */
   master?: boolean;
+  /** LoRAs from the library, by id, each at its own or the LoRA's default strength. */
+  loras?: LoraRequest[];
 }
 
 export interface ComfyEngineDeps {
@@ -50,6 +53,7 @@ export interface ComfyEngineDeps {
   paths: ProPaths;
   backends: BackendManager;
   recipes: RecipeStore;
+  loras: LoraService;
   memory: MemoryArbiter;
   log: FastifyBaseLogger;
 }
@@ -111,7 +115,7 @@ export class ComfyEngine implements Engine {
   async prepareRequest(
     request: RecipeJobParams,
     options: { licenceMode?: LicenceMode } = {},
-  ): Promise<{ recipe: Recipe; mode: string; values: ParamValues }> {
+  ): Promise<{ recipe: Recipe; mode: string; values: ParamValues; loras: LoraRequest[] }> {
     const recipe = this.deps.recipes.require(request.recipe);
     const modeName = request.mode ?? recipe.default_mode;
     const mode = recipe.modes[modeName];
@@ -128,11 +132,14 @@ export class ComfyEngine implements Engine {
     }
     const values = resolveParams(recipe, mode, request.params ?? {});
     await checkUploads(recipe, values, this.deps.paths.uploadsDir);
+    // Stored with each LoRA's strength fixed, so a retry runs what the first try ran.
+    const { used } = await this.deps.loras.resolve(recipe, recipe.workflows[mode.workflow], request.loras ?? []);
+    const loras = used.map(({ id, strength }) => ({ id, strength }));
     const files = await this.deps.recipes.resolveFiles(recipe, this.deps.config.tier);
     const needed = this.filesNeeded(recipe, recipe.workflows[mode.workflow]);
     const missing = files.filter((f) => needed.has(f.file.id) && !f.installed).map((f) => f.relPath);
     if (missing.length > 0) throw proErrors.recipeNotInstalled(recipe.id, missing);
-    return { recipe, mode: modeName, values };
+    return { recipe, mode: modeName, values, loras };
   }
 
   private filesNeeded(recipe: Recipe, workflow: WorkflowSpec): Set<string> {
@@ -143,9 +150,10 @@ export class ComfyEngine implements Engine {
   private async run(context: JobContext): Promise<Record<string, unknown>> {
     const request = context.job.params as unknown as RecipeJobParams;
     const started = Date.now();
-    const { recipe, mode: modeName, values } = await this.prepareRequest(request);
+    const { recipe, mode: modeName, values, loras: requested } = await this.prepareRequest(request);
     const mode = recipe.modes[modeName];
     const workflow = recipe.workflows[mode.workflow];
+    const loras = await this.deps.loras.resolve(recipe, workflow, requested);
 
     return this.slot.run(async () => {
       try {
@@ -169,6 +177,7 @@ export class ComfyEngine implements Engine {
             // uploaded or downloaded since it was read.
             validate: { ignoreFileChoices: true },
             outputPrefix: `pepper-pro/${context.job.id}`,
+            loras: loras.patches,
           });
           const outputs = await this.execute(prompt, workflow, context);
           this.family = recipe.family;
@@ -188,6 +197,7 @@ export class ComfyEngine implements Engine {
               params: values,
               seed: values.seed,
               prompt: values.prompt,
+              loras: loras.used.length ? loras.used : undefined,
               licence: recipe.licence.id,
               duration_ms: Date.now() - started,
               shot_id: request.shot_id,
