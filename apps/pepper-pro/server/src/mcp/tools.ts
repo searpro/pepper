@@ -244,7 +244,8 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         'and reference images, so every shot binds the same person. Library characters (get_project ' +
         'lists them) are used by naming them in shots and dialogue; `library: true` on an asset saves it ' +
         'there for every project. `loras` on an asset or shot (LoRA ids, list_models shows them) apply to ' +
-        'every take on a model of their base, with their trigger words added to the prompt. ' +
+        'every take on a model of their base, with their trigger words added to the prompt; a shot with no ' +
+        'recipe gets one that runs them where its kind allows, and `skipped_loras` names any that cannot run. ' +
         PROMPTING,
       inputSchema: {
         project_id: z.string().optional(),
@@ -261,8 +262,9 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
       } else if (aspect) {
         await call(ctx, 'PATCH', `/v1/projects/${encodeURIComponent(id)}`, { aspect });
       }
-      await call(ctx, 'POST', `/v1/projects/${encodeURIComponent(id)}/plan`, plan);
-      return { content: [json(summarizeProject(await call(ctx, 'GET', `/v1/projects/${encodeURIComponent(id)}`)))] };
+      const planned = await call<{ skipped_loras?: unknown[] }>(ctx, 'POST', `/v1/projects/${encodeURIComponent(id)}/plan`, plan);
+      const project = summarizeProject(await call(ctx, 'GET', `/v1/projects/${encodeURIComponent(id)}`)) as Record<string, unknown>;
+      return { content: [json(planned.skipped_loras ? { ...project, skipped_loras: planned.skipped_loras } : project)] };
     },
   );
 
@@ -274,7 +276,8 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         'Queue takes of shots: drafts first (several per shot, cheap), then finish the chosen draft ' +
         'with `from_take` and `mode: "final"`, which reuses its seed. `from_take` plus `retake_from` ' +
         '(seconds) keeps that take up to there and re-renders the rest. Shots longer than a recipe ' +
-        'renders at once are chained automatically. `master: true` upscales each shot\'s chosen take for ' +
+        'renders at once are chained automatically; `skipped_loras` names LoRAs a shot\'s recipe could not run. ' +
+        '`master: true` upscales each shot\'s chosen take for ' +
         'delivery (LTX refine, then RTX Video upscale; soundtrack kept); cuts then use the masters. Returns the takes; follow them ' +
         `with get_project or get_job (up to ${MAX_WAIT_S} s).` +
         SHOWN,
@@ -287,7 +290,7 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
     },
     async ({ choose, wait_seconds, ...render }) => {
       if (choose) await call(ctx, 'POST', `/v1/takes/${encodeURIComponent(choose)}/choose`, {});
-      const { takes } = await call<{ takes: { jobId: string }[] }>(ctx, 'POST', '/v1/shots/render', render);
+      const { takes, skipped_loras } = await call<{ takes: { jobId: string }[]; skipped_loras?: unknown[] }>(ctx, 'POST', '/v1/shots/render', render);
       const jobs: Job[] = [];
       const deadline = Date.now() + Math.min(wait_seconds, MAX_WAIT_S) * 1000;
       for (const take of takes) {
@@ -297,7 +300,7 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         jobs.push(left > 0 ? ((await waitSettled(ctx, job.id, left)) ?? job) : job);
       }
       const result = await jobsResult(ctx, jobs);
-      result.content.unshift(json({ takes: takes.map((t) => t) }));
+      result.content.unshift(json(skipped_loras?.length ? { takes, skipped_loras } : { takes }));
       return result;
     },
   );

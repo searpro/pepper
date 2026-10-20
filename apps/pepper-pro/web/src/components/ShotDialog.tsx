@@ -373,6 +373,11 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
         </span>
       </div>
       {isActive(take.status) ? <Progress value={take.progress} indeterminate={take.status === 'queued'} /> : null}
+      {take.generation?.loras?.length ? (
+        <p className="truncate text-[11px] text-muted-foreground" title="LoRAs this take ran with">
+          LoRAs: {take.generation.loras.map((l) => (l.strength === 1 ? l.name : `${l.name} ×${l.strength}`)).join(', ')}
+        </p>
+      ) : null}
       <div ref={media} className="group relative">
         {/* A mastered take plays its master, which is what the cut will show. */}
         <TakeMedia take={shown} />

@@ -1722,6 +1722,14 @@ describe('loras', () => {
     expect(guessBase('ZImageTurbo')).toBe('z-image');
     expect(guessBase('Wan Video 2.1 I2V 14B 480p')).toBe('wan-2.1-14b');
     expect(guessBase('SDXL 1.0')).toBeUndefined();
+    // Civitai's names for the video bases.
+    expect(guessBase('MiniMax H3')).toBe('minimax-h3');
+    expect(guessBase('LTXV 2.5')).toBe('ltx-2.5');
+    expect(guessBase('LTXV 2.3')).toBeUndefined();
+    expect(guessBase('Wan Video 14B i2v 480p')).toBe('wan-2.1-14b');
+    expect(guessBase('Wan Video 14B t2v')).toBe('wan-2.1-14b');
+    expect(guessBase('Wan Video 2.2 T2V-A14B')).toBeUndefined();
+    expect(guessBase('Wan Video 1.3B t2v')).toBeUndefined();
   });
 
   it('looks up a Civitai page: its file, trigger words, base and a safe preview', async () => {
@@ -1844,6 +1852,74 @@ describe('loras', () => {
       // A LoRA deleted from the library just drops out of the shots that named it.
       await server.loras.remove(look.id);
       expect((await params(plain)).loras).toBeUndefined();
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  });
+
+  it("picks a shot's recipe by its LoRAs where the kind allows, and says which it cannot run", async () => {
+    vi.stubGlobal(
+      'fetch',
+      fakeFetch({ 'https://example.com/': () => new Response('lora bytes', { headers: { 'content-length': '10' } }) }),
+    );
+    const server = await buildServer(await tempConfig({ RECIPES_DIR: RECIPES, PEPPER_TIER: '16gb' }));
+    const inject = (method: 'GET' | 'POST', url: string, payload?: unknown) =>
+      server.app.inject({ method, url, ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }) });
+    try {
+      for (const id of ['h3-video', 'ltx25-video', 'infinitetalk']) {
+        for (const file of await server.recipes.resolveFiles(server.recipes.require(id), '16gb')) {
+          await mkdir(join(file.path, '..'), { recursive: true });
+          await writeFile(file.path, '');
+        }
+      }
+      const add = (name: string, base: string) => server.loras.add({ url: `https://example.com/${name}.safetensors`, base });
+      const h3 = await add('h3-look', 'minimax-h3');
+      const ltx = await add('ltx-grade', 'ltx-2.5');
+      const wan = await add('wan-face', 'wan-2.1-14b');
+      const qwen = await add('qwen-face', 'qwen-image-2.1');
+      for (let i = 0; i < 200 && (await server.loras.list()).some((l) => l.state !== 'installed'); i++) await new Promise((r) => setTimeout(r, 10));
+
+      const project = server.projects.createProject({ name: 'Recipe by LoRA' });
+      const scene = server.projects.createScene(project.id);
+      const shot = (kind: 'broll' | 'talking', loras: { id: string; strength?: number }[] = []) =>
+        server.projects.createShot(scene.id, { kind, prompt: 'x', loras });
+      const recipe = async (s: { id: string }) => (await server.projects.requestFor(s.id)).recipe;
+
+      // Without LoRAs, the kind's order: H3 is the first installed first-frame and lip-sync recipe.
+      expect(await recipe(shot('broll'))).toBe('h3-video');
+      expect(await recipe(shot('talking'))).toBe('h3-video');
+      // With them, the suitable recipe that runs them.
+      expect(await recipe(shot('broll', [{ id: ltx.id }]))).toBe('ltx25-video');
+      expect(await recipe(shot('talking', [{ id: wan.id }]))).toBe('infinitetalk');
+      expect(await recipe(shot('talking', [{ id: h3.id }, { id: wan.id }, { id: wan.id }]))).toBe('h3-video');
+      // A LoRA for a recipe the kind does not take (LTX has no lip-sync) changes nothing, and is reported.
+      const talkingLtx = shot('talking', [{ id: ltx.id }]);
+      const request = await server.projects.requestFor(talkingLtx.id);
+      expect(request.recipe).toBe('h3-video');
+      expect(request.loras).toBeUndefined();
+      expect(request.skipped_loras).toEqual([{ id: ltx.id, name: 'ltx grade', reason: expect.stringMatching(/made for LTX-2.5.*runs MiniMax H3/) }]);
+      // A muted LoRA neither picks the recipe nor is reported.
+      expect(await recipe(shot('broll', [{ id: ltx.id, strength: 0 }]))).toBe('h3-video');
+
+      // A pinned recipe that takes no LoRAs says so.
+      const pinned = server.projects.createShot(scene.id, { prompt: 'x', recipeId: 'ltx23-audio-to-video', loras: [{ id: h3.id }] });
+      expect((await server.projects.requestFor(pinned.id)).skipped_loras?.[0].reason).toMatch(/takes no LoRAs/);
+
+      // The plan says it before anything renders, and a render says it again.
+      const planned = (
+        await inject('POST', `/v1/projects/${project.id}/plan`, {
+          assets: [{ ref: 'mei', kind: 'character', name: 'Mei', loras: [qwen.id] }],
+          scenes: [{ shots: [{ prompt: 'Mei waves', assets: ['mei'], kind: 'broll' }, { prompt: 'No cast', kind: 'broll' }] }],
+        })
+      ).json();
+      expect(planned.skipped_loras).toEqual([
+        { shot_id: planned.shots[0].id, loras: [{ id: qwen.id, name: 'qwen face', reason: expect.stringMatching(/made for Qwen-Image 2.1/) }] },
+      ]);
+      server.jobs.registerExecutor('video', () => new Promise(() => {}));
+      const rendered = (await inject('POST', '/v1/shots/render', { shot_ids: [planned.shots[0].id, planned.shots[1].id] })).json();
+      expect(rendered.takes).toHaveLength(2);
+      expect(rendered.skipped_loras).toEqual(planned.skipped_loras);
     } finally {
       await server.app.close();
       server.closeDb();
