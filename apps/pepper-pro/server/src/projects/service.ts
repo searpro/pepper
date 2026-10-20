@@ -17,6 +17,7 @@ import type { Recipe, RecipeParam } from '../recipes/schema.js';
 import type { RecipeStore } from '../recipes/store.js';
 import { joinArgs, planSegments, type JoinPart, type TakeChain } from './chain.js';
 import { composePrompt, deriveParams } from './derive.js';
+import { baseLabel } from '../loras/bases.js';
 import type { LoraService } from '../loras/service.js';
 import {
   assets,
@@ -125,6 +126,13 @@ export interface PlanInput {
       continues?: boolean;
     }[];
   }[];
+}
+
+/** A LoRA a shot asks for that its recipe will not run. */
+export interface SkippedLora {
+  id: string;
+  name?: string;
+  reason: string;
 }
 
 /** What a vision model made of a take, against its shot. */
@@ -574,6 +582,19 @@ export class ProjectService {
       if (status.state === 'installed' && !status.licenceBlock) candidates.push(recipe);
     }
     const prefs = wanted[shot.kind] ?? [];
+    // A shot whose cast or own LoRAs fit some of the suitable recipes renders
+    // on the one that runs the most of them: a character's H3 LoRA should
+    // not be dropped because the kind's first choice runs another model.
+    // Ties, and shots with no LoRAs, keep the kind's order.
+    const refs = this.castLoras(shot);
+    if (refs.length) {
+      const rank = (r: Recipe) => prefs.findIndex((capability) => r.capabilities.includes(capability));
+      const fits = (r: Recipe) => (r.lora_base ? this.deps.loras.fitting(refs, r.lora_base).loras.length : 0);
+      const best = candidates
+        .filter((r) => rank(r) >= 0 && fits(r) > 0)
+        .sort((a, b) => fits(b) - fits(a) || rank(a) - rank(b))[0];
+      if (best) return best;
+    }
     for (const capability of prefs) {
       const match = candidates.find((r) => r.capabilities.includes(capability));
       if (match) return match;
@@ -583,20 +604,37 @@ export class ProjectService {
   }
 
   /** The job request a shot would render as: for previewing a prompt before spending a render on it. */
-  async requestFor(shotId: string, mode?: string): Promise<RecipeJobParams & { recipe: string }> {
+  async requestFor(shotId: string, mode?: string): Promise<RecipeJobParams & { recipe: string; skipped_loras?: SkippedLora[] }> {
     const shot = this.requireShot(shotId);
     const project = this.requireProject(shot.projectId);
     const recipe = await this.recipeFor(shot);
     const chosen = mode ?? recipe.default_mode;
     const params = deriveParams({ project, shot, assets: this.listAssets(project.id), recipe, mode: chosen });
     const { loras } = this.shotLoras(shot, recipe, chosen);
+    const skipped = this.skippedLoras(shot, recipe, chosen, loras);
     return {
       recipe: recipe.id,
       mode: chosen,
       params: this.withTriggerWords(shot, recipe, chosen, params),
       shot_id: shot.id,
       ...(loras.length ? { loras } : {}),
+      ...(skipped.length ? { skipped_loras: skipped } : {}),
     };
+  }
+
+  /** For each shot, the LoRAs its recipe will not run (shots with none left out). */
+  async skippedLorasFor(shotIds: string[], mode?: string): Promise<{ shot_id: string; loras: SkippedLora[] }[]> {
+    const out: { shot_id: string; loras: SkippedLora[] }[] = [];
+    for (const shotId of shotIds) {
+      if (this.castLoras(this.requireShot(shotId)).length === 0) continue;
+      // A shot no installed recipe can render yet says so when it is rendered.
+      const skipped = await this.requestFor(shotId, mode).then(
+        (request) => request.skipped_loras,
+        () => undefined,
+      );
+      if (skipped?.length) out.push({ shot_id: shotId, loras: skipped });
+    }
+    return out;
   }
 
   /** Every LoRA an asset or shot names must be in the library. */
@@ -613,13 +651,38 @@ export class ProjectService {
   private shotLoras(shot: ShotRow, recipe: Recipe, mode: string): { loras: { id: string; strength: number }[]; words: string[] } {
     const workflow = recipe.modes[mode] ? recipe.workflows[recipe.modes[mode].workflow] : undefined;
     if (!recipe.lora_base || !workflow?.lora_targets.length) return { loras: [], words: [] };
+    return this.deps.loras.fitting(this.castLoras(shot), recipe.lora_base);
+  }
+
+  /** The LoRAs a shot asks for, whatever it renders on: its cast's, then its own (strength 0 mutes one). */
+  private castLoras(shot: ShotRow): { id: string; strength?: number }[] {
     const assetsById = new Map(this.listAssets(shot.projectId).map((asset) => [asset.id, asset]));
     const wanted = new Map<string, { id: string; strength?: number }>();
     for (const id of shot.assetIds as string[]) {
       for (const lora of assetsById.get(id)?.loras ?? []) if (!wanted.has(lora.id)) wanted.set(lora.id, lora);
     }
     for (const lora of shot.loras) wanted.set(lora.id, lora);
-    return this.deps.loras.fitting([...wanted.values()].filter((lora) => lora.strength !== 0), recipe.lora_base);
+    return [...wanted.values()].filter((lora) => lora.strength !== 0);
+  }
+
+  /**
+   * The LoRAs a shot asks for that its recipe will not run, and why, so a
+   * person (or Claude) can pick a recipe that does rather than find out from
+   * the take.
+   */
+  private skippedLoras(shot: ShotRow, recipe: Recipe, mode: string, used: { id: string }[]): SkippedLora[] {
+    const workflow = recipe.modes[mode] ? recipe.workflows[recipe.modes[mode].workflow] : undefined;
+    const takes = Boolean(recipe.lora_base && workflow?.lora_targets.length);
+    return this.castLoras(shot)
+      .filter((ref) => !used.some((u) => u.id === ref.id))
+      .map((ref) => {
+        const lora = this.deps.loras.find(ref.id);
+        if (!lora) return { id: ref.id, reason: 'no longer in the LoRA library' };
+        const reason = !takes
+          ? `${recipe.name} takes no LoRAs${recipe.lora_base ? ` in ${mode} mode` : ''}`
+          : `made for ${baseLabel(lora.base)}; ${recipe.name} runs ${baseLabel(recipe.lora_base!)}`;
+        return { id: ref.id, name: lora.name, reason };
+      });
   }
 
   /**

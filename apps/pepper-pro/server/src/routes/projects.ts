@@ -212,7 +212,12 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
         body: planSchema,
       },
     },
-    async (req) => projects.plan(req.params.id, req.body),
+    async (req) => {
+      const planned = projects.plan(req.params.id, req.body);
+      // Said now, while the plan can still pin a recipe that runs them.
+      const skipped = await projects.skippedLorasFor(planned.shots.map((shot) => shot.id));
+      return skipped.length ? { ...planned, skipped_loras: skipped } : planned;
+    },
   );
 
   // --- Assets ----------------------------------------------------------------
@@ -297,7 +302,9 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
       schema: {
         tags,
         summary: 'The recipe request a shot would render as',
-        description: 'The composed prompt and derived parameters, to read before spending a render.',
+        description:
+          'The composed prompt, derived parameters and LoRAs, to read before spending a render; ' +
+          '`skipped_loras` are those the shot asks for that this recipe will not run.',
         params: id,
         querystring: z.object({ mode: z.string().optional() }),
       },
@@ -316,7 +323,8 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
           "take's seed, which is how a chosen draft is finished. With `retake_from` as well, that take is " +
           'kept up to that second and only the rest is rendered again, as a new take. A shot longer than ' +
           'its recipe renders at once is rendered in segments that continue each other. `master: true` ' +
-          "masters each shot's chosen take for delivery (upscales it) instead.",
+          "masters each shot's chosen take for delivery (upscales it) instead. `skipped_loras` lists, per " +
+          'shot, LoRAs from its cast or its own that its recipe could not run.',
         body: renderSchema,
       },
     },
@@ -340,6 +348,8 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
             fromTake: from_take,
           })
         ).map((take) => projects.viewTake(take)),
+        // LoRAs the shots asked for that their recipe did not run, and why.
+        skipped_loras: await projects.skippedLorasFor(req.body.shot_ids, req.body.mode),
       });
     },
   );

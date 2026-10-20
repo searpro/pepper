@@ -49,7 +49,9 @@ Everything else (jobs, downloads, logs, auth, media, MCP) is `@pepper/core`.
   carry `loras` too: `ProjectService.shotLoras` merges the cast's with the
   shot's (the shot's strength wins, 0 mutes), keeps those for the recipe's
   base (`LoraService.fitting`), and `withTriggerWords` adds their words to a
-  composed prompt; a chain stores them so every segment matches.
+  composed prompt; a chain stores them so every segment matches. `recipeFor`
+  prefers, among the recipes a shot's kind accepts, the one running the most
+  of its LoRAs; `skippedLorasFor` reports the rest (request, plan, render).
 - `src/golden/`: golden-shot runs and the blind A/B (`golden/shots.json`).
 - `src/mcp/tools.ts`: Claude's tools. Keep them few: pro_status,
   list_models, install_model, generate_image / generate_video /

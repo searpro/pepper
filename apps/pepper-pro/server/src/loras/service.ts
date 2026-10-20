@@ -200,6 +200,11 @@ export class LoraService {
     return row.base;
   }
 
+  /** One LoRA's row, or undefined: for callers that skip a missing LoRA rather than fail. */
+  find(id: string): { id: string; name: string; base: string } | undefined {
+    return this.deps.db.select().from(loras).where(eq(loras.id, id)).get();
+  }
+
   /**
    * Of these LoRAs, the ones made for `base`, each at its given or default
    * strength, and their trigger words. A cast member may carry a LoRA for

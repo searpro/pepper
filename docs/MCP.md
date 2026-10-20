@@ -85,7 +85,7 @@ The server only answers while a pod is running:
 | `list_jobs`, `cancel_job` | Recent jobs; stop one |
 | `install_model` | Downloads a model's files (`id`), or adds a LoRA to the library from `lora_url`: a Civitai page, a HuggingFace repository or file, or a `.safetensors` link, with `base` when the source does not say which model it is for. It is refused when the volume has no room |
 | `add_input` | Uploads a file from base64 bytes, for a client with local files and no URL |
-| `plan_project`, `render_shots`, `get_project` | Projects: scenes of shots, draft and final takes, long takes, retakes, and a cut. `get_project` with no id also lists the shared library (recurring characters and voices); a plan names them, and `library: true` saves an asset there. `loras` on a plan asset or shot apply to every take on a model of their base |
+| `plan_project`, `render_shots`, `get_project` | Projects: scenes of shots, draft and final takes, long takes, retakes, and a cut. `get_project` with no id also lists the shared library (recurring characters and voices); a plan names them, and `library: true` saves an asset there. `loras` on a plan asset or shot apply to every take on a model of their base; a shot with no `recipe` gets a suitable one that runs them, and `skipped_loras` (in the plan and render results) names any its recipe cannot run |
 | `analyze` | Beats, stems, Whisper transcription, a vision check of a take |
 | `pro_status`, `get_logs` | Status: the GPU, the queue, installed models; and the logs |
 

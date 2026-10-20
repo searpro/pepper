@@ -21,7 +21,9 @@ Last updated: 2026-10-20 (LoRA library, Qwen-Image 2.1 Turbo, generation time on
   account. In projects, a cast member carries its LoRAs (one per model it
   is rendered with) and a shot adds or mutes them (strength 0); each take
   runs those its recipe's base can, trigger words added to the prompt, and
-  long takes and retakes keep them in every segment. Lookups were checked
+  long takes and retakes keep them in every segment. A shot with no recipe
+  picks a suitable one that runs its LoRAs, and LoRAs a recipe cannot run
+  are reported (`skipped_loras`). Lookups were checked
   against live Civitai and HuggingFace entries; a LoRA has not yet been
   rendered through ComfyUI.
 - **`qwen-image-turbo`** (text to image, `final` at 1 MP and `2k`) and

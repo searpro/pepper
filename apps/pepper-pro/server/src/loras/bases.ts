@@ -24,8 +24,14 @@ export const LORA_BASES = [
   { id: 'z-image', label: 'Z-Image (Turbo)', hints: [/z[\s._-]*image/i] },
   { id: 'flux2-klein-4b', label: 'FLUX.2 klein 4B', hints: [/flux[\s._-]*\.?2.*klein.*4\s*b/i, /klein[\s._-]*4b/i] },
   { id: 'minimax-h3', label: 'MiniMax H3', hints: [/minimax[\s._-]*h3/i] },
-  { id: 'ltx-2.5', label: 'LTX-2.5 (22B)', hints: [/ltx[\s._-]*(video[\s._-]*)?2\.?5/i, /ltx[\s._-]*2[\s._-]*22b/i] },
-  { id: 'wan-2.1-14b', label: 'Wan 2.1 14B', hints: [/wan[\s._-]*(video[\s._-]*)?2\.1[^\d]*14\s*b/i, /wan[\s._-]*(video[\s._-]*)?2\.1/i] },
+  // Civitai: "LTXV 2.5" (and "LTXV 2.3", a different model, left unmatched).
+  { id: 'ltx-2.5', label: 'LTX-2.5 (22B)', hints: [/ltxv?[\s._-]*(video[\s._-]*)?2\.5/i, /ltxv?[\s._-]*2[\s._-]*22b/i] },
+  // Civitai names Wan 2.1 by size alone ("Wan Video 14B i2v 480p"); 2.2's two-expert models say "2.2".
+  {
+    id: 'wan-2.1-14b',
+    label: 'Wan 2.1 14B',
+    hints: [/wan[\s._-]*(video[\s._-]*)?2\.1[^\d]*14\s*b/i, /wan[\s._-]*(video[\s._-]*)?2\.1/i, /^wan[\s._-]*video[\s._-]*14b[\s._-]*(t2v|i2v)/i],
+  },
 ] as const satisfies readonly LoraBase[];
 
 export const LORA_BASE_IDS = LORA_BASES.map((base) => base.id) as [LoraBaseId, ...LoraBaseId[]];
