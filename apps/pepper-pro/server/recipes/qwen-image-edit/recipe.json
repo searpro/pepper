@@ -12,6 +12,7 @@
     "multi-reference",
     "keyframe"
   ],
+  "lora_base": "qwen-image-2.1",
   "licence": {
     "id": "qwen-research",
     "name": "Qwen Research Licence",
@@ -163,6 +164,12 @@
         {
           "node": "461",
           "kind": "image"
+        }
+      ],
+      "lora_targets": [
+        {
+          "node": "459:451",
+          "output": 0
         }
       ]
     }

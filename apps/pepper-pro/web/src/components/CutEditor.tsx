@@ -105,7 +105,7 @@ function CutForm({
           const found = takes.get(item.take_id);
           return (
             <Card key={`${item.take_id}-${index}`} className="flex items-center gap-3 p-2">
-              <div className="w-40 shrink-0">{found ? <TakeMedia take={found.take} /> : <Badge variant="destructive">take deleted</Badge>}</div>
+              <div className="w-40 shrink-0">{found ? <TakeMedia take={found.take} className="max-h-40" /> : <Badge variant="destructive">take deleted</Badge>}</div>
               <div className="flex min-w-0 flex-1 flex-col gap-2">
                 <p className="truncate text-xs">
                   <span className="font-medium">{index + 1}.</span> {found?.shot.prompt ?? item.take_id}

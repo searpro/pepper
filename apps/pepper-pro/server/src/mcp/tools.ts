@@ -47,12 +47,15 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
       title: 'Pepper Pro status',
       description:
         'Is Pepper Pro up, on what hardware tier and licence mode, what the GPU and queue are doing, ' +
-        'and which recipes are installed. Call first in a session.',
+        'which recipes are installed, and the LoRA library (each LoRA\'s base and download state). Call first in a session.',
       annotations: READ_ONLY,
     },
     async () => {
       const status = await call<Record<string, unknown>>(ctx, 'GET', '/v1/system/status');
       const recipes = await call<{ recipes: { id: string; kind: string; state: string; name: string }[] }>(ctx, 'GET', '/v1/recipes');
+      const library = await call<{
+        loras: { id: string; name: string; base: string; state: string; trigger_words: string[]; download?: { received: number; total: number | null; error?: string } }[];
+      }>(ctx, 'GET', '/v1/loras');
       return {
         content: [
           json({
@@ -62,6 +65,18 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
             jobs: status.jobs,
             backends: (status.backends as { backend: string; status: string }[]).map((b) => ({ backend: b.backend, status: b.status })),
             recipes: recipes.recipes.map((r) => ({ id: r.id, kind: r.kind, name: r.name, state: r.state })),
+            // The LoRA library, so an install_model lora_url can be followed to `installed`.
+            loras: library.loras.map((l) =>
+              defined({
+                id: l.id,
+                name: l.name,
+                base: l.base,
+                state: l.state,
+                trigger_words: l.trigger_words.length ? l.trigger_words : undefined,
+                progress: l.download?.total ? Math.round((l.download.received / l.download.total) * 100) / 100 : undefined,
+                error: l.download?.error,
+              }),
+            ),
           }),
         ],
       };
@@ -75,7 +90,8 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
       description:
         'The models generate_image, generate_video and generate_audio can run: what each takes (prompt, image, ' +
         'end_image, reference_images, audio, …, required or optional), durations, aspect ratios, qualities ' +
-        '(draft/final), licence, whether it is installed, and measured seconds per output where verified.',
+        '(draft/final), licence, whether it is installed, measured seconds per output where verified, and the ' +
+        'downloaded LoRAs that fit it (`loras`, with their trigger words).',
       inputSchema: { kind: z.enum(['image', 'video', 'audio']).optional() },
       annotations: READ_ONLY,
     },
@@ -88,11 +104,24 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
   server.registerTool(
     'install_model',
     {
-      title: 'Install a model',
-      description: "Download a model's files (queued; minutes for tens of GB). Refused when the volume has no room.",
-      inputSchema: { id: z.string() },
+      title: 'Install a model or LoRA',
+      description:
+        "Download a model's files by `id` (queued; minutes for tens of GB), or add a LoRA to the library from " +
+        '`lora_url` (a Civitai page, a HuggingFace repo or file, or a .safetensors link), with `base` when the ' +
+        'source does not say which model it is for (pro_status shows when it is downloaded). Refused when ' +
+        'the volume has no room.',
+      inputSchema: {
+        id: z.string().optional(),
+        lora_url: z.string().url().optional(),
+        base: z.string().optional().describe('A LoRA\'s base model: a lora_base from list_models.'),
+        file: z.string().optional().describe('Which file, for a LoRA repository with several.'),
+      },
     },
-    async ({ id }) => ({ content: [json(await call(ctx, 'POST', `/v1/recipes/${encodeURIComponent(id)}/install`, {}))] }),
+    async ({ id, lora_url, base, file }) => {
+      if (lora_url) return { content: [json(await call(ctx, 'POST', '/v1/loras', defined({ url: lora_url, base, file })))] };
+      if (!id) throw new Error('Give id (a model) or lora_url (a LoRA)');
+      return { content: [json(await call(ctx, 'POST', `/v1/recipes/${encodeURIComponent(id)}/install`, {}))] };
+    },
   );
 
   const generic = {
@@ -104,6 +133,11 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
     count: z.number().int().min(1).max(8).optional().describe('Variations, each with its own seed.'),
     params: z.record(z.unknown()).optional().describe("The model's own parameters, for anything else."),
   };
+  const loras = z
+    .array(z.union([z.string(), z.object({ id: z.string(), strength: z.number().optional() })]))
+    .max(8)
+    .optional()
+    .describe('LoRAs from list_models `loras` (ids, or { id, strength }); put their trigger words in the prompt.');
   const MEDIA_IN = 'Media inputs take a URL, a data URI, an upload name (add_input) or a previous output_name. ';
   const generateTool = (kind: 'image' | 'video' | 'audio', fallbackWait: number) =>
     async (args: Record<string, unknown>) => {
@@ -133,6 +167,7 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         ...generic,
         image: z.string().optional().describe('An image to edit or upscale.'),
         aspect_ratio: z.enum(ASPECT_RATIOS).optional(),
+        loras,
         wait_seconds: waitSeconds(40),
       },
     },
@@ -162,6 +197,7 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         video: z.string().optional().describe('Driving video, for motion transfer and character replacement.'),
         duration: z.number().positive().optional().describe('Seconds; list_models gives each model its range.'),
         aspect_ratio: z.enum(ASPECT_RATIOS).optional(),
+        loras,
         wait_seconds: waitSeconds(0),
       },
     },
@@ -207,7 +243,8 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         'medium shots. Give recurring characters a fixed visual description (and a voice description) ' +
         'and reference images, so every shot binds the same person. Library characters (get_project ' +
         'lists them) are used by naming them in shots and dialogue; `library: true` on an asset saves it ' +
-        'there for every project. ' +
+        'there for every project. `loras` on an asset or shot (LoRA ids, list_models shows them) apply to ' +
+        'every take on a model of their base, with their trigger words added to the prompt. ' +
         PROMPTING,
       inputSchema: {
         project_id: z.string().optional(),
@@ -340,7 +377,12 @@ interface LibraryAsset {
   description: string;
   images: string[];
   voice: { upload?: string; description?: string } | null;
+  loras?: { id: string; strength?: number }[];
 }
+
+/** LoRAs as Claude needs them: ids (with a strength when one is set), or nothing. */
+const loraRefs = (list: { id: string; strength?: number }[] | undefined) =>
+  list?.length ? list.map((l) => (l.strength === undefined ? l.id : `${l.id} ×${l.strength}`)) : undefined;
 
 /** A library asset as Claude needs it: enough to name it in a plan and know what it brings. */
 function summarizeAsset(a: LibraryAsset): unknown {
@@ -351,6 +393,7 @@ function summarizeAsset(a: LibraryAsset): unknown {
     description: a.description || undefined,
     images: a.images,
     voice: a.voice?.upload || a.voice?.description ? a.voice : undefined,
+    loras: loraRefs(a.loras),
   });
 }
 
@@ -361,7 +404,7 @@ function summarizeProject(project: unknown): unknown {
     name: string;
     aspect: string;
     style: string;
-    assets: { id: string; kind: string; name: string; images: string[] }[];
+    assets: { id: string; kind: string; name: string; images: string[]; loras?: { id: string; strength?: number }[] }[];
     scenes: {
       id: string;
       title: string;
@@ -371,6 +414,7 @@ function summarizeProject(project: unknown): unknown {
         durationS: number;
         prompt: string;
         recipeId: string | null;
+        loras?: { id: string; strength?: number }[];
         chosenTakeId: string | null;
         takes: {
           id: string;
@@ -392,7 +436,7 @@ function summarizeProject(project: unknown): unknown {
     name: p.name,
     aspect: p.aspect,
     style: p.style || undefined,
-    assets: p.assets.map((a) => ({ id: a.id, kind: a.kind, name: a.name, images: a.images.length })),
+    assets: p.assets.map((a) => defined({ id: a.id, kind: a.kind, name: a.name, images: a.images.length, loras: loraRefs(a.loras) })),
     scenes: p.scenes.map((scene) => ({
       id: scene.id,
       title: scene.title,
@@ -402,6 +446,7 @@ function summarizeProject(project: unknown): unknown {
         duration_s: shot.durationS,
         prompt: shot.prompt.slice(0, 160),
         recipe: shot.recipeId ?? undefined,
+        loras: loraRefs(shot.loras),
         chosen: shot.chosenTakeId ?? undefined,
         takes: shot.takes.map((t) =>
           defined({

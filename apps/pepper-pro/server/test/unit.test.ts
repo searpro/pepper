@@ -4,10 +4,10 @@ import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FastifyBaseLogger } from 'fastify';
 import type { ObjectInfo, Prompt } from '../src/comfy/client.js';
-import { prune, validatePrompt } from '../src/comfy/graph.js';
+import { insertLoras, prune, validatePrompt } from '../src/comfy/graph.js';
 import { loadConfig } from '../src/config.js';
 import { buildPrompt } from '../src/engines/build.js';
 import { AnalyzeEngine } from '../src/engines/analyze.js';
@@ -27,6 +27,8 @@ import { buildPaths } from '../src/paths.js';
 import { modelPathsYaml } from '../src/backends.js';
 import { buildServer, type ProServer } from '../src/server.js';
 import { probeMedia } from '@pepper/core/util/ffmpeg.js';
+import { guessBase } from '../src/loras/bases.js';
+import { lookupLora } from '../src/loras/sources.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/recipes', import.meta.url));
 const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => log } as unknown as FastifyBaseLogger;
@@ -1341,6 +1343,53 @@ describe.skipIf(!haveComfy)('comfyui end to end', () => {
   }, 120_000);
 });
 
+describe('generation info', () => {
+  it('says how each output was made and how long it took, secondary files included', async () => {
+    const server = await buildServer(await tempConfig());
+    try {
+      const first = 'test-image-2026-10-20T00-00-00-000Z-aaaa1111.png';
+      const second = 'test-image-2026-10-20T00-00-00-000Z-bbbb2222.png';
+      server.jobs.registerExecutor('image', async () => {
+        await writeFile(join(server.paths.outputDir, first), 'one');
+        await writeFile(join(server.paths.outputDir, second), 'two');
+        await new Promise((r) => setTimeout(r, 30));
+        return {
+          image_url: `/v1/outputs/${first}`,
+          outputs: [
+            { kind: 'image', name: first, url: `/v1/outputs/${first}` },
+            { kind: 'image', name: second, url: `/v1/outputs/${second}` },
+          ],
+          metadata: { recipe: 'test-image', mode: 'draft', prompt: 'a red fox in snow', seed: 7, duration_ms: 5 },
+        };
+      });
+      const job = server.jobs.create('image', { recipe: 'test-image', mode: 'draft', params: { prompt: 'a red fox in snow', seed: 7, width: 512, height: 768 } });
+      for (let i = 0; i < 200 && server.jobs.get(job.id)?.status !== 'completed'; i++) await new Promise((r) => setTimeout(r, 10));
+
+      const { outputs } = (await server.app.inject({ method: 'GET', url: '/v1/outputs' })).json();
+      for (const name of [first, second]) {
+        const output = outputs.find((o: { name: string }) => o.name === name);
+        expect(output.generation).toMatchObject({ job_id: job.id, source: 'test-image', mode: 'draft', prompt: 'a red fox in snow', seed: 7, width: 512, height: 768 });
+        // Wall time from start to finish, not the engine's own figure.
+        expect(output.generation.duration_ms).toBeGreaterThanOrEqual(25);
+        expect(output.generation.wait_ms).toBeGreaterThanOrEqual(0);
+      }
+      const info = (await server.app.inject({ method: 'GET', url: `/v1/outputs/${second}/info` })).json();
+      expect(info.job).toMatchObject({ id: job.id });
+      expect(info.job.startedAt).toBeTruthy();
+      expect(info.generation).toMatchObject({ job_id: job.id, prompt: 'a red fox in snow' });
+
+      // A file no job wrote has no generation.
+      await writeFile(join(server.paths.outputDir, 'by-hand.png'), 'x');
+      const listed = (await server.app.inject({ method: 'GET', url: '/v1/outputs' })).json().outputs;
+      expect(listed.find((o: { name: string }) => o.name === 'by-hand.png').generation).toBeUndefined();
+      expect((await server.app.inject({ method: 'GET', url: '/v1/outputs/by-hand.png/info' })).json().generation).toBeNull();
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  });
+});
+
 describe('mastering', () => {
   it('masters a chosen take with its own soundtrack, and the cut plays the master', async () => {
     if (!haveFfmpeg) return;
@@ -1373,7 +1422,10 @@ describe('mastering', () => {
       await expect(server.projects.masterChosen([shot.id])).resolves.toMatchObject({ takes: [], skipped: [shot.id] });
 
       const [take] = await server.projects.renderShots([shot.id], { count: 1 });
-      await settleTake(take.id, (v) => Boolean(v.file));
+      const drafted = await settleTake(take.id, (v) => Boolean(v.file));
+      // A take says how long it took, as every other generated file does.
+      expect(drafted.generation).toMatchObject({ source: 'test-video', prompt: expect.stringContaining('blue') });
+      expect(drafted.generation?.duration_ms).toBeGreaterThanOrEqual(0);
       server.projects.chooseTake(take.id);
       const { takes, skipped } = await server.projects.masterChosen([shot.id], { recipe: 'test-upscale' });
       expect(skipped).toEqual([]);
@@ -1445,7 +1497,10 @@ describe('mastering chain', () => {
       // The take opens on a still: the refine pins the same one.
       const shot = server.projects.createShot(scene.id, { prompt: 'blue', recipeId: 'test-video', keyframes: { first: 'still.png' } });
       const [take] = await server.projects.renderShots([shot.id], { count: 1 });
-      await settleTake(take.id, (v) => Boolean(v.file));
+      const drafted = await settleTake(take.id, (v) => Boolean(v.file));
+      // A take says how long it took, as every other generated file does.
+      expect(drafted.generation).toMatchObject({ source: 'test-video', prompt: expect.stringContaining('blue') });
+      expect(drafted.generation?.duration_ms).toBeGreaterThanOrEqual(0);
       server.projects.chooseTake(take.id);
 
       const { takes } = await server.projects.masterChosen([shot.id], { scale: 1.5 });
@@ -1549,5 +1604,325 @@ describe('continuation prompts', () => {
     expect(continued.prompt).toMatch(/^integrated_multimodal_description: \[Shot 1\]/);
     expect(continued.prompt).toContain('carries straight on from the footage before it');
     expect(continued.prompt).not.toContain('<Picture 1>');
+  });
+});
+
+describe('loras', () => {
+  const RECIPES = fileURLToPath(new URL('../recipes', import.meta.url));
+  const info = async () =>
+    JSON.parse(await readFile(fileURLToPath(new URL('./fixtures/object_info.json', import.meta.url)), 'utf8')) as ObjectInfo;
+
+  /** A fetch that answers from a table of URL prefixes, as the sources and the download manager call it. */
+  function fakeFetch(routes: Record<string, () => Response>) {
+    return vi.fn(async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      const match = Object.keys(routes)
+        .sort((a, b) => b.length - a.length)
+        .find((prefix) => url.startsWith(prefix));
+      return match ? routes[match]() : new Response('not found', { status: 404 });
+    });
+  }
+  const jsonResponse = (body: unknown) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+
+  const civitaiModel = {
+    id: 101,
+    name: 'Film Grain',
+    type: 'LORA',
+    modelVersions: [
+      {
+        id: 202,
+        name: 'v2',
+        baseModel: 'Qwen-Image 2.1',
+        trainedWords: ['filmgrain, analog photo', 'kodak portra', 'Outpaint the image: fill the gray areas, keeping the rest unchanged.'],
+        description: '<p>Adds <b>grain</b>.</p>',
+        images: [
+          { url: 'https://image.civitai.com/nsfw.jpeg', nsfwLevel: 8 },
+          { url: 'https://image.civitai.com/ok.jpeg', nsfwLevel: 1 },
+        ],
+        files: [
+          { name: 'film_grain_v2.safetensors', type: 'Model', primary: true, sizeKB: 1, downloadUrl: 'https://civitai.com/api/download/models/202', hashes: { SHA256: 'AB'.repeat(32) } },
+          { name: 'training_data.zip', type: 'Training Data', sizeKB: 9, downloadUrl: 'https://civitai.com/api/download/models/202?type=Training' },
+        ],
+      },
+    ],
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('chains LoRAs after a model and rewires what read it', async () => {
+    const prompt: Prompt = {
+      unet: { class_type: 'UNETLoader', inputs: { unet_name: 'm.safetensors', weight_dtype: 'default' } },
+      cache: { class_type: 'QwenImage21Cache', inputs: { model: ['unet', 0], device: 'auto', dtype: 'default' } },
+      guide: { class_type: 'CFGGuider', inputs: { model: ['unet', 0], positive: ['x', 0], negative: ['x', 1], cfg: 1 } },
+    };
+    insertLoras(prompt, [{ node: 'unet', output: 0 }], [
+      { name: 'library/a.safetensors', strength: 0.7 },
+      { name: 'library/b.safetensors', strength: 1 },
+    ]);
+    expect(prompt['pepper-lora-0-0'].inputs).toEqual({ model: ['unet', 0], lora_name: 'library/a.safetensors', strength_model: 0.7 });
+    expect(prompt['pepper-lora-0-1'].inputs.model).toEqual(['pepper-lora-0-0', 0]);
+    expect(prompt.cache.inputs.model).toEqual(['pepper-lora-0-1', 0]);
+    expect(prompt.guide.inputs.model).toEqual(['pepper-lora-0-1', 0]);
+    expect(() => insertLoras(prompt, [{ node: 'gone', output: 0 }], [{ name: 'x', strength: 1 }])).toThrow(/no LoRA target/);
+  });
+
+  it('builds a recipe with LoRAs that validates, and refuses them where a workflow takes none', async () => {
+    const store = new RecipeStore(RECIPES, buildPaths(await tempConfig()), log);
+    await store.load();
+    const recipe = store.require('qwen-image-turbo');
+    const files = (await store.resolveFiles(recipe, '16gb')).map((f) => ({ ...f, installed: true }));
+    const prompt = buildPrompt({
+      recipe,
+      mode: recipe.modes.final,
+      workflow: recipe.workflows.main,
+      template: store.workflow(recipe, 'main'),
+      values: resolveParams(recipe, recipe.modes.final, { prompt: 'a poster', seed: 1 }),
+      files,
+      objectInfo: await info(),
+      validate: { ignoreFileChoices: true },
+      loras: [{ name: 'library/grain.safetensors', strength: 0.8 }],
+    });
+    expect(prompt['pepper-lora-0-0'].inputs.lora_name).toBe('library/grain.safetensors');
+    expect(prompt['490'].inputs.model).toEqual(['pepper-lora-0-0', 0]);
+
+    const seedvr = store.require('seedvr2-upscale-image');
+    expect(seedvr.lora_base).toBeUndefined();
+    expect(() =>
+      buildPrompt({
+        recipe: seedvr,
+        mode: Object.values(seedvr.modes)[0],
+        workflow: Object.values(seedvr.workflows)[0],
+        template: store.workflow(seedvr, Object.keys(seedvr.workflows)[0]),
+        values: {},
+        files: [],
+        loras: [{ name: 'library/x.safetensors', strength: 1 }],
+      }),
+    ).toThrow(/takes no LoRAs/);
+  });
+
+  it('a recipe naming a base must say where LoRAs attach, and the reverse', () => {
+    const recipe = JSON.parse(JSON.stringify({
+      schema: 1, id: 'x', version: 1, kind: 'image', name: 'x', description: '', family: 'x',
+      licence: { id: 'mit', name: 'MIT', commercial: 'yes' }, files: [], params: [],
+      workflows: { main: { file: 'w.json', bindings: [], outputs: [{ node: '1', kind: 'image' }] } },
+      modes: { final: { label: 'x', workflow: 'main' } }, default_mode: 'final', tiers: ['32gb'],
+    }));
+    expect(recipeSchema.safeParse({ ...recipe, lora_base: 'krea-2' }).success).toBe(false);
+    const targeted = { ...recipe, workflows: { main: { ...recipe.workflows.main, lora_targets: [{ node: '1' }] } } };
+    expect(recipeSchema.safeParse(targeted).success).toBe(false);
+    expect(recipeSchema.safeParse({ ...targeted, lora_base: 'krea-2' }).success).toBe(true);
+    expect(recipeSchema.safeParse({ ...targeted, lora_base: 'sdxl' }).success).toBe(false);
+  });
+
+  it('guesses a base from how sources name it', () => {
+    expect(guessBase('Qwen-Image 2.1')).toBe('qwen-image-2.1');
+    expect(guessBase('Qwen 2.1')).toBe('qwen-image-2.1');
+    expect(guessBase('Qwen')).toBeUndefined();
+    expect(guessBase(undefined, 'Flux.2 Klein 4B')).toBe('flux2-klein-4b');
+    expect(guessBase('ZImageTurbo')).toBe('z-image');
+    expect(guessBase('Wan Video 2.1 I2V 14B 480p')).toBe('wan-2.1-14b');
+    expect(guessBase('SDXL 1.0')).toBeUndefined();
+  });
+
+  it('looks up a Civitai page: its file, trigger words, base and a safe preview', async () => {
+    const fetch = fakeFetch({ 'https://civitai.com/api/v1/models/101': () => jsonResponse(civitaiModel) });
+    const lora = await lookupLora('https://civitai.com/models/101/film-grain', { fetch: fetch as never });
+    expect(lora).toMatchObject({
+      source: 'civitai',
+      url: 'https://civitai.com/api/download/models/202',
+      file: 'film_grain_v2.safetensors',
+      name: 'Film Grain (v2)',
+      base: 'qwen-image-2.1',
+      source_base: 'Qwen-Image 2.1',
+      // A sentence stays whole; a list of words is split.
+      trigger_words: ['filmgrain', 'analog photo', 'kodak portra', 'Outpaint the image: fill the gray areas, keeping the rest unchanged.'],
+      description: 'Adds grain.',
+      preview_url: 'https://image.civitai.com/ok.jpeg',
+      bytes: 1024,
+      sha256: 'ab'.repeat(32),
+    });
+    expect(lora.choices).toBeUndefined();
+
+    const checkpoint = fakeFetch({ 'https://civitai.com/api/v1/models/5': () => jsonResponse({ ...civitaiModel, id: 5, type: 'Checkpoint' }) });
+    await expect(lookupLora('https://civitai.com/models/5', { fetch: checkpoint as never })).rejects.toThrow(/Checkpoint, not a LoRA/);
+  });
+
+  it('looks up a HuggingFace repository, listing its files when there are several', async () => {
+    const fetch = fakeFetch({
+      'https://huggingface.co/api/models/someone/krea-ink': () =>
+        jsonResponse({
+          id: 'someone/krea-ink',
+          cardData: { base_model: 'krea/Krea-2-Turbo', instance_prompt: 'ink wash' },
+          siblings: [
+            { rfilename: 'README.md', size: 10 },
+            { rfilename: 'ink-v1.safetensors', lfs: { size: 2000, sha256: 'c'.repeat(64) } },
+            { rfilename: 'ink-v2.safetensors', lfs: { size: 3000, sha256: 'd'.repeat(64) } },
+          ],
+        }),
+    });
+    const repo = await lookupLora('https://huggingface.co/someone/krea-ink', { fetch: fetch as never });
+    expect(repo.base).toBe('krea-2');
+    expect(repo.trigger_words).toEqual(['ink wash']);
+    expect(repo.choices?.map((c) => c.file)).toEqual(['ink-v1.safetensors', 'ink-v2.safetensors']);
+    const picked = await lookupLora('https://huggingface.co/someone/krea-ink/blob/main/ink-v2.safetensors', { fetch: fetch as never });
+    expect(picked).toMatchObject({ file: 'ink-v2.safetensors', bytes: 3000, sha256: 'd'.repeat(64) });
+    expect(picked.choices).toHaveLength(2);
+    expect(picked.url).toBe('https://huggingface.co/someone/krea-ink/resolve/main/ink-v2.safetensors');
+
+    // Diffusers' generic file name takes the repository's on disk.
+    const diffusers = fakeFetch({
+      'https://huggingface.co/api/models/lab/Qwen-Image-2.1-Lightning': () =>
+        jsonResponse({ id: 'lab/Qwen-Image-2.1-Lightning', siblings: [{ rfilename: 'pytorch_lora_weights.safetensors', size: 9 }] }),
+    });
+    expect(await lookupLora('https://huggingface.co/lab/Qwen-Image-2.1-Lightning', { fetch: diffusers as never })).toMatchObject({
+      file: 'Qwen-Image-2.1-Lightning.safetensors',
+      url: 'https://huggingface.co/lab/Qwen-Image-2.1-Lightning/resolve/main/pytorch_lora_weights.safetensors',
+      base: 'qwen-image-2.1',
+    });
+  });
+
+  it('takes any link to a .safetensors file, and nothing that could run code', async () => {
+    const fetch = fakeFetch({ 'https://example.com/': () => new Response(null, { headers: { 'content-length': '512' } }) });
+    expect(await lookupLora('https://example.com/files/z_image_turbo_neon.safetensors', { fetch: fetch as never })).toMatchObject({
+      source: 'url',
+      file: 'z_image_turbo_neon.safetensors',
+      base: 'z-image',
+      bytes: 512,
+    });
+    await expect(lookupLora('https://example.com/files/style.pt', { fetch: fetch as never })).rejects.toThrow(/only .safetensors/);
+    await expect(lookupLora('ftp://example.com/a.safetensors')).rejects.toThrow(/http or https/);
+  });
+
+  it("renders a take with its cast's LoRAs for the recipe's base, and keeps them through a long take", async () => {
+    vi.stubGlobal(
+      'fetch',
+      fakeFetch({ 'https://example.com/': () => new Response('lora bytes', { headers: { 'content-length': '10' } }) }),
+    );
+    const server = await buildServer(await tempConfig({ RECIPES_DIR: RECIPES, PEPPER_TIER: '16gb' }));
+    try {
+      for (const file of await server.recipes.resolveFiles(server.recipes.require('h3-video'), '16gb')) {
+        await mkdir(join(file.path, '..'), { recursive: true });
+        await writeFile(file.path, '');
+      }
+      await writeFile(join(server.paths.uploadsDir, 'mei.png'), 'png');
+      const look = await server.loras.add({ url: 'https://example.com/h3-look.safetensors', base: 'minimax-h3', trigger_words: ['h3look'], strength: 0.6 });
+      const face = await server.loras.add({ url: 'https://example.com/mei-qwen.safetensors', base: 'qwen-image-2.1', trigger_words: ['meiface'] });
+      for (let i = 0; i < 200 && (await server.loras.list()).some((l) => l.state !== 'installed'); i++) await new Promise((r) => setTimeout(r, 10));
+
+      // Held: only what each job was queued with matters here.
+      server.jobs.registerExecutor('video', () => new Promise(() => {}));
+      const project = server.projects.createProject({ name: 'Cast LoRAs' });
+      expect(() => server.projects.createAsset(project.id, { kind: 'character', name: 'X', loras: [{ id: 'nope' }] })).toThrow(/No LoRA "nope"/);
+      const mei = server.projects.createAsset(project.id, {
+        kind: 'character',
+        name: 'Mei',
+        images: ['mei.png'],
+        loras: [{ id: look.id }, { id: face.id }],
+      });
+      const scene = server.projects.createScene(project.id);
+      const plain = server.projects.createShot(scene.id, { prompt: 'Mei waves', assetIds: [mei.id], recipeId: 'h3-video', durationS: 5 });
+      const off = server.projects.createShot(scene.id, { prompt: 'Mei sits', assetIds: [mei.id], recipeId: 'h3-video', durationS: 5, loras: [{ id: look.id, strength: 0 }] });
+      const strong = server.projects.createShot(scene.id, { prompt: 'Mei runs', assetIds: [mei.id], recipeId: 'h3-video', durationS: 5, loras: [{ id: look.id, strength: 1.1 }] });
+      const long = server.projects.createShot(scene.id, { prompt: 'Mei walks home', assetIds: [mei.id], recipeId: 'h3-video', durationS: 25 });
+
+      const params = (shot: { id: string }) => server.projects.requestFor(shot.id);
+      // Only the LoRA made for H3 runs on H3; the Qwen one waits for a Qwen recipe.
+      const first = await params(plain);
+      expect(first.loras).toEqual([{ id: look.id, strength: 0.6 }]);
+      expect(first.params?.prompt).toMatch(/h3look/);
+      expect(first.params?.prompt).not.toMatch(/meiface/);
+      expect((await params(off)).loras).toBeUndefined();
+      expect((await params(strong)).loras).toEqual([{ id: look.id, strength: 1.1 }]);
+
+      const [take] = await server.projects.renderShots([plain.id], {});
+      expect(server.jobs.get(take.jobId)?.params.loras).toEqual([{ id: look.id, strength: 0.6 }]);
+      const [chained] = await server.projects.renderShots([long.id], {});
+      expect(chained.chain?.loras).toEqual([{ id: look.id, strength: 0.6 }]);
+      expect((chained.chain?.next.prompt as string)).toMatch(/h3look/);
+      expect(server.jobs.get(chained.jobId)?.params.loras).toEqual([{ id: look.id, strength: 0.6 }]);
+
+      // A LoRA deleted from the library just drops out of the shots that named it.
+      await server.loras.remove(look.id);
+      expect((await params(plain)).loras).toBeUndefined();
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  });
+
+  it('adds a LoRA, downloads it, and runs it only with recipes on its base', async () => {
+    vi.stubGlobal(
+      'fetch',
+      fakeFetch({
+        'https://civitai.com/api/v1/models/101': () => jsonResponse(civitaiModel),
+        'https://civitai.com/api/download/models/202': () => new Response('lora bytes', { headers: { 'content-length': '10' } }),
+      }),
+    );
+    const server = await buildServer(await tempConfig({ RECIPES_DIR: RECIPES, PEPPER_TIER: '16gb' }));
+    const inject = (method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, payload?: unknown) =>
+      server.app.inject({ method, url, ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }) });
+    try {
+      // Both recipes' files "installed": the engine checks names on disk, not contents.
+      for (const id of ['qwen-image-turbo', 'krea2-image']) {
+        for (const file of await server.recipes.resolveFiles(server.recipes.require(id), '16gb')) {
+          await mkdir(join(file.path, '..'), { recursive: true });
+          await writeFile(file.path, '');
+        }
+      }
+
+      const lookup = (await inject('POST', '/v1/loras/lookup', { url: 'https://civitai.com/models/101' })).json();
+      expect(lookup).toMatchObject({ name: 'Film Grain (v2)', base: 'qwen-image-2.1' });
+      expect(lookup.existing).toBeUndefined();
+
+      const added = await inject('POST', '/v1/loras', { url: 'https://civitai.com/models/101', strength: 0.8 });
+      expect(added.statusCode).toBe(202);
+      const id = added.json().id;
+      expect(id).toBe('film-grain-v2');
+      for (let i = 0; i < 200 && (await server.loras.get(id)).state !== 'installed'; i++) await new Promise((r) => setTimeout(r, 10));
+      const listed = (await inject('GET', '/v1/loras')).json();
+      expect(listed.loras[0]).toMatchObject({ id, state: 'installed', strength: 0.8, recipes: ['qwen-image-turbo', 'qwen-image-turbo-edit'] });
+      expect(listed.bases.find((b: { id: string }) => b.id === 'qwen-image-2.1').recipes).toEqual(
+        expect.arrayContaining(['qwen-image-edit', 'qwen-image-turbo', 'qwen-image-turbo-edit']),
+      );
+      expect(await readFile(join(server.paths.modelsDir, 'loras', 'library', 'film_grain_v2.safetensors'), 'utf8')).toBe('lora bytes');
+      expect((await inject('POST', '/v1/loras', { url: 'https://civitai.com/models/101' })).json().error.message).toMatch(/already in the library/);
+
+      // A job stores each LoRA at the strength it runs at, so a retry repeats it.
+      const job = await inject('POST', '/v1/jobs', { recipe: 'qwen-image-turbo', params: { prompt: 'filmgrain, a street' }, loras: [id] });
+      expect(job.statusCode).toBe(202);
+      expect(job.json().params.loras).toEqual([{ id, strength: 0.8 }]);
+      const stronger = await inject('POST', '/v1/jobs', { recipe: 'qwen-image-turbo', params: { prompt: 'x' }, loras: [{ id, strength: 1.2 }] });
+      expect(stronger.json().params.loras).toEqual([{ id, strength: 1.2 }]);
+
+      const wrongBase = await inject('POST', '/v1/jobs', { recipe: 'krea2-image', params: { prompt: 'x' }, loras: [id] });
+      expect(wrongBase.statusCode).toBe(400);
+      expect(wrongBase.json().error.message).toMatch(/is for Qwen-Image 2.1; .* runs Krea 2/);
+      expect((await inject('POST', '/v1/jobs', { recipe: 'qwen-image-turbo', params: { prompt: 'x' }, loras: ['nope'] })).statusCode).toBe(400);
+
+      // Without a model named, the LoRA picks the family.
+      const generic = (await inject('POST', '/v1/generate', { kind: 'image', prompt: 'a street', loras: [id] })).json();
+      expect(generic.model).toBe('qwen-image-turbo');
+      const models = (await inject('GET', '/v1/models?kind=image')).json().models;
+      expect(models.find((m: { id: string }) => m.id === 'qwen-image-turbo').loras).toEqual([
+        {
+          id,
+          name: 'Film Grain (v2)',
+          trigger_words: ['filmgrain', 'analog photo', 'kodak portra', 'Outpaint the image: fill the gray areas, keeping the rest unchanged.'],
+          strength: 0.8,
+        },
+      ]);
+      expect(models.find((m: { id: string }) => m.id === 'krea2-image').loras).toEqual([]);
+
+      const edited = (await inject('PATCH', `/v1/loras/${id}`, { name: 'Grain', trigger_words: ['grainy'], base: 'krea-2' })).json();
+      expect(edited).toMatchObject({ name: 'Grain', trigger_words: ['grainy'], base: 'krea-2', recipes: ['krea2-image'] });
+      expect((await inject('PATCH', `/v1/loras/${id}`, { base: 'sd15' })).statusCode).toBe(400);
+
+      expect((await inject('DELETE', `/v1/loras/${id}`)).statusCode).toBe(204);
+      expect(existsSync(join(server.paths.modelsDir, 'loras', 'library', 'film_grain_v2.safetensors'))).toBe(false);
+      expect((await inject('GET', `/v1/loras/${id}`)).statusCode).toBe(404);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
   });
 });

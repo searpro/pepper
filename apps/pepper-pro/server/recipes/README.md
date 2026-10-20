@@ -30,6 +30,8 @@ recipes/<id>/
 | `wan-dancer` | video | A character dancing to a music track, choreographed to its beat | Apache 2.0 |
 | `krea2-image` | image | Photoreal stills, keyframes, looks | Krea 2 (under $1M) |
 | `zimage-turbo` | image | Fast permissive stills | Apache 2.0 |
+| `qwen-image-turbo` | image | Stills in 8 steps, native 2K; posters, UI and text | Research only |
+| `qwen-image-turbo-edit` | image | `qwen-image-edit` in 8 steps instead of 25, up to four images | Research only |
 | `qwen-image-edit` | image | Edits and combining images (try-on, product placement) | Research only |
 | `flux2-klein-edit` | image | Quick permissive edits, and try-on with a second image | Apache 2.0 |
 | `seedvr2-upscale-image` | image | Restore and upscale a still | Apache 2.0 |
@@ -80,6 +82,29 @@ project service uses it for two things (`src/projects/chain.ts`):
 - A retake keeps a finished take up to a second and renders the rest again
   from there (`POST /v1/takes/:id/retake`, or `render_shots` with
   `from_take` and `retake_from`), as a new take beside the original.
+
+## LoRAs from the library
+
+LoRAs are not recipe files. The library (`src/loras/`, the LoRAs screen,
+`/v1/loras`) downloads them from Civitai, HuggingFace or any `.safetensors`
+link into `models/loras/library/`, and any recipe built on the LoRA's base
+model can run them. A recipe opts in with two fields:
+
+- `lora_base` (recipe): the base model a LoRA must be made for, one of
+  `src/loras/bases.ts` (`qwen-image-2.1`, `krea-2`, `z-image`,
+  `flux2-klein-4b`, `minimax-h3`, `ltx-2.5`, `wan-2.1-14b`). Recipes on one
+  base share every LoRA made for it.
+- `lora_targets` (workflow): `[{ "node": "451", "output": 0 }]`, the node
+  whose MODEL output the LoRAs patch, normally the diffusion model's
+  `UNETLoader`. A request's LoRAs become a chain of `LoraLoaderModelOnly`
+  nodes after it, and everything that read it reads the chain's end. A
+  workflow without targets takes none, so one mode can refuse what another
+  accepts.
+
+`validate-recipes` and the unit tests build every workflow with targets with
+two sample LoRAs, so a target that is not a MODEL output fails there. Two
+models in one graph (Wan 2.2's high- and low-noise experts) want LoRAs in
+pairs, which this does not model yet; those recipes have no targets.
 
 ## Bindings
 

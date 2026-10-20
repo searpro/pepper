@@ -57,7 +57,8 @@ export type ErrorCode =
   | 'OUT_OF_MEMORY'
   | 'PROJECT_NOT_FOUND'
   | 'SHOT_NOT_FOUND'
-  | 'TAKE_NOT_FOUND';
+  | 'TAKE_NOT_FOUND'
+  | 'LORA_NOT_FOUND';
 
 export class AppError extends Error {
   readonly code: ErrorCode;

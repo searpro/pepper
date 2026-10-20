@@ -1,9 +1,32 @@
 import * as React from 'react';
 import { AudioWaveform, Pencil, Plus, SplitSquareHorizontal, Trash2, Users } from 'lucide-react';
 import { Badge, Button, Card, Dialog, DialogContent, EmptyState, ErrorNote, Field, Input, Select, Spinner, Textarea } from '@pepper/ui/components/ui';
+import { MediaViewer } from '@pepper/ui/components/media';
 import { api, ApiRequestError, waitForJob } from '@pepper/ui/lib/api';
 import { MediaField, MediaThumb } from '@/components/inputs';
+import { LoraRefs, type LoraRef } from '@/components/loras';
 import { ASSET_KINDS, beatsOf, inputUrl, type Asset } from '@/lib/pro';
+
+/** An asset's pictures, whole whatever their shape, each opening full size. */
+function PictureStrip({ names }: { names: string[] }) {
+  const [viewing, setViewing] = React.useState<number>();
+  return (
+    <div className="flex gap-1.5 overflow-x-auto scrollbar-thin">
+      {names.map((name, index) => (
+        <button key={name} type="button" className="shrink-0 rounded-md" onClick={() => setViewing(index)} aria-label="View full size" title="View full size">
+          <MediaThumb name={name} kind="image" />
+        </button>
+      ))}
+      <MediaViewer
+        item={viewing !== undefined && names[viewing] ? { name: names[viewing], kind: 'image', size: 0, modified: '', url: inputUrl(names[viewing]) } : undefined}
+        position={viewing !== undefined && names.length > 1 ? `${viewing + 1} of ${names.length}` : undefined}
+        onPrev={viewing ? () => setViewing(viewing - 1) : undefined}
+        onNext={viewing !== undefined && viewing < names.length - 1 ? () => setViewing(viewing + 1) : undefined}
+        onClose={() => setViewing(undefined)}
+      />
+    </div>
+  );
+}
 
 /**
  * A project's cast, places, products and sounds. Pictures are what reference
@@ -52,14 +75,13 @@ export function AssetsPanel({ projectId, assets, onChanged }: { projectId: strin
                 </Button>
               </div>
             </div>
-            {asset.images.length ? (
-              <div className="flex gap-1.5 overflow-x-auto scrollbar-thin">
-                {asset.images.map((name) => (
-                  <img key={name} src={inputUrl(name)} alt="" className="size-20 shrink-0 rounded-md object-cover" />
-                ))}
-              </div>
-            ) : null}
+            {asset.images.length ? <PictureStrip names={asset.images} /> : null}
             {asset.description ? <p className="line-clamp-3 text-xs text-muted-foreground">{asset.description}</p> : null}
+            {asset.loras?.length ? (
+              <p className="text-[11px] text-muted-foreground">
+                {asset.loras.length} LoRA{asset.loras.length === 1 ? '' : 's'}
+              </p>
+            ) : null}
             {asset.voice?.upload ? <MediaThumb name={asset.voice.upload} kind="audio" className="w-full" /> : null}
             {asset.audio ? <MediaThumb name={asset.audio} kind="audio" className="w-full" /> : null}
             {asset.audio ? <AudioTools asset={asset} onChanged={onChanged} /> : null}
@@ -140,6 +162,7 @@ function AssetDialog({
   const [images, setImages] = React.useState<string[]>([]);
   const [voice, setVoice] = React.useState<string[]>([]);
   const [audio, setAudio] = React.useState<string[]>([]);
+  const [loras, setLoras] = React.useState<LoraRef[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string>();
 
@@ -150,6 +173,7 @@ function AssetDialog({
     setImages(existing?.images ?? []);
     setVoice(existing?.voice?.upload ? [existing.voice.upload] : []);
     setAudio(existing?.audio ? [existing.audio] : []);
+    setLoras(existing?.loras ?? []);
     setError(undefined);
   }, [asset]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -163,6 +187,7 @@ function AssetDialog({
       images,
       voice: voice[0] ? { upload: voice[0] } : null,
       audio: audio[0] ?? null,
+      loras,
     };
     try {
       if (existing) await api.patch(`/v1/assets/${existing.id}`, body);
@@ -203,6 +228,12 @@ function AssetDialog({
               <MediaField kind="audio" value={audio} onChange={setAudio} />
             </Field>
           ) : null}
+          <Field
+            label="LoRAs"
+            hint="Used in every shot this is in, by the recipes each LoRA was made for: a character can have one per model."
+          >
+            <LoraRefs value={loras} onChange={setLoras} />
+          </Field>
           {error ? <ErrorNote>{error}</ErrorNote> : null}
           <Button onClick={() => void save()} disabled={busy || !name.trim()}>
             {busy ? <Spinner /> : null} Save

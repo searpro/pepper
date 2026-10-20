@@ -9,6 +9,7 @@ import { AppError, errors } from '../errors.js';
 import type { LogBuffer } from '../logs/buffer.js';
 import { Semaphore } from '../util/semaphore.js';
 import type { StepProgress } from '../logs/parse.js';
+import { outputUrls } from './generation.js';
 
 /**
  * The job queue (requirement 4: "Follow the current architectural patterns
@@ -165,12 +166,30 @@ export class JobManager extends EventEmitter {
           or(
             sql`json_extract(${jobs.result}, '$.image_url') = ${url}`,
             sql`json_extract(${jobs.result}, '$.video_url') = ${url}`,
+            sql`json_extract(${jobs.result}, '$.audio_url') = ${url}`,
+            // Pepper Pro lists every file a workflow saved, not just the first.
+            sql`exists (select 1 from json_each(${jobs.result}, '$.outputs') where json_extract(value, '$.url') = ${url})`,
           ),
         ),
       )
       .orderBy(desc(jobs.createdAt))
       .get();
     return row ? toJob(row) : null;
+  }
+
+  /**
+   * Every completed job by the output URLs it wrote, newest job winning: one
+   * pass over the table for a whole media listing, where `findByOutput` per
+   * file would be a query each.
+   */
+  outputIndex(): Map<string, Job> {
+    const index = new Map<string, Job>();
+    const rows = this.db.select().from(jobs).where(eq(jobs.status, 'completed')).orderBy(jobs.createdAt).all();
+    for (const row of rows) {
+      const job = toJob(row);
+      for (const url of outputUrls(job)) index.set(url, job);
+    }
+    return index;
   }
 
   list(filter: { kind?: JobKind; status?: JobStatus[]; limit?: number } = {}): Job[] {

@@ -11,6 +11,7 @@
     "photoreal",
     "keyframe"
   ],
+  "lora_base": "z-image",
   "licence": {
     "id": "apache-2.0",
     "name": "Apache 2.0",
@@ -132,6 +133,12 @@
         {
           "node": "9",
           "kind": "image"
+        }
+      ],
+      "lora_targets": [
+        {
+          "node": "57:28",
+          "output": 0
         }
       ]
     }

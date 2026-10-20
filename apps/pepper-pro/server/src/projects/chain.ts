@@ -31,6 +31,8 @@ export interface TakeChain {
   next: Record<string, unknown>;
   /** Parameters only the last segment gets (its last frame). */
   last: Record<string, unknown>;
+  /** LoRAs every segment renders with: the first segment's, so the take looks one. */
+  loras?: { id: string; strength: number }[];
   /** A retake's kept opening (an upload), which the first segment continues. */
   head?: string;
   from?: number;

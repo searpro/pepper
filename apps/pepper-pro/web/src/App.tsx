@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Clapperboard, FlaskConical, Library, ListChecks, ScrollText, Wand2 } from 'lucide-react';
+import { Clapperboard, FlaskConical, Layers, Library, ListChecks, ScrollText, Wand2 } from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { TooltipProvider } from '@pepper/ui/components/ui';
 import { AppShell, type NavItem, type Theme } from '@pepper/ui/components/layout';
@@ -9,6 +9,7 @@ import { LogsPage } from '@pepper/ui/pages/Logs';
 import { useResource, type SystemStatus } from '@pepper/ui/lib/api';
 import { PreferencesDialog } from '@/components/Preferences';
 import { GeneratePage } from '@/pages/Generate';
+import { LorasPage } from '@/pages/Loras';
 import { MediaPage } from '@/pages/Media';
 import { ProjectPage } from '@/pages/Project';
 import { ProjectsPage } from '@/pages/Projects';
@@ -20,6 +21,7 @@ const NAV: NavItem[] = [
   { to: '/projects', label: 'Projects', icon: Clapperboard, group: 'Create' },
   { to: '/generate', label: 'Generate', icon: Wand2, group: 'Create' },
   { to: '/recipes', label: 'Recipes', icon: FlaskConical, group: 'Library' },
+  { to: '/loras', label: 'LoRAs', icon: Layers, group: 'Library' },
   { to: '/media', label: 'Media', icon: Library, group: 'Library' },
   { to: '/jobs', label: 'Jobs', icon: ListChecks, group: 'Library' },
   { to: '/logs', label: 'Logs', icon: ScrollText, group: 'Library' },
@@ -75,6 +77,7 @@ function PepperPro() {
           <Route path="/projects/:id" element={<ProjectPage />} />
           <Route path="/generate" element={<GeneratePage />} />
           <Route path="/recipes" element={<RecipesPage />} />
+          <Route path="/loras" element={<LorasPage />} />
           <Route path="/media" element={<MediaPage />} />
           <Route path="/jobs" element={<JobsPage />} />
           <Route path="/logs" element={<LogsPage />} />

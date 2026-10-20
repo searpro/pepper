@@ -4,9 +4,38 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-19 (Maya's channel intro with camera moves; Roadster explainer, character library, high-quality saves).
+Last updated: 2026-10-20 (LoRA library, Qwen-Image 2.1 Turbo, generation time on every file).
 
 ## Resume here
+
+**LoRA library and Qwen-Image 2.1 Turbo** (2026-10-20, not yet on a GPU):
+
+- **LoRAs** from a Civitai page, a HuggingFace repository or file, or any
+  `.safetensors` link: the LoRAs screen looks the link up (trigger words,
+  base model, size, hash), downloads it once into `models/loras/library/`,
+  and any recipe on the same base runs it at a chosen strength (Generate's
+  LoRA picker; `loras` on `/v1/jobs`, `/v1/generate` and the MCP generate
+  tools; `install_model` with `lora_url`). Eleven recipes take them: the
+  Qwen-Image 2.1 three, Krea 2, Z-Image, FLUX.2 klein, H3 and H3 reference,
+  LTX-2.5, InfiniteTalk one and two. `CIVITAI_TOKEN` for files that need an
+  account. In projects, a cast member carries its LoRAs (one per model it
+  is rendered with) and a shot adds or mutes them (strength 0); each take
+  runs those its recipe's base can, trigger words added to the prompt, and
+  long takes and retakes keep them in every segment. Lookups were checked
+  against live Civitai and HuggingFace entries; a LoRA has not yet been
+  rendered through ComfyUI.
+- **`qwen-image-turbo`** (text to image, `final` at 1 MP and `2k`) and
+  **`qwen-image-turbo-edit`** (up to four images) run Comfy-Org's Turbo
+  checkpoint with the official templates' 8-step ManualSigmas schedule at
+  CFG 1, the int8 files on `16gb`–`32gb`. Same encoder and VAE as
+  `qwen-image-edit`. Research licence, like the base.
+- **Generated files carry how they were made** everywhere they are shown
+  (Media, Generate, Jobs, takes, the library picker): generation time, queue
+  wait, prompt, seed, recipe and mode, LoRAs, in one shared viewer;
+  portrait media display whole.
+
+Next: render both Turbo recipes and one LoRA per base on the home box and
+fill in `verified`.
 
 **Maya's channel intro** (2026-10-19): 58 s, 9:16 4K, outdoors at golden
 hour in a new outfit (a Qwen-Image edit of her library still, 26 s on

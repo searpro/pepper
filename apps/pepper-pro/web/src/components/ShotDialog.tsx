@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { Check, Eye, Gem, Plus, Scissors, ScanEye, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
+import { Check, Eye, Gem, Maximize2, Plus, Scissors, ScanEye, Sparkles, Star, Trash2, Wand2, X } from 'lucide-react';
+import { GenerationTime, MediaViewer } from '@pepper/ui/components/media';
 import {
   Badge,
   Button,
@@ -21,6 +22,7 @@ import { api, ApiRequestError, waitForJob } from '@pepper/ui/lib/api';
 import { cn } from '@pepper/ui/lib/utils';
 import { MediaField } from '@/components/inputs';
 import { LicenceNotice } from '@/components/licence';
+import { LoraRefs } from '@/components/loras';
 import { SHOT_KINDS, isActive, type Asset, type DialogueLine, type Recipe, type Shot, type Take } from '@/lib/pro';
 
 const AUTO = '__auto__';
@@ -86,6 +88,7 @@ function ShotForm({ shot, assets, recipes, onSaved }: { shot: Shot; assets: Asse
     keyframes: shot.keyframes,
     audioAssetId: shot.audioAssetId,
     recipeId: shot.recipeId,
+    loras: shot.loras ?? [],
     continues: shot.continues,
   }));
   const [busy, setBusy] = React.useState(false);
@@ -171,6 +174,18 @@ function ShotForm({ shot, assets, recipes, onSaved }: { shot: Shot; assets: Asse
             );
           })}
         </div>
+      </Field>
+
+      <Field label="LoRAs" hint="On top of what the cast brings. A take uses those its recipe was made for, with their trigger words added to the prompt.">
+        <LoraRefs
+          value={draft.loras}
+          onChange={(loras) => set('loras', loras)}
+          recipe={recipes.find((r) => r.id === draft.recipeId)}
+          inherited={draft.assetIds.flatMap((id) => {
+            const asset = assets.find((a) => a.id === id);
+            return (asset?.loras ?? []).map((ref) => ({ ...ref, from: asset!.name }));
+          })}
+        />
       </Field>
 
       <Field label="Dialogue" hint="Spoken exactly as written, in the speaker's voice clip when the recipe takes one.">
@@ -303,14 +318,17 @@ function Takes({ shot, recipes, onChanged }: { shot: Shot; recipes: Recipe[]; on
 
 export function TakeMedia({ take, className }: { take: Take; className?: string }) {
   if (!take.url) return null;
-  if (take.kind === 'image') return <img src={take.url} alt="" className={cn('w-full rounded-md', className)} />;
+  // Capped in height, so a 9:16 take on a phone leaves room for its controls.
+  if (take.kind === 'image') return <img src={take.url} alt="" className={cn('max-h-[60vh] w-full rounded-md object-contain', className)} />;
   if (take.kind === 'audio') return <audio src={take.url} controls className={cn('w-full', className)} />;
-  return <video src={take.url} controls preload="metadata" className={cn('w-full rounded-md bg-black', className)} />;
+  return <video src={take.url} controls preload="metadata" className={cn('max-h-[60vh] w-full rounded-md bg-black', className)} />;
 }
 
 function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: boolean; onChanged: () => void; onError: (e: string) => void }) {
   const [checking, setChecking] = React.useState(false);
+  const [viewing, setViewing] = React.useState(false);
   const media = React.useRef<HTMLDivElement>(null);
+  const shown = take.master?.url ? { ...take, url: take.master.url } : take;
   const run = (action: () => Promise<unknown>) =>
     void action().then(onChanged, (err) => {
       setChecking(false);
@@ -347,15 +365,47 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
             </Badge>
           ) : null}
         </div>
-        <span className="truncate font-mono text-muted-foreground" title="Seed">
-          {take.seed ?? ''}
+        <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+          <GenerationTime generation={take.generation} status={take.status} className="shrink-0" />
+          <span className="truncate font-mono" title="Seed">
+            {take.seed ?? ''}
+          </span>
         </span>
       </div>
       {isActive(take.status) ? <Progress value={take.progress} indeterminate={take.status === 'queued'} /> : null}
-      <div ref={media}>
+      <div ref={media} className="group relative">
         {/* A mastered take plays its master, which is what the cut will show. */}
-        <TakeMedia take={take.master?.url ? { ...take, url: take.master.url } : take} />
+        <TakeMedia take={shown} />
+        {shown.url ? (
+          <Button
+            size="icon-sm"
+            variant="secondary"
+            aria-label="Open full size, with its details"
+            title="Open full size, with its details"
+            className="absolute right-1.5 top-1.5 opacity-70 group-hover:opacity-100"
+            onClick={() => setViewing(true)}
+          >
+            <Maximize2 />
+          </Button>
+        ) : null}
       </div>
+      <MediaViewer
+        item={
+          viewing && shown.url && shown.kind
+            ? {
+                name: decodeURIComponent(shown.url.split('/').pop() ?? take.id),
+                kind: shown.kind,
+                size: 0,
+                modified: take.generation?.finished_at ?? new Date(take.createdAt).toISOString(),
+                url: shown.url,
+                // The take's time is not the master's: a master is a chain of finishing jobs.
+                generation: take.master?.url ? undefined : take.generation,
+              }
+            : undefined
+        }
+        position={[take.mode, take.master?.url ? 'master' : undefined].filter(Boolean).join(' · ')}
+        onClose={() => setViewing(false)}
+      />
       {take.master?.url ? (
         <a href={take.url} target="_blank" rel="noreferrer" className="text-[11px] text-muted-foreground underline-offset-2 hover:underline">
           Open the take as rendered

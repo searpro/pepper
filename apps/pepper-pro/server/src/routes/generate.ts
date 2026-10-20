@@ -19,6 +19,7 @@ import {
   type GenericRequest,
   type ModelDescription,
 } from '../generate.js';
+import type { LoraService } from '../loras/service.js';
 import type { ProPaths } from '../paths.js';
 import type { RecipeStore } from '../recipes/store.js';
 
@@ -28,11 +29,20 @@ export interface GenerateRoutesOptions {
   backends: BackendManager;
   paths: ProPaths;
   recipes: RecipeStore;
+  loras: LoraService;
   config: ProConfig;
   llamacppTimeoutMs: number;
 }
 
 const media = z.string().min(1);
+
+/** LoRAs from the library: ids, or ids with a strength (the LoRA's own default otherwise). */
+export const lorasSchema = z
+  .array(z.union([z.string().min(1), z.object({ id: z.string().min(1), strength: z.number().min(-4).max(4).optional() })]))
+  .max(8)
+  .optional()
+  .describe('LoRAs from the library (GET /v1/loras), each an id or { id, strength }; they must be made for the model\'s base.')
+  .transform((list) => list?.map((item) => (typeof item === 'string' ? { id: item } : item)));
 
 /** One generation in generic terms (src/generate.ts); `model` is a recipe id. */
 export const genericSchema = z.object({
@@ -55,15 +65,24 @@ export const genericSchema = z.object({
   seed: z.number().int().min(0).optional(),
   count: z.number().int().min(1).max(8).optional(),
   params: z.record(z.unknown()).optional(),
+  loras: lorasSchema,
 });
 
 export const recipeJobSchema = z.object({
   recipe: z.string().min(1),
   mode: z.string().optional(),
   params: z.record(z.unknown()).default({}),
+  loras: lorasSchema,
   /** Several takes of the same request, each with its own seed unless one is given. */
   batch: z.number().int().min(1).max(16).optional(),
 });
+
+/** What a recipe job stores: enough for a retry to run the same thing. */
+function jobParams(prepared: Awaited<ReturnType<ComfyEngine['prepareRequest']>>): Record<string, unknown> {
+  const params: Record<string, unknown> = { recipe: prepared.recipe.id, mode: prepared.mode, params: prepared.values };
+  if (prepared.loras.length) params.loras = prepared.loras;
+  return params;
+}
 
 /**
  * Generation outside a project: run one recipe with parameters. Takes of a
@@ -73,8 +92,20 @@ export async function generateRoutes(fastify: FastifyInstance, options: Generate
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const { jobs, comfy, recipes, config } = options;
 
-  const models = async (): Promise<ModelDescription[]> =>
-    Promise.all(recipes.list().map(async (r) => describeModel(r, await recipes.status(r, config.tier, config.licenceMode))));
+  const models = async (): Promise<ModelDescription[]> => {
+    const library = (await options.loras.list()).filter((lora) => lora.state === 'installed');
+    return Promise.all(
+      recipes.list().map(async (r) => {
+        const model = describeModel(r, await recipes.status(r, config.tier, config.licenceMode));
+        if (!r.lora_base) return model;
+        const fits = library.filter((lora) => lora.base === r.lora_base);
+        return {
+          ...model,
+          loras: fits.map((lora) => ({ id: lora.id, name: lora.name, trigger_words: lora.trigger_words, strength: lora.strength })),
+        };
+      }),
+    );
+  };
 
   app.get(
     '/v1/models',
@@ -103,7 +134,7 @@ export async function generateRoutes(fastify: FastifyInstance, options: Generate
       },
     },
     async (req, reply) => {
-      const { kind, model, audio_type, count, ...fields } = req.body;
+      const { kind, model, audio_type, count, loras, ...fields } = req.body;
       const all = await models();
       let chosen: ModelDescription;
       if (model) {
@@ -114,15 +145,19 @@ export async function generateRoutes(fastify: FastifyInstance, options: Generate
         const why = mismatch({ ...chosen, unavailable: undefined }, fields as GenericRequest);
         if (why) throw errors.validation(`${model} ${why} (list_models shows what each model takes)`);
       } else {
-        chosen = pickModel(kind, fields as GenericRequest, all, audio_type);
+        // LoRAs decide the model family: only recipes on their base can run them.
+        const bases = new Set((loras ?? []).map((lora) => options.loras.baseOf(lora.id)));
+        if (bases.size > 1) throw errors.validation('These LoRAs are for different models; one generation can use LoRAs for one model only');
+        const candidates = bases.size ? all.filter((m) => m.lora_base && bases.has(m.lora_base)) : all;
+        chosen = pickModel(kind, fields as GenericRequest, candidates, audio_type);
       }
       const request = await resolveRequestMedia(fields as GenericRequest, { uploadsDir: options.paths.uploadsDir, outputDir: options.paths.outputDir });
       const recipe = recipes.require(chosen.id);
       const { mode, params } = mapRequest(recipe, request);
       const created = [];
       for (let i = 0; i < (count ?? 1); i++) {
-        const prepared = await comfy.prepareRequest({ recipe: recipe.id, mode, params });
-        created.push(jobs.create(prepared.recipe.kind, { recipe: prepared.recipe.id, mode: prepared.mode, params: prepared.values }));
+        const prepared = await comfy.prepareRequest({ recipe: recipe.id, mode, params, loras });
+        created.push(jobs.create(prepared.recipe.kind, jobParams(prepared)));
       }
       return reply.code(202).send({ model: chosen.id, quality: mode, jobs: created });
     },
@@ -145,8 +180,8 @@ export async function generateRoutes(fastify: FastifyInstance, options: Generate
       const count = req.body.batch ?? 1;
       const created = [];
       for (let i = 0; i < count; i++) {
-        const { recipe, mode, values } = await comfy.prepareRequest(req.body);
-        created.push(jobs.create(recipe.kind, { recipe: recipe.id, mode, params: values }));
+        const prepared = await comfy.prepareRequest(req.body);
+        created.push(jobs.create(prepared.recipe.kind, jobParams(prepared)));
       }
       return reply.code(202).send(count === 1 ? created[0] : { jobs: created });
     },

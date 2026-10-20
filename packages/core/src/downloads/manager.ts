@@ -11,6 +11,7 @@ import type { Db } from '../db/client.js';
 import { downloads, type DownloadRow } from '../db/schema.js';
 import { AppError, errors } from '../errors.js';
 import type { StorageMonitor } from '../services/storage.js';
+import { civitaiAuthHeaders, civitaiDeniedHint, isCivitaiUrl } from '../util/civitai.js';
 import { gatedHint, hfAuthHeaders, isHuggingFaceUrl } from '../util/hf.js';
 
 /**
@@ -133,7 +134,7 @@ export class DownloadManager<Kind extends string = string, Slot extends string =
   private active = 0;
 
   constructor(
-    private readonly config: Pick<CoreConfig, 'maxConcurrentDownloads' | 'hfToken'>,
+    private readonly config: Pick<CoreConfig, 'maxConcurrentDownloads' | 'hfToken' | 'civitaiToken'>,
     private readonly db: Db,
     private readonly layout: DownloadLayout<Kind, Slot>,
     private readonly log: FastifyBaseLogger,
@@ -433,6 +434,7 @@ export class DownloadManager<Kind extends string = string, Slot extends string =
     const headers: Record<string, string> = {
       'User-Agent': 'pepper',
       ...hfAuthHeaders(task.url, this.config.hfToken),
+      ...civitaiAuthHeaders(task.url, this.config.civitaiToken),
     };
     if (offset > 0) headers.Range = `bytes=${offset}-`;
 
@@ -517,6 +519,8 @@ export class DownloadManager<Kind extends string = string, Slot extends string =
       total = length ? Number(length) : null;
     } else if ((res.status === 401 || res.status === 403) && isHuggingFaceUrl(task.url)) {
       throw errors.downloadFailed(gatedHint(res.status));
+    } else if ((res.status === 401 || res.status === 403) && isCivitaiUrl(task.url)) {
+      throw errors.downloadFailed(civitaiDeniedHint(res.status));
     } else {
       throw errors.downloadFailed(`HTTP ${res.status} ${res.statusText}`);
     }

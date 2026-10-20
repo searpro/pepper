@@ -15,6 +15,7 @@
     "text-to-video"
   ],
   "prompt_format": "h3-reference",
+  "lora_base": "minimax-h3",
   "licence": {
     "id": "minimax-h3-community",
     "name": "MiniMax H3 Community Licence",
@@ -310,6 +311,12 @@
         {
           "node": "92",
           "kind": "video"
+        }
+      ],
+      "lora_targets": [
+        {
+          "node": "127",
+          "output": 0
         }
       ]
     }

@@ -58,6 +58,12 @@ export const assets = sqliteTable(
     voice: text('voice', { mode: 'json' }),
     /** An audio asset's upload name (a song, a voice line). */
     audio: text('audio'),
+    /**
+     * `{ id, strength }[]`: LoRAs from the library that belong to the asset
+     * (a character's likeness, a product, a style). A shot it is in renders
+     * with those made for the shot recipe's base model.
+     */
+    loras: text('loras', { mode: 'json' }).$type<{ id: string; strength?: number }[]>().notNull().default([]),
     meta: text('meta', { mode: 'json' }).notNull().default({}),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
@@ -105,6 +111,11 @@ export const shots = sqliteTable(
     recipeId: text('recipe_id'),
     /** Recipe parameters that override what the shot derives. */
     params: text('params', { mode: 'json' }).notNull().default({}),
+    /**
+     * `{ id, strength }[]`: LoRAs for this shot on top of its assets'. The
+     * same id here sets that LoRA's strength for the shot; 0 leaves it out.
+     */
+    loras: text('loras', { mode: 'json' }).$type<{ id: string; strength?: number }[]>().notNull().default([]),
     /**
      * The shot carries straight on from the previous shot of its scene: it is
      * rendered continuing that shot's chosen take (H3's continuation), and the
@@ -289,4 +300,6 @@ export const PRO_MIGRATIONS: string[] = [
   'ALTER TABLE takes ADD COLUMN chain TEXT',
   'ALTER TABLE takes ADD COLUMN master TEXT',
   'ALTER TABLE shots ADD COLUMN continues INTEGER NOT NULL DEFAULT 0',
+  "ALTER TABLE assets ADD COLUMN loras TEXT NOT NULL DEFAULT '[]'",
+  "ALTER TABLE shots ADD COLUMN loras TEXT NOT NULL DEFAULT '[]'",
 ];

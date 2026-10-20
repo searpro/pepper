@@ -32,7 +32,10 @@ import { projectRoutes } from './routes/projects.js';
 import { DOWNLOAD_KINDS, comfyLayout, type DownloadKind, type DownloadSlot } from './recipes/layout.js';
 import { RecipeStore } from './recipes/store.js';
 import { generateRoutes } from './routes/generate.js';
+import { loraRoutes } from './routes/loras.js';
 import { recipeRoutes } from './routes/recipes.js';
+import { LORA_SCHEMA_SQL } from './loras/schema.js';
+import { LoraService } from './loras/service.js';
 
 export const VERSION = '0.1.0';
 
@@ -47,6 +50,7 @@ export interface ProServer {
   comfy: ComfyEngine;
   projects: ProjectService;
   golden: GoldenService;
+  loras: LoraService;
   closeDb: () => void;
 }
 
@@ -64,10 +68,11 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
       tags: [
         { name: 'recipes', description: 'Pinned ComfyUI recipes and their install state' },
         { name: 'projects', description: 'Projects, assets, shots, takes and cuts' },
+        { name: 'loras', description: 'The LoRA library: LoRAs from HuggingFace, Civitai or a link, for every recipe on their base model' },
         { name: 'text', description: 'llama.cpp text generation' },
       ],
     },
-    schema: { name: 'pepper-pro', sql: PRO_SCHEMA_SQL + GOLDEN_SCHEMA_SQL, migrations: PRO_MIGRATIONS },
+    schema: { name: 'pepper-pro', sql: PRO_SCHEMA_SQL + GOLDEN_SCHEMA_SQL + LORA_SCHEMA_SQL, migrations: PRO_MIGRATIONS },
   });
 
   // --- Services -------------------------------------------------------------
@@ -94,9 +99,10 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
 
   const jobs = new JobManager(config, db, app.log, logs);
   const engines = new EngineRegistry(app.log);
-  const comfy = new ComfyEngine({ config, paths, backends, recipes, memory: engines, log: app.log });
+  const loras = new LoraService({ db, downloads, storage, recipes, paths, config, log: app.log });
+  const comfy = new ComfyEngine({ config, paths, backends, recipes, loras, memory: engines, log: app.log });
   const text = new TextService(config, backends, app.log, logs);
-  const projects = new ProjectService({ db, jobs, comfy, recipes, paths, config, log: app.log });
+  const projects = new ProjectService({ db, jobs, comfy, recipes, loras, paths, config, log: app.log });
   const golden = new GoldenService({ db, jobs, comfy, recipes, paths, config, log: app.log, file: config.goldenFile });
   await golden.load();
 
@@ -153,8 +159,9 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
     }),
   });
   await app.register(coreJobRoutes, { jobs });
-  await app.register(generateRoutes, { jobs, comfy, backends, paths, recipes, config, llamacppTimeoutMs: config.llamacppTimeoutMs });
+  await app.register(generateRoutes, { jobs, comfy, backends, paths, recipes, loras, config, llamacppTimeoutMs: config.llamacppTimeoutMs });
   await app.register(recipeRoutes, { config, recipes, downloads, storage });
+  await app.register(loraRoutes, { loras, recipes });
   await app.register(projectRoutes, { projects });
   await app.register(analyzeRoutes, { jobs, projects });
   await app.register(goldenRoutes, { golden, paths });
@@ -171,5 +178,5 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
 
   await serveSpa(app, join(dirname(fileURLToPath(import.meta.url)), '..', 'public'));
 
-  return { app, paths, jobs, downloads, backends, engines, recipes, comfy, projects, golden, closeDb };
+  return { app, paths, jobs, downloads, backends, engines, recipes, comfy, projects, golden, loras, closeDb };
 }

@@ -77,22 +77,24 @@ The server only answers while a pod is running:
 
 | Tool | What it does |
 | --- | --- |
-| `list_models` | Every model: what it takes (`prompt`, `image`, `end_image`, `reference_images`, `audio`, `audio_2`, `video`, `voice_reference`, `voice`, `lyrics`, each required or optional), duration range, aspect ratios, qualities, licence, whether it is installed, and measured seconds per output where it has been verified on a GPU |
-| `generate_image` | Text to image, or an edit or try-on when `image` (and `reference_images`) are given |
+| `list_models` | Every model: what it takes (`prompt`, `image`, `end_image`, `reference_images`, `audio`, `audio_2`, `video`, `voice_reference`, `voice`, `lyrics`, each required or optional), duration range, aspect ratios, qualities, licence, whether it is installed, measured seconds per output where it has been verified on a GPU, and the downloaded LoRAs that fit it (`loras`, with trigger words) |
+| `generate_image` | Text to image, or an edit or try-on when `image` (and `reference_images`) are given; `loras` applies LoRAs from the library |
 | `generate_video` | Text or image to video: start and end frames, reference images for a consistent cast, audio to lip-sync or perform to, a driving video for motion transfer |
 | `generate_audio` | Speech (`audio_type: "speech"`: a line in a cloned, preset or described voice) or music (`"music"`: style, lyrics, length) |
 | `get_job` | Waits up to 50 s for one job (`id`) or several (`ids`), and returns their status and `download_url` |
 | `list_jobs`, `cancel_job` | Recent jobs; stop one |
-| `install_model` | Downloads a model's files. It is refused when the volume has no room |
+| `install_model` | Downloads a model's files (`id`), or adds a LoRA to the library from `lora_url`: a Civitai page, a HuggingFace repository or file, or a `.safetensors` link, with `base` when the source does not say which model it is for. It is refused when the volume has no room |
 | `add_input` | Uploads a file from base64 bytes, for a client with local files and no URL |
-| `plan_project`, `render_shots`, `get_project` | Projects: scenes of shots, draft and final takes, long takes, retakes, and a cut. `get_project` with no id also lists the shared library (recurring characters and voices); a plan names them, and `library: true` saves an asset there |
+| `plan_project`, `render_shots`, `get_project` | Projects: scenes of shots, draft and final takes, long takes, retakes, and a cut. `get_project` with no id also lists the shared library (recurring characters and voices); a plan names them, and `library: true` saves an asset there. `loras` on a plan asset or shot apply to every take on a model of their base |
 | `analyze` | Beats, stems, Whisper transcription, a vision check of a take |
 | `pro_status`, `get_logs` | Status: the GPU, the queue, installed models; and the logs |
 
 Without `model`, Pepper uses the best installed model that takes every input
 given, preferring models verified on a GPU. For example, reference images
 choose H3 with references, and an image plus two voices choose two-person
-InfiniteTalk.
+InfiniteTalk. LoRAs narrow the choice to models on their base: a Qwen-Image
+2.1 LoRA picks `qwen-image-turbo`. A LoRA does little unless its trigger
+words are in the prompt; `list_models` gives them.
 
 ## A video, end to end
 
