@@ -28,7 +28,7 @@ ACCENT = (255, 212, 0)
 ROOT = Path('.')
 FPS, W0, H0, PAD = 24, 2160, 3840, 0.35
 PHOTO_DIRS, CREDIT, DEFAULT_CREDIT = [], {}, ''
-CUES, CHIPS, STATS, HOOK, PUNCH = {}, {}, {}, None, 1.14
+CUES, CHIPS, STATS, STATS_Y, HOOK, PUNCH = {}, {}, {}, {}, None, 1.14
 
 
 def configure(project):
@@ -39,7 +39,7 @@ def configure(project):
     screen, the whole photo over a blurred fill), pan (full screen, a 9:16
     window moving x0 -> x1 and y0 -> y1, zoomed by `zoom`). `enter: false`
     swaps a card in place (a table revealing rows)."""
-    global ROOT, FPS, W0, H0, PAD, PHOTO_DIRS, CREDIT, DEFAULT_CREDIT, CUES, CHIPS, STATS, HOOK, PUNCH
+    global ROOT, FPS, W0, H0, PAD, PHOTO_DIRS, CREDIT, DEFAULT_CREDIT, CUES, CHIPS, STATS, STATS_Y, HOOK, PUNCH
     ROOT = Path(project).resolve()
     cfg = json.loads((ROOT / 'script.json').read_text())
     FPS = cfg.get('fps', 24)
@@ -52,6 +52,9 @@ def configure(project):
     CUES = {s['id']: s.get('cues', []) for s in cfg['segments']}
     CHIPS = {s['id']: s['chip'] for s in cfg['segments'] if s.get('chip')}
     STATS = {s['id']: [tuple(x) for x in s.get('stats', [])] for s in cfg['segments']}
+    # A stat pill sits at 45% of the height, over the chest in a medium shot; a
+    # line whose take pushes in to a close-up moves it lower with `stats_y`.
+    STATS_Y = {s['id']: s['stats_y'] for s in cfg['segments'] if 'stats_y' in s}
     hook = cfg.get('hook')
     # `fill` (RGBA) backs the hook's lines: transparent suits a dark opening
     # frame, a bright sky needs a dark pill to stay readable. `y` is the first
@@ -154,12 +157,17 @@ def build_timeline():
                 c['e'] = t + dur
         stats = []
         last = t
-        for word, label in STATS.get(seg['id'], []):
+        # [word, label] runs to the next pill or the end of the line; a third
+        # item, `until`, ends it at that word (a pill labelling a photo should
+        # leave with the photo, not stay over the presenter's face).
+        for word, label, *until in STATS.get(seg['id'], []):
             s = at(word, last)
-            stats.append(dict(s=s, label=label))
+            stats.append(dict(s=s, label=label, until=until[0] if until else None))
             last = s
         for j, st in enumerate(stats):
             st['e'] = stats[j + 1]['s'] if j + 1 < len(stats) else t + dur
+            if st['until']:
+                st['e'] = min(st['e'], at(st['until'], st['s']))
         segs.append(dict(id=seg['id'], t0=t, t1=t + dur, words=words, cues=cues, stats=stats,
                          chip=CHIPS.get(seg['id']), punch=1.0 if i % 2 == 0 else PUNCH))
         t += dur
@@ -272,6 +280,24 @@ class Painter:
         box = (max(cx - cw / 2, 0), max(cy - ch / 2, 0), min(cx + cw / 2, im.width), min(cy + ch / 2, im.height))
         return im.resize((self.W, self.H), Image.LANCZOS, box=box)
 
+    def credit(self, frame, name, alpha=1.0):
+        """A full-screen photo's credit, bottom right under the captions (cards draw their own)."""
+        credit = CREDIT.get(name, DEFAULT_CREDIT)
+        if not credit:
+            return
+        text = f'Image: {credit}'
+        d = ImageDraw.Draw(frame)
+        tw = d.textlength(text, font=self.f_credit)
+        pad = int(14 * self.s)
+        w, h = int(tw + 2 * pad), int(52 * self.s)
+        layer = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(layer)
+        ld.rounded_rectangle([0, 0, w - 1, h - 1], int(20 * self.s), fill=(0, 0, 0, 140))
+        ld.text((pad, int(4 * self.s)), text, font=self.f_credit, fill=(255, 255, 255, 220))
+        if alpha < 1:
+            layer.putalpha(layer.getchannel('A').point(lambda v: int(v * alpha)))
+        frame.alpha_composite(layer, (self.W - w - int(48 * self.s), int(self.H * 0.945)))
+
     def pill(self, frame, text, fnt, cy, fill=(0, 0, 0, 165), fg=(255, 255, 255), alpha=1.0, accent=None):
         d = ImageDraw.Draw(frame)
         tw = d.textlength(text, font=fnt)
@@ -376,6 +402,7 @@ def render(scale, out, start=0.0, end=None):
                 if a < 1:
                     img.putalpha(int(255 * a))
                 frame.alpha_composite(img)
+                p.credit(frame, c['img'], a)
             else:
                 layer = p.card_layer(c['img'])
                 dy = int(90 * p.s * (1 - fade_in))
@@ -390,7 +417,7 @@ def render(scale, out, start=0.0, end=None):
         for stt in seg['stats']:
             if stt['s'] <= t < stt['e']:
                 a = ease((t - stt['s']) / 0.18)
-                p.pill(frame, stt['label'], p.f_stat, p.H * 0.452, fill=(255, 212, 0, 235), fg=(10, 10, 10), alpha=a)
+                p.pill(frame, stt['label'], p.f_stat, p.H * STATS_Y.get(seg['id'], 0.452), fill=(255, 212, 0, 235), fg=(10, 10, 10), alpha=a)
         if HOOK and HOOK[0] <= t < HOOK[1]:
             a = ease((t - HOOK[0]) / 0.2) * (1 - ease((t - HOOK[1] + 0.25) / 0.25))
             for k, line in enumerate(HOOK[2].split('\n')):

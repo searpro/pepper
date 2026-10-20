@@ -29,6 +29,9 @@ user's manual posting through Notion.
 
 ## 1. Research and script
 
+- The channel's audience is global: pick topics and examples that matter
+  worldwide, never a country-specific angle (the user is in India; the
+  viewers are not).
 - Search the event, then fetch the two or three most detailed reports;
   prefer numbers the company published, and note which are only one outlet's.
   Keep a sources list for the reply.
@@ -41,6 +44,16 @@ user's manual posting through Notion.
   `f_jpg,q_90` without a width), livestream frames from news coverage (read
   the `<img>` tags with the browser pane; download the original, not the
   resized srcset), and whatever the user attaches. Look at a contact sheet.
+- **A science topic has no maker's photos: use the agencies'.** NOAA, NASA
+  and NOAA Climate.gov images are public domain; Copernicus Sentinel-2 and
+  Wikimedia Commons files carry their licence in the Commons API's
+  `extmetadata` (credit CC BY ones by name). Prefer true-colour satellite
+  pairs (before/after) to false-colour ones viewers can't read. A map that
+  will fill the screen needs more pixels than an agency's PNG has: render it
+  from the agency's own data instead (El Niño: NOAA Coral Reef Watch's 5 km
+  SST anomaly NetCDF, `~/projects/el-nino-explainer/make_map.py`, with
+  netCDF4 in the venv). Charts with small print are unreadable on a phone;
+  say the number with a stat pill instead.
 
 ## 2. The presenter
 
@@ -48,6 +61,16 @@ user's manual posting through Notion.
   library. Maya is there (`ast_70ea1af4d2eb`: her still, a voice clip, its
   transcript in `meta.voice_text`). Name a library character in a plan to use
   it; `library: true` on a plan asset saves a new one for every project.
+- **New look per video, settings that act out the story.** The user wants
+  an outfit Maya hasn't worn before in every video (the list of used ones
+  is in Claude's memory, `feedback-presenter-wardrobe`), and liked settings
+  that show the topic (El Niño: storm beach, tropical heat, a downpour with a
+  clear umbrella, a cracked lakebed). `qwen-image-edit` on her library still
+  (~25 s each, `count: 2`, no `aspect_ratio`: it keeps the input's) with
+  "change her clothes completely: she now wears …; no white t-shirt, no
+  bomber jacket", the weather, and "shoulders square, eyes just past the
+  lens, mouth closed". Rain, wind, surf, heat haze and drifting dust all
+  played in H3 with lip sync intact.
 - **New presenter:** `krea2-image`, 9:16, `count: 4`, a stated age, clothing,
   "eyes fixed just past the camera lens, focused, with bright catchlights", a
   plain dark studio. Pick one; it is every segment's first frame. H3 renders
@@ -95,6 +118,13 @@ non_diegetic_music: N/A
   every word clearly, her lips, jaw and mouth forming each syllable in sync
   with her voice", and put any smile "only after the last word". Whisper
   can't catch this (it hears the input audio); look at the mouth.
+  Even "a brief smile only after the last word" leaked onto a short, bright
+  closing phrase ("I'm Maya. Let's make it click."; "Follow for the next
+  one."), and a retake with no smile in the prompt grinned again there: H3
+  reads the smile off the delivery. For those lines write no smile at all
+  ("a single small nod after the last word"), and if it still grins, cut
+  away to a full-screen image for the last phrase. Check the final 2 s at
+  8–12 fps on every take; a 7-frame strip misses it.
 - **Camera moves work** (channel intro, 2026-10-19), all with eye contact
   kept: a push-in to a close-up, a ~20° arc ("she turns her head with it so
   her eyes stay fixed just past the lens"), a sideways truck, a walk toward a
@@ -123,6 +153,15 @@ per 10 s line it adds about 7 h to a 12-line video.
 - `rtx-master`, `quality: upscale`, `params: {scale: 2.857, quality: ULTRA}`:
   768×1344 → 2192×3840 in ~40 s a take; frame-by-frame, so lip sync holds.
   Pull the masters into `presenter/<id>.mp4` (`qc.py --into presenter`).
+  **A take over ~10.5 s runs the box out of RAM**: a 12.25 s take got
+  ComfyUI SIGKILLed, and every master queued behind it failed at once
+  ("Cannot connect to ComfyUI"). Split long takes at a frame boundary
+  (`ffmpeg -t 6.125 … -crf 8` and `-ss 6.125`), copy the halves into the
+  box's uploads (`ssh … docker exec -i pepper-pro sh -c 'cat >
+  /data/uploads/NAME.mp4' < file`), master each, and join them with ffmpeg's
+  concat demuxer (`-c copy`); the seam doesn't show. Remove any preview
+  symlinks in `presenter/` before `qc.py --into presenter`, or it writes
+  through them into `takes/`.
 - `generate_audio`, `model: ace-step-music`, `audio_type: music`,
   `lyrics: "[Instrumental]"`, `duration` = the cut + 5 s, `count: 2`, a style
   without vocals. ~15 s each. Prefer the one where Whisper hears nothing.
@@ -138,8 +177,15 @@ frame at 2160×3840 in PIL and encodes with x264 CRF 16; ~9 min for 2 min of
   `default_credit`), an optional `hook` (a title over the first seconds; give
   it `fill: [0,0,0,150]` over a bright opening and `y` to clear the head), and
   per segment its `text`, `chip` (section label), `stats` (`[word, label]`
-  pills) and `cues` (photos: `at`/`until` words, `style` card | fit | pan,
-  pan's `x0 x1 y0 y1 zoom`). See `examples/roadster-script.json`.
+  pills, which stay up to the next pill or the end of the line; a pill that
+  labels a full-screen image takes a third item, `[word, label, until]`, so
+  it leaves with the image instead of landing on her face; `stats_y` moves
+  them, say to 0.70, on a line whose take pushes in
+  to a close-up, where the default 0.452 sits on her mouth) and `cues`
+  (photos: `at`/`until` words, `style` card | fit | pan, pan's
+  `x0 x1 y0 y1 zoom`). See `examples/roadster-script.json`. Full-screen
+  cues get their credit drawn bottom right too. Photos must be .png or .jpg
+  (convert a .gif). The venv lives at `~/projects/.explainer-venv`.
 - Card: the lower part of the frame, so the face stays visible; use a
   full-screen style when the presenter's take cuts to a close-up (H3 does
   that on its own sometimes) or to hide a bad stretch.
