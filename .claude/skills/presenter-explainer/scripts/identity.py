@@ -41,7 +41,7 @@ def frame(path, t):
     return cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
 
 
-def images(spec):
+def images(spec, until=None):
     path, _, at = spec.partition('@')
     path = str(Path(path).expanduser())
     if not path.endswith('.mp4'):
@@ -50,6 +50,7 @@ def images(spec):
         return [frame(path, float(at))]
     dur = float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', path],
                                capture_output=True, text=True).stdout)
+    dur = min(dur, until) if until else dur
     return [frame(path, 0.2 + i * (dur - 0.4) / 7) for i in range(8)]
 
 
@@ -57,12 +58,13 @@ ap = argparse.ArgumentParser()
 ap.add_argument('ref')
 ap.add_argument('items', nargs='+', help='label=path, or a bare path')
 ap.add_argument('--min', type=float, help='print PASS/FAIL against this mean')
+ap.add_argument('--until', type=float, help='sample a take only up to this second (the line plus its pad): H3 renders past the line, and the cut never shows that tail')
 a = ap.parse_args()
 ref = feature(cv2.imread(a.ref))
 for item in a.items:
     label, _, spec = item.rpartition('=') if '=' in item else (Path(item).stem, '', item)
     scores = [None if (f := feature(im)) is None else float(rec.match(ref, f, cv2.FaceRecognizerSF_FR_COSINE))
-              for im in images(spec)]
+              for im in images(spec, a.until)]
     found = [s for s in scores if s is not None]
     if not found:
         print(f'{label:14s} no face')
