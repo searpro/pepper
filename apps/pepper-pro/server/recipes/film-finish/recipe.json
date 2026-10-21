@@ -46,7 +46,7 @@
         "film",
         "clean"
       ],
-      "description": "strong/medium/subtle: the presenter look picked on 2026-10-21 (finish.py), on display values. film-strong/film: a print look from linear light (soft highlight roll-off, teal shadows, warm highlights, dense colour, halation, a Pro-Mist diffusion, lens aberration, film grain). clean: a matched commercial grade, no texture."
+      "description": "strong/medium/subtle: the presenter look picked on 2026-10-21 (the skill's former finish.py), on display values; its sizes scale with the frame's width, as finish.py's did, so a landscape take gets coarser halation and grain. film-strong/film: a print look from linear light (soft highlight roll-off, teal shadows, warm highlights, dense colour, halation, a Pro-Mist diffusion, lens aberration, film grain). clean: a matched commercial grade, no texture."
     },
     {
       "name": "output",
@@ -118,7 +118,7 @@
         "fast",
         "gpu"
       ],
-      "description": "cpu: x264 slow / x265 medium, best for grain. fast: one preset quicker. gpu: NVENC, fastest, softens grain."
+      "description": "cpu: x264 slow / x265 medium, best for grain. fast: one preset quicker. gpu: NVENC, fastest, softens grain. Without NVENC in the container, gpu falls back to fast and says so in the report."
     },
     {
       "name": "seed",

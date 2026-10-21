@@ -45,7 +45,7 @@ class PepperFilmFinish(io.ComfyNode):
             description='Grade, optics, film grain and an SDR, HDR10 or HLG encode, streamed through the GPU.',
             inputs=[
                 io.Video.Input('video'),
-                io.Combo.Input('look', options=list(LOOKS), default='film',
+                io.Combo.Input('look', options=list(LOOKS), default='strong',
                                tooltip='subtle/medium/strong: the original presenter look. clean, film, film-strong: graded in linear light.'),
                 io.Combo.Input('output', options=list(OUTPUTS), default='sdr',
                                tooltip='sdr: Rec.709 H.264. hdr10: BT.2020 PQ HEVC 10-bit with light levels. hlg: BT.2020 HLG HEVC 10-bit.'),
@@ -73,6 +73,8 @@ class PepperFilmFinish(io.ComfyNode):
         # loaded is not needed here.
         comfy.model_management.unload_all_models()
         comfy.model_management.soft_empty_cache()
+        if lut.strip() and (os.sep in lut or '/' in lut or lut.startswith('.')):
+            raise ValueError(f'LUT {lut!r}: give a file name in the input folder')
         lut_path = Path(folder_paths.get_annotated_filepath(lut)) if lut.strip() else None
         if lut_path is not None and not lut_path.is_file():
             raise FileNotFoundError(f'LUT {lut} is not in the input folder')

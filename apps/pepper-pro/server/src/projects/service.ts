@@ -1196,6 +1196,11 @@ export class ProjectService {
       if (job && (job.status === 'queued' || job.status === 'running')) return this.viewTake(take);
     }
     const steps = await this.masterSteps(options);
+    if (options.match_take && steps.some((r) => r.capabilities.includes('grade'))) {
+      // Checked now, not when the grade step starts minutes of GPU later.
+      const reference = this.requireTake(options.match_take);
+      if (!reference.file || kindOf(reference.file) !== 'video') throw errors.validation(`Take ${options.match_take} has no video to match to`);
+    }
     // Each step reads its input from uploads, like any other recipe.
     const upload = `master-src-${take.id}${extname(take.file)}`;
     await copyFile(this.takeFile(take.projectId, take.file), safeResolve(this.deps.paths.uploadsDir, upload));
@@ -1257,10 +1262,16 @@ export class ProjectService {
         mode = Math.min(info.width ?? 0, info.height ?? 0) > REFINE_X2_MAX_SHORT_SIDE ? 'same' : 'x2';
       }
     }
-    const prepared = await this.deps.comfy.prepareRequest(
-      { recipe: recipe.id, ...(mode ? { mode } : {}), params, shot_id: take.shotId },
-      { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
-    );
+    const prepared = await this.deps.comfy
+      .prepareRequest(
+        { recipe: recipe.id, ...(mode ? { mode } : {}), params, shot_id: take.shotId },
+        { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
+      )
+      .catch(async (err: unknown) => {
+        // No job will settle to clean up the reference copied for it.
+        if (params.match) await rm(safeResolve(this.deps.paths.uploadsDir, masterMatch(take)), { force: true });
+        throw err;
+      });
     const job = this.deps.jobs.create(prepared.recipe.kind, {
       recipe: prepared.recipe.id,
       mode: prepared.mode,

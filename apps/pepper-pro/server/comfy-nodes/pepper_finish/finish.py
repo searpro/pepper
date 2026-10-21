@@ -31,6 +31,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass, field, replace
+from fractions import Fraction
 from pathlib import Path
 
 import numpy as np
@@ -678,11 +679,12 @@ def probe(path: Path) -> dict:
     info = json.loads(out)
     video = next(s for s in info['streams'] if s['codec_type'] == 'video')
     pix = video.get('pix_fmt', 'yuv420p')
+    rate = Fraction(video.get('r_frame_rate') or '24/1') if video.get('r_frame_rate', '0/0') != '0/0' else Fraction(24)
     return {
         'width': int(video['width']),
         'height': int(video['height']),
-        'fps': video.get('r_frame_rate', '24/1'),
-        'frames': int(video.get('nb_frames') or 0) or round(float(info['format']['duration']) * eval(video.get('r_frame_rate', '24/1'))),
+        'fps': f'{rate.numerator}/{rate.denominator}',
+        'frames': int(video.get('nb_frames') or 0) or round(float(info['format'].get('duration', 0)) * rate),
         'bits': 10 if ('10' in pix or '12' in pix) else 8,
         'audio': any(s['codec_type'] == 'audio' for s in info['streams']),
         'duration': float(info['format'].get('duration', 0)),
@@ -723,6 +725,15 @@ def encoder_args(output: str, encoder: str, max_cll: tuple[int, int]) -> tuple[l
             '-x265-params', params, *tags], 'yuv420p10le'
 
 
+def nvenc_works(codec: str) -> bool:
+    """Whether NVENC can encode here: ffmpeg lists it wherever it was built in,
+    but it needs the driver's encode library, which a container gets only with
+    the `video` capability."""
+    done = subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'color=s=256x256:d=0.1', '-frames:v', '1',
+                           '-c:v', codec, '-f', 'null', '-'], capture_output=True)
+    return done.returncode == 0
+
+
 def default_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device('cuda')
@@ -759,10 +770,15 @@ def finish_video(src: Path, dst: Path, settings: Settings, *, match: Path | None
     device = device or default_device()
     started = time.time()
     info = probe(src)
-    settings, report = prepare(src, settings, match, match_strength, device)
     w, h = info['width'], info['height']
     if w % 2 or h % 2:
         raise ValueError(f'{src} is {w}x{h}: 4:2:0 video needs even dimensions')
+    fallback = None
+    if encoder == 'gpu' and not nvenc_works('h264_nvenc' if settings.output == 'sdr' else 'hevc_nvenc'):
+        encoder, fallback = 'fast', 'NVENC is not available here (a container needs the video capability): encoded on the CPU'
+    settings, report = prepare(src, settings, match, match_strength, device)
+    if fallback:
+        report['encoder_note'] = fallback
     cll = report.get('light_level_estimate', [int(settings.peak), int(settings.peak * 0.4)])
     max_cll = (min(int(settings.peak), int(cll[0] * 1.1) + 1), min(int(settings.peak), int(cll[1] * 1.2) + 1))
     codec, pix_out = encoder_args(settings.output, encoder, max_cll)
@@ -865,6 +881,8 @@ def finish_video(src: Path, dst: Path, settings: Settings, *, match: Path | None
         stop.set()
         reader.kill()
         writer.kill()
+        writer.wait()
+        dst.unlink(missing_ok=True)  # a half-written file must not look like a result
         raise
     finally:
         put(frames_out, None)
@@ -875,7 +893,8 @@ def finish_video(src: Path, dst: Path, settings: Settings, *, match: Path | None
     if reader.wait() != 0 and not done:
         raise RuntimeError(f'ffmpeg could not decode {src}')
     if writer.wait() != 0:
-        raise RuntimeError(f'ffmpeg could not encode {dst}')
+        dst.unlink(missing_ok=True)
+        raise RuntimeError(f'ffmpeg could not encode {dst} (an mp4 takes AAC or MP3 sound as it is; other sound fails here)')
     if errors:
         raise errors[0]
     elapsed = time.time() - started
