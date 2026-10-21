@@ -125,8 +125,12 @@ const workflowSchema = z.object({
   /** API-format JSON, relative to the recipe's directory. */
   file: z.string().regex(/^[\w./-]+\.json$/),
   bindings: z.array(bindingSchema),
-  /** Nodes whose files are the result, in order. */
-  outputs: z.array(z.object({ node: z.string(), kind: z.enum(['image', 'video', 'audio']) })).min(1),
+  /**
+   * Nodes whose files are the result, in order. A `text` output is a
+   * PreviewAny node whose text becomes the job's `text` (YuE2's ABC score),
+   * not a file; a workflow still needs one file output.
+   */
+  outputs: z.array(z.object({ node: z.string(), kind: z.enum(['image', 'video', 'audio', 'text']) })).min(1),
   /**
    * Relative cost of the nodes that report step progress, so a job's bar
    * moves evenly across a two-stage render instead of filling twice.
@@ -161,6 +165,11 @@ const modeSchema = z.object({
   set: z.array(target.extend({ value: z.unknown() })).default([]),
   /** Parameter defaults for this mode, over the recipe's own. */
   defaults: z.record(z.unknown()).default({}),
+  /**
+   * Parameters this mode needs although the recipe does not (a cover's song).
+   * A generic request that gives all of them picks this mode (generate.ts).
+   */
+  required: z.array(z.string()).default([]),
 });
 export type ModeSpec = z.infer<typeof modeSchema>;
 
@@ -268,6 +277,9 @@ export const recipeSchema = z
       for (const key of Object.keys(mode.defaults)) {
         if (!params.has(key)) ctx.addIssue({ code: 'custom', message: `mode "${name}" defaults unknown param "${key}"` });
       }
+      for (const key of mode.required) {
+        if (!params.has(key)) ctx.addIssue({ code: 'custom', message: `mode "${name}" requires unknown param "${key}"` });
+      }
     }
     const lorasAttach = Object.values(recipe.workflows).some((workflow) => workflow.lora_targets.length > 0);
     if (recipe.lora_base && !lorasAttach) {
@@ -277,6 +289,9 @@ export const recipeSchema = z
       ctx.addIssue({ code: 'custom', message: 'a workflow has lora_targets but the recipe names no lora_base' });
     }
     for (const [name, workflow] of Object.entries(recipe.workflows)) {
+      if (workflow.outputs.every((output) => output.kind === 'text')) {
+        ctx.addIssue({ code: 'custom', message: `workflow "${name}" has no file output` });
+      }
       for (const id of workflow.requires_files) {
         if (!files.has(id)) ctx.addIssue({ code: 'custom', message: `workflow "${name}" requires unknown file "${id}"` });
       }

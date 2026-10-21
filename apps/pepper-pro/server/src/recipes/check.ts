@@ -51,9 +51,11 @@ function sample(param: RecipeParam, inputs: 'required' | 'all'): unknown {
 /** Values for one check: required params, or every param, at sample values over the defaults. */
 export function sampleValues(recipe: Recipe, mode: string, inputs: 'required' | 'all'): ParamValues {
   const given: ParamValues = {};
+  const needed = recipe.modes[mode].required;
   for (const param of recipe.params) {
     const media = ['image', 'images', 'audio', 'audios', 'video'].includes(param.type);
-    const probe = param.required || param.type === 'seed' || (inputs === 'all' && media && param.default === undefined);
+    const probe =
+      param.required || needed.includes(param.name) || param.type === 'seed' || (inputs === 'all' && media && param.default === undefined);
     if (probe) given[param.name] = sample(param, inputs);
   }
   return resolveParams(recipe, recipe.modes[mode], given);

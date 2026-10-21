@@ -38,6 +38,7 @@ recipes/<id>/
 | `ming-image-design` | image | UI screens, posters and infographics with legible text | MIT |
 | `ace-step-music` | audio | Songs from style tags and lyrics, fast | MIT |
 | `minimax-music-3` | audio | Produced songs, slower | Apache 2.0 (per the Comfy-Org repackage) |
+| `yue2-music` | audio | The best open songs: a melody-and-chord score written first, then sung; covers of a recording and edited scores sung again | CC BY-NC 4.0 (non-commercial) |
 | `qwen3-tts` | audio | Speech: a cloned voice, a described voice, nine presets, or a dialogue of up to four voices | Apache 2.0 |
 
 A recipe's `verified` field records the date, GPU and seconds of the run
@@ -92,8 +93,8 @@ model can run them. A recipe opts in with two fields:
 
 - `lora_base` (recipe): the base model a LoRA must be made for, one of
   `src/loras/bases.ts` (`qwen-image-2.1`, `krea-2`, `z-image`,
-  `flux2-klein-4b`, `minimax-h3`, `ltx-2.5`, `wan-2.1-14b`). Recipes on one
-  base share every LoRA made for it.
+  `flux2-klein-4b`, `minimax-h3`, `ltx-2.5`, `wan-2.1-14b`, `yue2`).
+  Recipes on one base share every LoRA made for it.
 - `lora_targets` (workflow): `[{ "node": "451", "output": 0 }]`, the node
   whose MODEL output the LoRAs patch, normally the diffusion model's
   `UNETLoader`. A request's LoRAs become a chain of `LoraLoaderModelOnly`
@@ -125,6 +126,40 @@ final mode's length linked to the driving video's frame count), and mode
 `defaults` override parameter defaults (a draft's smaller size). A mode may
 also pick a different workflow file: InfiniteTalk's draft, final and long
 modes are one, two and four chained 81-frame windows.
+
+A mode's `required` lists parameters it needs although the recipe does not
+(YuE2's `cover` needs `audio`, its `score` mode a `score`). A request without
+them is refused before anything loads, and a generic request (`/v1/generate`,
+the MCP tools) that gives all of them gets that mode without naming it. The
+Generate screen shows only the parameters a mode's workflow binds.
+
+## Text outputs
+
+An output `{ "node": …, "kind": "text" }` names a `PreviewAny` node whose
+text becomes the job's `text` (what `get_job` shows) instead of a file; a
+workflow still needs a file output, which comes first. YuE2 returns its ABC
+score this way, and the Generate screen shows it under the song with a button
+that sings it again in `score` mode.
+
+## YuE2
+
+`yue2-music` is Comfy-Org's two templates (text to music, music cover) on
+ComfyUI's native nodes. A song is two language-model passes and a short
+diffusion: `YuE2GenerateABC` writes the song as an ABC score (melody, and
+chords in `full`), `YuE2GenerateMusic` generates 25 Hz semantic tokens
+against it (the long part, and where `max_duration` caps the length), and a
+32-step `dpm_2`/`sgm_uniform` pass at CFG 1 renders them into the VAE's
+48 kHz stereo. Its four modes are what the model can do: `song` plans then
+sings and returns the score; `free` sings with no score (the model's `off`
+mode, with its own CFG of 1.01, in a graph that has no score input); `score`
+sings a given score, which is how a tune is kept while the style or words
+change, or edited note by note; `cover` transcribes a recording's melody
+with SheetSage2 (`plan: melody`, as the authors advise) and sings it in a
+new style. The templates load Comfy-Org's int8 checkpoint; the recipe uses
+the bf16 one on every tier, since it fits 16 GB with room (the reference
+pipeline peaks at 11-14 GB). Library LoRAs (`lora_base: yue2`) patch the
+music model only, not the planner.
+
 
 ## Adding or changing a recipe
 

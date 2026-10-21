@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles, Wand2, X } from 'lucide-react';
+import { Check, Copy, Music, Sparkles, Wand2, X } from 'lucide-react';
 import { Page } from '@pepper/ui/components/layout';
 import { GenerationTime, MediaTile, MediaViewer, StatusBadge, generationOf, jobMedia } from '@pepper/ui/components/media';
 import { Button, Card, EmptyState, ErrorNote, Field, Input, Progress, Select, Spinner } from '@pepper/ui/components/ui';
@@ -38,7 +38,26 @@ export function GeneratePage() {
   };
 
   const modeId = recipe ? (mode ?? recipe.default_mode) : undefined;
-  const takesLoras = Boolean(recipe?.modes.find((m) => m.id === modeId)?.loras);
+  const modeSpec = recipe?.modes.find((m) => m.id === modeId);
+  const takesLoras = Boolean(modeSpec?.loras);
+  // The form asks only for what this mode reads (a cover's song only in cover
+  // mode), and marks what it needs although the recipe does not.
+  const reads = (name: string) => !modeSpec?.params || modeSpec.params.includes(name);
+  const formParams = (recipe?.params ?? []).map((p) => (modeSpec?.required?.includes(p.name) ? { ...p, required: true } : p));
+
+  /** Sing a score a take returned: switch to the recipe's score mode with it filled in. */
+  const useScore = (job: Job, score: string) => {
+    const id = String(job.params.recipe ?? '');
+    if (!installed.some((r) => r.id === id)) return;
+    const params = (job.params.params ?? {}) as Record<string, unknown>;
+    setRecipeId(id);
+    setMode('score');
+    setValues({
+      ...Object.fromEntries(['prompt', 'lyrics', 'plan'].filter((k) => params[k] !== undefined).map((k) => [k, params[k]])),
+      score,
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const submit = async () => {
     if (!recipe) return;
@@ -48,7 +67,7 @@ export function GeneratePage() {
       const result = await api.post<Job | { jobs: Job[] }>('/v1/jobs', {
         recipe: recipe.id,
         mode: mode ?? recipe.default_mode,
-        params: values,
+        params: Object.fromEntries(Object.entries(values).filter(([name]) => reads(name))),
         loras: takesLoras && loras.length ? loras : undefined,
         batch,
       });
@@ -104,7 +123,12 @@ export function GeneratePage() {
                   options={recipe.modes.map((m) => ({ value: m.id, label: m.label, description: m.description }))}
                 />
               </Field>
-              <ParamForm params={recipe.params} values={values} onChange={setValues} />
+              <ParamForm
+                params={formParams}
+                values={values}
+                onChange={setValues}
+                hide={recipe.params.map((p) => p.name).filter((name) => !reads(name))}
+              />
               {takesLoras ? (
                 <LoraPicker
                   recipe={recipe}
@@ -131,6 +155,7 @@ export function GeneratePage() {
             recipes={installed}
             onClear={() => setJobIds([])}
             onGone={(gone) => setJobIds((ids) => ids.filter((id) => !gone.includes(id)))}
+            onUseScore={useScore}
           />
         </div>
       </div>
@@ -215,12 +240,15 @@ function Results({
   recipes,
   onClear,
   onGone,
+  onUseScore,
 }: {
   ids: string[];
   recipes: Recipe[];
   onClear: () => void;
   /** Jobs deleted since (or from a server's earlier database), to forget. */
   onGone: (ids: string[]) => void;
+  /** Sing a score a finished job returned (YuE2's ABC). */
+  onUseScore: (job: Job, score: string) => void;
 }) {
   const jobs = useJobs(ids);
   const gone = ids.filter((id) => jobs.get(id) === 'gone');
@@ -250,7 +278,13 @@ function Results({
         {shown.flatMap((job) => {
           const files = job.status === 'completed' ? jobMedia(job) : [];
           if (files.length) {
-            return files.map((item) => <MediaTile key={item.url} item={item} onOpen={() => setOpen(item.url)} />);
+            const tiles = files.map((item) => <MediaTile key={item.url} item={item} onOpen={() => setOpen(item.url)} />);
+            const text = (job.result as { text?: unknown } | undefined)?.text;
+            const scored = recipes.find((r) => r.id === job.params.recipe)?.modes.some((m) => m.id === 'score');
+            if (typeof text === 'string' && text) {
+              tiles.push(<ScoreCard key={`${job.id}-text`} text={text} onUse={scored ? () => onUseScore(job, text) : undefined} />);
+            }
+            return tiles;
           }
           return [<RunCard key={job.id} job={job} name={recipeName(job)} />];
         })}
@@ -263,6 +297,33 @@ function Results({
         onClose={() => setOpen(undefined)}
       />
     </div>
+  );
+}
+
+/** The text a run returned beside its files (YuE2's ABC score): to read, copy, or sing again edited. */
+function ScoreCard({ text, onUse }: { text: string; onUse?: () => void }) {
+  const [copied, setCopied] = React.useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <Card className="flex flex-col gap-2 p-3">
+      <span className="text-xs font-medium">Score (ABC)</span>
+      <pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 text-[11px] leading-snug whitespace-pre-wrap">{text}</pre>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" onClick={copy}>
+          {copied ? <Check /> : <Copy />} {copied ? 'Copied' : 'Copy'}
+        </Button>
+        {onUse ? (
+          <Button size="sm" variant="outline" onClick={onUse}>
+            <Music /> Sing this score
+          </Button>
+        ) : null}
+      </div>
+    </Card>
   );
 }
 

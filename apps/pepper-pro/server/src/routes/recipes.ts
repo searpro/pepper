@@ -6,7 +6,7 @@ import type { DownloadManager } from '@pepper/core/downloads/manager.js';
 import type { StorageMonitor } from '@pepper/core/services/storage.js';
 import type { ProConfig } from '../config.js';
 import type { DownloadKind, DownloadSlot } from '../recipes/layout.js';
-import type { Recipe } from '../recipes/schema.js';
+import type { ModeSpec, Recipe } from '../recipes/schema.js';
 import type { RecipeStatus, RecipeStore } from '../recipes/store.js';
 
 export interface RecipeRoutesOptions {
@@ -14,6 +14,26 @@ export interface RecipeRoutesOptions {
   recipes: RecipeStore;
   downloads: DownloadManager<DownloadKind, DownloadSlot>;
   storage: StorageMonitor;
+}
+
+/**
+ * The parameters a mode reads: those its workflow binds, less any whose every
+ * target the mode fixes with `set` (YuE2's unplanned mode empties the score).
+ * The Generate form shows only these, so a cover's song is not asked for in
+ * song mode.
+ */
+export function modeParams(recipe: Recipe, mode: ModeSpec): string[] {
+  const fixed = new Set(mode.set.map((s) => `${s.node}/${s.input}`));
+  const targets = new Map<string, string[]>();
+  for (const binding of recipe.workflows[mode.workflow].bindings) {
+    if (!('param' in binding)) continue;
+    const list = targets.get(binding.param) ?? [];
+    list.push(...('nodes' in binding ? binding.nodes : [binding]).map((t) => `${t.node}/${t.input}`));
+    targets.set(binding.param, list);
+  }
+  return recipe.params
+    .map((param) => param.name)
+    .filter((name) => targets.get(name)?.some((target) => !fixed.has(target)));
 }
 
 /** A recipe as the Recipes screen and the MCP tools see it: the definition, minus graph internals, plus its state here. */
@@ -34,6 +54,8 @@ export function recipeSummary(recipe: Recipe, status: RecipeStatus) {
       description: mode.description,
       /** Whether this mode's workflow takes LoRAs from the library. */
       loras: recipe.workflows[mode.workflow].lora_targets.length > 0,
+      params: modeParams(recipe, mode),
+      required: mode.required,
     })),
     lora_base: recipe.lora_base,
     default_mode: recipe.default_mode,

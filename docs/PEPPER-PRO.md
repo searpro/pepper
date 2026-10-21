@@ -39,9 +39,10 @@ rests on (models, recipes, quality techniques, hardware, licences) is in
   tooling around the base models (Krea 2 and Qwen-Image LoRAs, ControlNet
   unions, LanPaint inpainting, head swap, the Photoshoot nodes) also lands in
   ComfyUI first.
-- **Audio is covered well enough.** ACE-Step 1.5 and MiniMax Music 3 are
-  native; YuE2 has nodes; TTS runs through community packs (TTS Audio Suite
-  for IndexTTS-2, VibeVoice, Chatterbox and others; Qwen3-TTS nodes). H3
+- **Audio is covered well enough.** ACE-Step 1.5, MiniMax Music 3 and YuE2
+  (songs, covers, score edits) are native; TTS runs through community packs
+  (TTS Audio Suite for IndexTTS-2, VibeVoice, Chatterbox and others;
+  Qwen3-TTS nodes). H3
   writes and voices dialogue itself, which reduces how much Pro depends on
   TTS at all.
 - **New work arrives as a pin, not a port.** Supporting a new technique means
@@ -207,7 +208,7 @@ incompatible versions of a shared library break each other. The rules:
 - A pack is only added after its dependencies resolve against the pinned
   environment, checked when the image is built.
 - A pack that cannot coexist runs in a **second ComfyUI instance** with its
-  own venv (the likely cases are TTS packs and YuE2). The engine routes
+  own venv (the likely case is TTS packs; YuE2 turned out native). The engine routes
   recipes to an instance by name. This mirrors Pepper's isolated venvs
   (`ensureIsolatedEnvironment`).
 - Every recipe has a smoke test that runs in CI when the image is built:
