@@ -34,7 +34,7 @@
       "lut": "",
       "lut_mix": 1.0,
       "match_strength": 0.8,
-      "encoder": "cpu",
+      "encoder": "fast",
       "seed": 0,
       "filename_prefix": "pepper-pro"
     },

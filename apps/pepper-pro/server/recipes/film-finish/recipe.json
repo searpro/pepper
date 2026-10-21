@@ -112,13 +112,13 @@
       "name": "encoder",
       "type": "enum",
       "label": "Encoder",
-      "default": "cpu",
+      "default": "fast",
       "options": [
         "cpu",
         "fast",
         "gpu"
       ],
-      "description": "cpu: x264 slow / x265 medium, best for grain. fast: one preset quicker. gpu: NVENC, fastest, softens grain. Without NVENC in the container, gpu falls back to fast and says so in the report."
+      "description": "fast (default): x264 medium / x265 fast, CRF 14, transparent for a take compose re-encodes; the encode sets the speed. cpu: x264 slow / x265 medium, ~1.6x slower. gpu: NVENC, fastest, softens grain; without NVENC in the container it falls back to fast and says so in the report."
     },
     {
       "name": "seed",
@@ -222,5 +222,11 @@
     "48gb",
     "96gb"
   ],
-  "notes": "Runs on any CUDA card (and MPS or the CPU, slowly, for checks). The x264/x265 encode on the CPU sets the speed, not the GPU: the three stages run at once. RTX highlights need an NVIDIA RTX card and rtx-master's node pack (nvidia-vfx)."
+  "notes": "Runs on any CUDA card (and MPS or the CPU, slowly, for checks). The x264/x265 encode on the CPU sets the speed, not the GPU: the three stages run at once. RTX highlights need an NVIDIA RTX card and rtx-master's node pack (nvidia-vfx).",
+  "verified": {
+    "date": "2026-10-21",
+    "gpu": "RTX 5060 Ti 16 GB, Ryzen 5 7600X, 32 GB RAM (16gb tier, cu130 image, driver 595)",
+    "seconds": 21,
+    "notes": "S04 of the microplastics explainer, 2192x3840, 7.3 s (175 frames), through POST /v1/generate. strong matches the skill's finish.py within 1.3/1.6/2.9 code values (R/G/B mean, grain removed) with the same grain. Seconds per 4K second, look compiled (torch.compile; 0.021 s a frame for strong, 0.040 for film-strong): strong SDR 2.8 (fast) / 4.5 (cpu); film-strong SDR 3.0 (fast); film-strong HDR10 3.5 (fast); HLG with expand rtx 7.5 (cpu, uncompiled). finish.py on an M4 laptop: 8.2. HDR10: MaxCLL 952, MaxFALL 65 measured, 999/74 tagged; HLG decodes to the same nits as HDR10. RTX Video HDR lifts mids about 30% over the curve."
+  }
 }

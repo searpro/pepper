@@ -511,7 +511,9 @@ def match_gains(take: dict, ref: dict, strength: float) -> tuple[float, list[flo
     chroma_t, chroma_r = t / (t * w).sum(), r / (r * w).sum()
     gains = (chroma_r / chroma_t).clamp(0.88, 1.12)
     gains = (1 + (gains - 1) * strength)
-    gains = gains / (gains * w).sum()
+    # Luminance-neutral, then capped again: renormalising can push a channel
+    # past the cap (a red-heavy correction lifts red to 1.16 otherwise).
+    gains = (gains / (gains * w).sum()).clamp(0.88, 1.12)
     return stops, gains.tolist()
 
 
@@ -623,7 +625,7 @@ class Finisher:
             if look.grain:
                 x = matrix3(nits, M2020_709) / REF_WHITE
                 x = film_grain(x, grain_field(self.frame, look, self.gen, self.scale), look.grain)
-                nits = matrix3(x.clamp_min(0), M709_2020)
+                nits = matrix3(x.clamp_min(0), M709_2020) * REF_WHITE
         else:
             x = self.light(e)
             if s.output == 'sdr':
@@ -851,6 +853,19 @@ def finish_video(src: Path, dst: Path, settings: Settings, *, match: Path | None
     for t in threads:
         t.start()
     finisher = Finisher(settings, h, w, device, info['bits'])
+    # The look is dozens of full-frame elementwise passes; compiled, they fuse
+    # into a few kernels: 4x faster on the 5060 Ti (strong 0.089 -> 0.021 s a
+    # 4K frame, film-strong 0.109 -> 0.040), for 7-10 s of compiling the first
+    # time and 1-2 s once Inductor's cache has the graph. CUDA only, and not
+    # around RTX Video HDR's own calls.
+    step = finisher
+    if device.type == 'cuda' and finisher.rtx is None:
+        try:
+            import triton  # noqa: F401, PLC0415
+
+            step = torch.compile(finisher.__call__, dynamic=False)
+        except Exception:  # noqa: BLE001
+            step = finisher
     dither = torch.Generator(device=device)
     dither.manual_seed(settings.seed + 1)
     weights = LUMA_709 if settings.output == 'sdr' else LUMA_2020
@@ -866,7 +881,15 @@ def finish_video(src: Path, dst: Path, settings: Settings, *, match: Path | None
                 y = arr[:w * h].view(h, w)
                 u = arr[w * h:w * h * 5 // 4].view(h // 2, w // 2)
                 v = arr[w * h * 5 // 4:].view(h // 2, w // 2)
-                signal = finisher(yuv_to_rgb((y, u, v), info['bits']))
+                rgb = yuv_to_rgb((y, u, v), info['bits'])
+                try:
+                    signal = step(rgb)
+                except Exception:  # noqa: BLE001
+                    if step is finisher:
+                        raise
+                    # A compiler failure is not the take's fault: carry on uncompiled.
+                    step = finisher
+                    signal = finisher(rgb)
                 out = rgb_to_yuv(signal, bits_out, weights, dither)
                 if bits_out == 10:
                     out = out.astype('<u2')
@@ -946,7 +969,7 @@ if __name__ == '__main__':
     ap.add_argument('--match', type=Path, help='a reference take whose skin and exposure this take is matched to')
     ap.add_argument('--match-strength', type=float, default=0.8)
     ap.add_argument('--expand', choices=('curve', 'rtx'), default='curve')
-    ap.add_argument('--encoder', choices=('cpu', 'fast', 'gpu'), default='cpu')
+    ap.add_argument('--encoder', choices=('cpu', 'fast', 'gpu'), default='fast')
     ap.add_argument('--device')
     ap.add_argument('--luts', type=Path, help='also write the delivery LUTs into this directory')
     a = ap.parse_args()
