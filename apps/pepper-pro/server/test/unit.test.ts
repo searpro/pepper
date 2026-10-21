@@ -72,9 +72,19 @@ const OBJECT_INFO: ObjectInfo = {
 describe('recipes', () => {
   it('loads the fixture recipes and their workflows', async () => {
     const store = await loadStore();
-    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-refine', 'test-upscale', 'test-video']);
+    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-grade', 'test-image', 'test-refine', 'test-upscale', 'test-video']);
     expect(store.broken).toEqual([]);
     expect(Object.keys(store.workflow(store.require('test-image'), 'main'))).toContain('4');
+  });
+
+  it('takes a node pack pinned to a commit or kept in this repository, not both or neither', async () => {
+    const shipped = JSON.parse(await readFile(join(FIXTURES, 'test-upscale', 'recipe.json'), 'utf8'));
+    const withPack = (pack: Record<string, unknown>) => recipeSchema.safeParse({ ...shipped, nodes: [pack] }).success;
+    expect(withPack({ name: 'pack', repo: 'https://github.com/a/b', commit: 'abcdef1' })).toBe(true);
+    expect(withPack({ name: 'pepper_finish', path: 'comfy-nodes/pepper_finish' })).toBe(true);
+    expect(withPack({ name: 'pack' })).toBe(false);
+    expect(withPack({ name: 'pack', repo: 'https://github.com/a/b', commit: 'abcdef1', path: 'comfy-nodes/pack' })).toBe(false);
+    expect(withPack({ name: 'pack', path: '../elsewhere' })).toBe(false);
   });
 
   it('rejects a recipe whose bindings name unknown params or files', () => {
@@ -1607,6 +1617,68 @@ describe('mastering chain', () => {
       await settleTake(take.id, (v) => v.master?.state === 'done' || v.master?.state === 'failed');
       const [, capped] = seen.filter((p) => (p as { master?: boolean }).master);
       expect(capped).toMatchObject({ recipe: 'test-upscale', params: { scale: 1.87 } });
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  }, 60_000);
+});
+
+describe('mastering with a finish', () => {
+  it('grades after the upscale, in SDR, matched to another take, and the upscale still gets the scale', async () => {
+    if (!haveFfmpeg) return;
+    const server = await buildServer(await tempConfig());
+    try {
+      const dir = await mkdtemp(join(tmpdir(), 'pepper-finish-'));
+      const clip = (name: string, size: number) => {
+        const out = join(dir, name);
+        spawnSync('ffmpeg', [
+          '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', `color=c=blue:s=${size}x${size}:d=1:r=24`,
+          '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-shortest', '-pix_fmt', 'yuv420p', out,
+        ]);
+        return out;
+      };
+      const rendered = clip('rendered.mp4', 64);
+      const upscaled = clip('upscaled.mp4', 128);
+      const graded = clip('graded.mp4', 128);
+      const seen: { recipe: string; params: Record<string, unknown> }[] = [];
+      const matchSeen: boolean[] = [];
+      server.jobs.registerExecutor('video', async ({ job }) => {
+        const params = job.params as unknown as { recipe: string; params: Record<string, unknown>; master?: boolean };
+        if (!params.master) return { video_path: rendered };
+        seen.push(params);
+        if (typeof params.params.match === 'string') matchSeen.push(existsSync(join(server.paths.uploadsDir, params.params.match)));
+        return { video_path: params.recipe === 'test-grade' ? graded : upscaled };
+      });
+      const settleTake = async (id: string, done: (view: ReturnType<typeof server.projects.viewTake>) => boolean) => {
+        for (let i = 0; i < 400; i++) {
+          const view = server.projects.viewTake(server.projects.requireTake(id));
+          if (done(view)) return view;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        throw new Error(`take ${id} did not settle`);
+      };
+
+      const project = server.projects.createProject({ name: 'Finish' });
+      const scene = server.projects.createScene(project.id);
+      const shot = server.projects.createShot(scene.id, { prompt: 'blue', recipeId: 'test-video' });
+      const [hero, take] = await server.projects.renderShots([shot.id], { count: 2 });
+      for (const t of [hero, take]) await settleTake(t.id, (v) => Boolean(v.file));
+
+      await expect(server.projects.masterTake(take.id, { recipe: 'test-upscale', finish: 'sepia' })).rejects.toThrow(/strong, film/);
+      await server.projects.masterTake(take.id, { recipe: 'test-upscale', scale: 2, finish: 'film', match_take: hero.id });
+      const mastered = await settleTake(take.id, (v) => v.master?.state === 'done' || v.master?.state === 'failed');
+      expect(mastered.master).toMatchObject({ state: 'done', recipe: 'test-upscale+test-grade', steps: ['test-upscale', 'test-grade'], step: 1 });
+      const [upscale, grade] = seen;
+      // The scale still reaches the upscale, though it is no longer the last step.
+      expect(upscale).toMatchObject({ recipe: 'test-upscale', params: { scale: 2 } });
+      // The grade reads the upscale, in SDR, with the hero take's own render to match.
+      expect(grade).toMatchObject({
+        recipe: 'test-grade',
+        params: { video: `master-src-${take.id}-1.mp4`, look: 'film', output: 'sdr', match: `master-match-${take.id}.mp4` },
+      });
+      expect(matchSeen).toEqual([true]);
+      expect(existsSync(join(server.paths.uploadsDir, `master-match-${take.id}.mp4`))).toBe(false);
     } finally {
       await server.app.close();
       server.closeDb();

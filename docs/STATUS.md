@@ -4,9 +4,29 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-21 (MCP model and LoRA choice; Qwen-Image Turbo verified on 16gb).
+Last updated: 2026-10-22 (film-finish: the presenter look on the GPU, HDR10/HLG; MCP model and LoRA choice).
 
 ## Resume here
+
+**Film finish on the box, with HDR** (2026-10-21/22, PR #26): the presenter
+skill's finishing look (`finish.py` on the laptop CPU, ~8.2 s per 4K second)
+is now the `film-finish` recipe, its node kept in this repo
+(`apps/pepper-pro/server/comfy-nodes/pepper_finish`; recipes can name a pack
+by `path`). It streams a take file to file (ffmpeg decode, torch on the card,
+compiled, x264/x265 on the CPU), so a 4K take of any length fits. `strong`
+matches `finish.py` within 1–3 code values; `film`, `film-strong`, `clean`
+grade from linear light. `output: hdr10 | hlg` keeps SDR white at 203 nits
+and expands only the highlights; `expand: rtx` uses RTX Video HDR (about 30%
+brighter mids than the curve). `match` nudges a take toward a hero take.
+On the 5060 Ti box, 7.3 s of 2192×3840: 2.8 s per 4K second (strong, SDR),
+3.5 (film-strong, HDR10); the CPU encode is the limit now. The skill's step
+6b runs it per master (SDR and HDR10) and `compose.py --hdr` writes SDR,
+HDR10 and HLG cuts; deliveries: YouTube HDR10, Instagram HLG from the phone
+app, the rest SDR. `masterTake` takes `finish` (a look) and `match_take`.
+Open: the user has not yet chosen between `strong` and the film looks; the
+box was last started from a worktree without the tunnel token (no public
+hostname until `up` runs with it); NVENC needs the container's `video`
+capability (the node falls back to the CPU).
 
 **Claude chooses models and LoRAs over MCP** (2026-10-21): Claude kept
 generating every still on Krea 2. `list_models` was dropping each model's
@@ -216,6 +236,7 @@ none is, its tools are missing.
 | `zimage-turbo`, `flux2-klein-edit`, `qwen-image-edit` | — | Rendered correctly, checked by eye, with the `24gb-64ram` files (no 16gb variants); not timed |
 | `qwen-image-turbo` | final, 2k | 896×1184 in 7–10 s warm; 1760×2368 in 27–28 s, also with a Qwen LoRA (2026-10-21) |
 | `qwen-image-turbo-edit` | final | A garment swap on an 896×1184 still in 15 s, the rest kept (2026-10-21) |
+| `film-finish` | finish | 2192×3840, 7.3 s: strong SDR in 21 s, film-strong HDR10 in 25 s (x264 medium / x265 fast); look 0.02–0.04 s a frame compiled (2026-10-21) |
 
 Details and the rest of the measurements are in `docs/H3-16GB.md` §6.
 `infinitetalk`, `infinitetalk-duo` and `qwen3-tts` were

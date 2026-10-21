@@ -1,0 +1,232 @@
+{
+  "schema": 1,
+  "id": "film-finish",
+  "version": 1,
+  "kind": "video",
+  "name": "Film finish — grade, optics, grain and HDR on the card",
+  "description": "The presenter finishing look on the GPU, streamed frame by frame so a 4K take of any length fits: a grade in linear light, halation, a diffusion filter, lens aberration and vignette, film grain, then Rec.709 SDR, HDR10 (PQ) or HLG. `strong` is the original presenter look; clean, film and film-strong are graded from light. A reference take matches skin and exposure across takes. No model download.",
+  "family": "film-finish",
+  "capabilities": [
+    "finish",
+    "grade",
+    "hdr"
+  ],
+  "licence": {
+    "id": "pepper",
+    "name": "Pepper Pro's own node (comfy-nodes/pepper_finish); `expand: rtx` uses the NVIDIA Video Effects SDK",
+    "commercial": "yes",
+    "obligations": [
+      "expand: rtx runs NVIDIA's proprietary VFX runtime (nvidia-vfx, installed with rtx-master's node pack): review NVIDIA's SDK terms before redistributing an image that bundles it."
+    ]
+  },
+  "nodes": [
+    {
+      "name": "pepper_finish",
+      "path": "comfy-nodes/pepper_finish"
+    }
+  ],
+  "files": [],
+  "params": [
+    {
+      "name": "video",
+      "type": "video",
+      "label": "Video",
+      "required": true
+    },
+    {
+      "name": "look",
+      "type": "enum",
+      "label": "Look",
+      "default": "strong",
+      "options": [
+        "strong",
+        "medium",
+        "subtle",
+        "film-strong",
+        "film",
+        "clean"
+      ],
+      "description": "strong/medium/subtle: the presenter look picked on 2026-10-21 (the skill's former finish.py), on display values; its sizes scale with the frame's width, as finish.py's did, so a landscape take gets coarser halation and grain. film-strong/film: a print look from linear light (soft highlight roll-off, teal shadows, warm highlights, dense colour, halation, a Pro-Mist diffusion, lens aberration, film grain). clean: a matched commercial grade, no texture."
+    },
+    {
+      "name": "output",
+      "type": "enum",
+      "label": "Output",
+      "default": "sdr",
+      "options": [
+        "sdr",
+        "hdr10",
+        "hlg"
+      ],
+      "description": "sdr: Rec.709 H.264 (x264). hdr10: BT.2020 PQ HEVC 10-bit with mastering and light-level metadata, for YouTube. hlg: BT.2020 HLG HEVC 10-bit, for Instagram from the phone app. In HDR, SDR white sits at 203 nits and only highlights rise toward the peak."
+    },
+    {
+      "name": "peak",
+      "type": "int",
+      "label": "HDR peak (nits)",
+      "default": 1000,
+      "min": 400,
+      "max": 4000
+    },
+    {
+      "name": "expand",
+      "type": "enum",
+      "label": "HDR highlights",
+      "default": "curve",
+      "options": [
+        "curve",
+        "rtx"
+      ],
+      "description": "curve: the grade's own highlight expansion (the HDR and SDR versions are the same grade). rtx: NVIDIA RTX Video HDR expands the graded SDR picture."
+    },
+    {
+      "name": "lut",
+      "type": "string",
+      "label": "LUT",
+      "default": "",
+      "description": "A Rec.709-in, Rec.709-out creative .cube, uploaded as an input (never a log-input LUT: takes are display Rec.709). It replaces the look's grade; in HDR it drives the HDR picture too."
+    },
+    {
+      "name": "lut_mix",
+      "type": "float",
+      "label": "LUT strength",
+      "default": 1,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "name": "match",
+      "type": "video",
+      "label": "Match to take",
+      "description": "A reference take (the hero take of the set): this take's skin tone and exposure are moved toward it, by at most a stop and 12% per channel."
+    },
+    {
+      "name": "match_strength",
+      "type": "float",
+      "label": "Match strength",
+      "default": 0.8,
+      "min": 0,
+      "max": 1
+    },
+    {
+      "name": "encoder",
+      "type": "enum",
+      "label": "Encoder",
+      "default": "fast",
+      "options": [
+        "cpu",
+        "fast",
+        "gpu"
+      ],
+      "description": "fast (default): x264 medium / x265 fast, CRF 14, transparent for a take compose re-encodes; the encode sets the speed. cpu: x264 slow / x265 medium, ~1.6x slower. gpu: NVENC, fastest, softens grain; without NVENC in the container it falls back to fast and says so in the report."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Grain seed",
+      "max": 2147483647
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "video",
+          "nodes": [
+            {
+              "node": "1",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "param": "match",
+          "nodes": [
+            {
+              "node": "4",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "param": "look",
+          "node": "2",
+          "input": "look"
+        },
+        {
+          "param": "output",
+          "node": "2",
+          "input": "output"
+        },
+        {
+          "param": "peak",
+          "node": "2",
+          "input": "peak"
+        },
+        {
+          "param": "expand",
+          "node": "2",
+          "input": "expand"
+        },
+        {
+          "param": "lut",
+          "node": "2",
+          "input": "lut"
+        },
+        {
+          "param": "lut_mix",
+          "node": "2",
+          "input": "lut_mix"
+        },
+        {
+          "param": "match_strength",
+          "node": "2",
+          "input": "match_strength"
+        },
+        {
+          "param": "encoder",
+          "node": "2",
+          "input": "encoder"
+        },
+        {
+          "param": "seed",
+          "node": "2",
+          "input": "seed"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "2",
+          "kind": "video"
+        },
+        {
+          "node": "3",
+          "kind": "text"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "finish": {
+      "label": "Finish",
+      "description": "One pass: decode, the look on the GPU, encode.",
+      "workflow": "main"
+    }
+  },
+  "default_mode": "finish",
+  "tiers": [
+    "16gb",
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Runs on any CUDA card (and MPS or the CPU, slowly, for checks). The x264/x265 encode on the CPU sets the speed, not the GPU: the three stages run at once. RTX highlights need an NVIDIA RTX card and rtx-master's node pack (nvidia-vfx).",
+  "verified": {
+    "date": "2026-10-21",
+    "gpu": "RTX 5060 Ti 16 GB, Ryzen 5 7600X, 32 GB RAM (16gb tier, cu130 image, driver 595)",
+    "seconds": 21,
+    "notes": "S04 of the microplastics explainer, 2192x3840, 7.3 s (175 frames), through POST /v1/generate. strong matches the skill's finish.py within 1.3/1.6/2.9 code values (R/G/B mean, grain removed) with the same grain. Seconds per 4K second, look compiled (torch.compile; 0.021 s a frame for strong, 0.040 for film-strong): strong SDR 2.8 (fast) / 4.5 (cpu); film-strong SDR 3.0 (fast); film-strong HDR10 3.5 (fast); HLG with expand rtx 7.5 (cpu, uncompiled). finish.py on an M4 laptop: 8.2. HDR10: MaxCLL 952, MaxFALL 65 measured, 999/74 tagged; HLG decodes to the same nits as HDR10. RTX Video HDR lifts mids about 30% over the curve."
+  }
+}

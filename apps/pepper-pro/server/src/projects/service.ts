@@ -165,6 +165,13 @@ export interface MasterOptions {
   recipe?: string;
   chain?: string[];
   scale?: number;
+  /**
+   * A film-finish look (strong, film, film-strong, clean…) for a last step
+   * after the upscale: a `grade` recipe, in SDR (the cut is Rec.709).
+   */
+  finish?: string;
+  /** With `finish`: a take whose skin and exposure this one is matched to (the set's hero take). */
+  match_take?: string;
 }
 
 /**
@@ -185,6 +192,11 @@ const MASTER_MAX_LONG_SIDE = 3840;
 /** The upload a master's step reads: the take itself, then each step's output. */
 function masterSource(take: TakeRow, step: number): string {
   return step === 0 ? `master-src-${take.id}${extname(take.file ?? '.mp4')}` : `master-src-${take.id}-${step}.mp4`;
+}
+
+/** The reference take a finish step matches to, copied into uploads for the job. */
+function masterMatch(take: TakeRow): string {
+  return `master-match-${take.id}.mp4`;
 }
 
 export interface TakeView extends Omit<TakeRow, 'chain' | 'master'> {
@@ -1184,6 +1196,11 @@ export class ProjectService {
       if (job && (job.status === 'queued' || job.status === 'running')) return this.viewTake(take);
     }
     const steps = await this.masterSteps(options);
+    if (options.match_take && steps.some((r) => r.capabilities.includes('grade'))) {
+      // Checked now, not when the grade step starts minutes of GPU later.
+      const reference = this.requireTake(options.match_take);
+      if (!reference.file || kindOf(reference.file) !== 'video') throw errors.validation(`Take ${options.match_take} has no video to match to`);
+    }
     // Each step reads its input from uploads, like any other recipe.
     const upload = `master-src-${take.id}${extname(take.file)}`;
     await copyFile(this.takeFile(take.projectId, take.file), safeResolve(this.deps.paths.uploadsDir, upload));
@@ -1209,9 +1226,23 @@ export class ProjectService {
   private async startMasterStep(take: TakeRow, master: TakeMaster, step: number, upload: string, options: MasterOptions): Promise<TakeMaster> {
     const recipe = this.deps.recipes.require(master.steps?.[step] ?? master.recipe);
     const has = (name: string) => recipe.params.some((p) => p.name === name);
-    const last = step === (master.steps?.length ?? 1) - 1;
+    // `scale` is for the chain's last upscale, which a finish may follow.
+    const ids = master.steps ?? [master.recipe];
+    const lastScaled = ids.map((id) => this.deps.recipes.require(id).params.some((p) => p.name === 'scale')).lastIndexOf(true);
     const params: Record<string, unknown> = { video: upload };
-    if (has('scale') && last) {
+    if (recipe.capabilities.includes('grade')) {
+      if (options.finish) params.look = options.finish;
+      if (has('output')) params.output = 'sdr';
+      if (options.match_take && options.match_take !== take.id && has('match')) {
+        // The reference's own render, not its master: the finish compares
+        // this take before grading with the reference before grading.
+        const reference = this.requireTake(options.match_take);
+        if (!reference.file) throw errors.validation(`Take ${options.match_take} has no video to match to`);
+        await copyFile(this.takeFile(reference.projectId, reference.file), safeResolve(this.deps.paths.uploadsDir, masterMatch(take)));
+        params.match = masterMatch(take);
+      }
+    }
+    if (has('scale') && step === lastScaled) {
       if (options.scale !== undefined) params.scale = options.scale;
       else {
         const fallback = recipe.params.find((p) => p.name === 'scale')?.default;
@@ -1231,10 +1262,16 @@ export class ProjectService {
         mode = Math.min(info.width ?? 0, info.height ?? 0) > REFINE_X2_MAX_SHORT_SIDE ? 'same' : 'x2';
       }
     }
-    const prepared = await this.deps.comfy.prepareRequest(
-      { recipe: recipe.id, ...(mode ? { mode } : {}), params, shot_id: take.shotId },
-      { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
-    );
+    const prepared = await this.deps.comfy
+      .prepareRequest(
+        { recipe: recipe.id, ...(mode ? { mode } : {}), params, shot_id: take.shotId },
+        { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
+      )
+      .catch(async (err: unknown) => {
+        // No job will settle to clean up the reference copied for it.
+        if (params.match) await rm(safeResolve(this.deps.paths.uploadsDir, masterMatch(take)), { force: true });
+        throw err;
+      });
     const job = this.deps.jobs.create(prepared.recipe.kind, {
       recipe: prepared.recipe.id,
       mode: prepared.mode,
@@ -1271,7 +1308,18 @@ export class ProjectService {
    */
   private async masterSteps(options: MasterOptions): Promise<Recipe[]> {
     const asked = options.chain?.length ? options.chain : options.recipe ? [options.recipe] : undefined;
-    if (asked) return asked.map((id) => this.deps.recipes.require(id));
+    const steps = asked ? asked.map((id) => this.deps.recipes.require(id)) : await this.defaultMasterSteps();
+    if (!options.finish || steps.some((r) => r.capabilities.includes('grade'))) return steps;
+    const grade = this.deps.recipes.list().find((r) => r.kind === 'video' && r.capabilities.includes('grade') && r.params.some((p) => p.name === 'video'));
+    if (!grade) throw errors.validation('finish needs a grading recipe (film-finish), which is not here');
+    const look = grade.params.find((p) => p.name === 'look');
+    if (look?.options && !look.options.includes(options.finish)) {
+      throw errors.validation(`finish must be one of ${look.options.join(', ')}`);
+    }
+    return [...steps, grade];
+  }
+
+  private async defaultMasterSteps(): Promise<Recipe[]> {
     const installed = async (capability: string): Promise<Recipe[]> => {
       const out: Recipe[] = [];
       for (const recipe of this.deps.recipes.list()) {
@@ -1332,6 +1380,9 @@ export class ProjectService {
       this.db.update(takes).set({ master: { ...master, state: 'failed', error: message } }).where(eq(takes.id, take.id)).run();
     } finally {
       await rm(source, { force: true });
+      if (!master.steps || step === master.steps.length - 1 || job.status !== 'completed') {
+        await rm(safeResolve(this.deps.paths.uploadsDir, masterMatch(take)), { force: true });
+      }
     }
   }
 

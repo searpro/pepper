@@ -87,8 +87,10 @@ RUN mkdir -p /tmp/no-recipes \
     && TORCH_INDEX=$TORCH_INDEX RECIPES_DIR=/tmp/no-recipes apps/pepper-pro/server/scripts/install-comfy.sh \
     && rm -rf /root/.cache /tmp/*
 
-# Node packs: only what the recipes pin, rebuilt when a recipe changes.
+# Node packs: only what the recipes pin, rebuilt when a recipe changes. Our
+# own (comfy-nodes/) are linked from where they are copied here.
 COPY apps/pepper-pro/server/recipes ./apps/pepper-pro/server/recipes
+COPY apps/pepper-pro/server/comfy-nodes ./apps/pepper-pro/server/comfy-nodes
 RUN apps/pepper-pro/server/scripts/install-comfy.sh --packs-only && rm -rf /root/.cache
 
 COPY --from=builder /app/node_modules ./node_modules

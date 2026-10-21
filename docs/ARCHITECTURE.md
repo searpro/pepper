@@ -520,6 +520,19 @@ These cost real debugging time; the code comments carry the short version.
   own `filename_prefix`: the save node runs again, cheaply, and everything
   upstream stays cached.
 
+- **Raw frames piped to ffmpeg are taken for BT.601.** ffmpeg 8 negotiates
+  colour through a filtergraph: untagged rawvideo going to an output tagged
+  BT.709 (or BT.2020) is converted from BT.601 first, which shifts every
+  colour (an untouched take came back 7 code values less red). Tag the raw
+  input with `setparams` (film-finish does). Raw output also defaults to
+  constant frame rate and repeats frames over timestamp gaps; read with
+  `-vsync passthrough`.
+
+- **ffmpeg's `vignette` takes no planar RGB.** In a `gbrp` graph it is fed
+  converted limited-range YUV and scales the black offset too, so the corners'
+  blacks sink as well as darken. The presenter look was chosen with that, so
+  film-finish's port keeps it.
+
 - **ComfyUI accepts a prompt in part.** When one output node fails validation
   and another (a text preview inside a template) passes, `/prompt` answers 200
   with `node_errors`, queues what passed and drops the rest. Pro's client

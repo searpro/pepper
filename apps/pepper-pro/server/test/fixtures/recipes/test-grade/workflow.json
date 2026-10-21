@@ -1,0 +1,5 @@
+{
+  "4": { "class_type": "SaveVideo", "inputs": { "video": ["5", 0], "filename_prefix": "test/grade", "format": "auto", "format.codec": "auto", "codec": "auto" } },
+  "5": { "class_type": "LoadVideo", "inputs": { "file": "" } },
+  "6": { "class_type": "LoadVideo", "inputs": { "file": "" } }
+}

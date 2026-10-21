@@ -22,6 +22,7 @@ recipes/<id>/
 | `seedvr2-upscale-video` | video | Finishing: restore and upscale a chosen take | Apache 2.0 |
 | `ltx25-refine` | video | Finishing: re-render a take's detail with LTX 2.5, at twice its size for an H3 `half` take; motion, lip-sync and sound kept | LTX-2.x (under $10M) |
 | `rtx-master` | video | Finishing: NVIDIA RTX Video upscale (and 2× frame rate in `smooth` mode) on the card, in seconds | NVIDIA VFX SDK; nodes MIT |
+| `film-finish` | video | Finishing: the presenter look (grade, halation, diffusion, aberration, grain) on the card, out as SDR, HDR10 or HLG; matches takes to a hero take | Pepper Pro's own node |
 | `infinitetalk` | video | A portrait lip-synced to a voice recording, 3-12 s | Apache 2.0 |
 | `infinitetalk-duo` | video | Two people in one frame, each lip-synced to their own line (left speaks first) | Apache 2.0 |
 | `longcat-avatar` | video | A portrait speaking or singing a long recording (minutes) with body and hand motion | MIT |
@@ -160,6 +161,36 @@ the bf16 one on every tier, since it fits 16 GB with room (the reference
 pipeline peaks at 11-14 GB). Library LoRAs (`lora_base: yue2`) patch the
 music model only, not the planner.
 
+
+## Film finish
+
+`film-finish` is the one recipe whose node lives in this repository
+(`comfy-nodes/pepper_finish`, named in `nodes` by `path` and linked into
+ComfyUI by `install-comfy.sh`). A ComfyUI IMAGE batch is the wrong shape for
+a look over a whole 4K take: a 10 s 2192×3840 take is 24 GB as float32
+frames. `PepperFilmFinish` takes the take's file and writes the finished one
+itself, streaming: ffmpeg decodes raw YUV, torch does the picture in 32-bit
+float on the card, x264 or x265 encodes on the CPU, all three at once, so
+memory stays flat and the encode sets the speed. Its `report` output (a
+PreviewAny) is the job's text: seconds, HDR light levels, how a take matched.
+
+The picture works in linear light with headroom: a take's SDR values go
+through the inverse of a soft highlight shoulder (linear up to 0.6, SDR white
+→ 4× diffuse white), the look runs there (exposure and contrast on light,
+halation and a Pro-Mist bloom added as light, radial chromatic aberration,
+a vignette as exposure falloff, grain in log exposure), and the output is the
+shoulder back to SDR, or the same light with SDR white at 203 nits (BT.2408)
+in BT.2020 PQ or HLG. An ungraded take round-trips exactly; HDR keeps skin
+and walls where the SDR grade put them and lifts only what the shoulder had
+compressed. `strong`/`medium`/`subtle` port the presenter skill's ffmpeg
+filtergraph step for step, down to ffmpeg's 8-bit blend truncation and its
+vignette running on limited-range YUV (it takes no planar RGB), so the
+chosen look is unchanged. `match` compares a take's skin (or, when the set
+is skin-coloured too, the frame) with a hero take's and nudges exposure and
+white balance, at most a stop and 12% per channel. `expand: rtx` hands the
+graded SDR picture to NVIDIA RTX Video HDR instead (needs rtx-master's pack).
+`masterTake` runs it last when given `finish` (a look), in SDR; HDR takes are
+made with `generate_video` and composed elsewhere.
 
 ## Adding or changing a recipe
 

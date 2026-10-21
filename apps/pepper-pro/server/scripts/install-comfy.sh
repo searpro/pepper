@@ -67,11 +67,13 @@ seen = {}
 for file in sorted(Path(sys.argv[1]).glob('*/recipe.json')):
     for pack in json.loads(file.read_text()).get('nodes', []):
         previous = seen.setdefault(pack['name'], pack)
-        if (previous['repo'], previous['commit']) != (pack['repo'], pack['commit']):
-            sys.exit(f"{file.parent.name} pins {pack['name']} at {pack['commit']}, another recipe at {previous['commit']}")
+        pin = lambda p: (p.get('repo'), p.get('commit'), p.get('path'))
+        if pin(previous) != pin(pack):
+            sys.exit(f"{file.parent.name} pins {pack['name']} at {pin(pack)}, another recipe at {pin(previous)}")
 for pack in seen.values():
-    # Fields are space-separated, lists comma-joined ("-" for none).
-    print(pack['name'], pack['repo'], pack['commit'],
+    # Fields are space-separated, lists comma-joined ("-" for none). A pack
+    # in this repository has its path in place of the repo and no commit.
+    print(pack['name'], pack.get('repo') or 'path:' + pack['path'], pack.get('commit') or '-',
           ','.join(pack.get('skip_requirements', [])) or '-', ','.join(pack.get('pip', [])) or '-')
 EOF
 )"
@@ -81,6 +83,14 @@ if [[ -z "$packs" ]]; then
 else
   while read -r name repo commit skip extra; do
     dir="$COMFY_DIR/custom_nodes/$name"
+    if [[ "$repo" == path:* ]]; then
+      # One of ours: linked, so the checkout's version is the one that runs
+      # (the image keeps the server directory, so the link resolves there too).
+      say "node pack $name from ${repo#path:}"
+      rm -rf "$dir"
+      ln -s "$(cd "$RECIPES_DIR/.." && pwd)/${repo#path:}" "$dir"
+      continue
+    fi
     say "node pack $name @ ${commit:0:12}"
     [[ -d "$dir/.git" ]] || git clone -q "$repo" "$dir"
     git -C "$dir" fetch -q --depth 1 origin "$commit" 2>/dev/null || git -C "$dir" fetch -q origin

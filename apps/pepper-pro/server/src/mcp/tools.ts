@@ -307,7 +307,8 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         '(seconds) keeps that take up to there and re-renders the rest. Shots longer than a recipe ' +
         'renders at once are chained automatically; `skipped_loras` names LoRAs a shot\'s recipe could not run. ' +
         '`master: true` upscales each shot\'s chosen take for ' +
-        'delivery (LTX refine, then RTX Video upscale; soundtrack kept); cuts then use the masters. Returns the takes; follow them ' +
+        'delivery (LTX refine, then RTX Video upscale; soundtrack kept), and `finish` grades it after (a film-finish look; ' +
+        '`match_take` matches every master to one take); cuts then use the masters. Returns the takes; follow them ' +
         `with get_project or get_job (up to ${MAX_WAIT_S} s).` +
         SHOWN,
       _meta: SHOWS_MEDIA,
