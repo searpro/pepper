@@ -139,6 +139,10 @@ export const renderSchema = z.object({
   retake_from: z.number().positive().optional(),
   /** Master each shot's chosen take for delivery (upscale it) instead of rendering new takes. */
   master: z.boolean().optional(),
+  /** With master: a film-finish look applied after the upscale. */
+  finish: z.string().optional(),
+  /** With finish: a take every master is matched to (skin, exposure). */
+  match_take: z.string().optional(),
 });
 
 const cutItem = z.object({
@@ -323,7 +327,7 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
           "take's seed, which is how a chosen draft is finished. With `retake_from` as well, that take is " +
           'kept up to that second and only the rest is rendered again, as a new take. A shot longer than ' +
           'its recipe renders at once is rendered in segments that continue each other. `master: true` ' +
-          "masters each shot's chosen take for delivery (upscales it) instead. `skipped_loras` lists, per " +
+          "masters each shot's chosen take for delivery (upscales it, then grades it with `finish`) instead. `skipped_loras` lists, per " +
           'shot, LoRAs from its cast or its own that its recipe could not run.',
         body: renderSchema,
       },
@@ -331,7 +335,7 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
     async (req, reply) => {
       const { retake_from, from_take } = req.body;
       if (req.body.master) {
-        const { takes, skipped } = await projects.masterChosen(req.body.shot_ids);
+        const { takes, skipped } = await projects.masterChosen(req.body.shot_ids, { finish: req.body.finish, match_take: req.body.match_take });
         return reply.code(202).send({ takes, skipped });
       }
       if (retake_from !== undefined) {
@@ -401,10 +405,17 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
           'Finishes a video take for delivery, keeping its soundtrack: by default an LTX refine (ltx25-refine, twice ' +
           'the size for a take rendered at half size) then RTX Video upscaling (rtx-master), whichever of them is ' +
           'installed, else SeedVR2. `recipe` names one recipe, `chain` several in order; `scale` goes to the last ' +
-          'upscale. The take is unchanged; a cut uses the master once it is done.',
+          'upscale. `finish` (a film-finish look) adds a grade, optics and grain after it, matched to `match_take` ' +
+          'when given. The take is unchanged; a cut uses the master once it is done.',
         params: id,
         body: z
-          .object({ recipe: z.string().optional(), chain: z.array(z.string()).max(4).optional(), scale: z.number().min(1).max(4).optional() })
+          .object({
+            recipe: z.string().optional(),
+            chain: z.array(z.string()).max(5).optional(),
+            scale: z.number().min(1).max(4).optional(),
+            finish: z.string().optional(),
+            match_take: z.string().optional(),
+          })
           .default({}),
       },
     },

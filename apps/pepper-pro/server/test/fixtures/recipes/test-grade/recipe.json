@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "id": "test-grade",
+  "version": 1,
+  "kind": "video",
+  "name": "Test grade",
+  "description": "Loads a clip and saves it as it is, as a finishing grade returns the take's own size and sound. Model-free, for master tests.",
+  "family": "test-grade",
+  "capabilities": ["finish", "grade"],
+  "licence": { "id": "test", "name": "Test", "commercial": "yes" },
+  "files": [],
+  "params": [
+    { "name": "video", "type": "video", "label": "Video", "required": true },
+    { "name": "look", "type": "enum", "label": "Look", "default": "strong", "options": ["strong", "film"] },
+    { "name": "output", "type": "enum", "label": "Output", "default": "sdr", "options": ["sdr", "hdr10"] },
+    { "name": "match", "type": "video", "label": "Match to take" }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        { "param": "video", "node": "5", "input": "file" },
+        { "param": "match", "nodes": [{ "node": "6", "input": "file" }] }
+      ],
+      "outputs": [{ "node": "4", "kind": "video" }]
+    }
+  },
+  "modes": { "finish": { "label": "Finish", "workflow": "main" } },
+  "default_mode": "finish",
+  "tiers": ["32gb"]
+}
