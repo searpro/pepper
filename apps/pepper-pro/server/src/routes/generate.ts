@@ -4,6 +4,8 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { BackendManager } from '@pepper/core/backends/manager.js';
 import { errors } from '@pepper/core/errors.js';
+import { safeResolve } from '@pepper/core/paths.js';
+import { probeMedia } from '@pepper/core/util/ffmpeg.js';
 import type { JobManager } from '@pepper/core/jobs/manager.js';
 import { errorResponseSchema, jobSchema } from '@pepper/core/schemas.js';
 import { proxyToBackend } from '@pepper/core/services/proxy.js';
@@ -12,6 +14,8 @@ import type { ComfyEngine } from '../engines/comfy.js';
 import {
   ASPECT_RATIOS,
   describeModel,
+  inferAspect,
+  loraNotes,
   mapRequest,
   mismatch,
   pickModel,
@@ -101,7 +105,10 @@ export async function generateRoutes(fastify: FastifyInstance, options: Generate
         const fits = library.filter((lora) => lora.base === r.lora_base);
         return {
           ...model,
-          loras: fits.map((lora) => ({ id: lora.id, name: lora.name, trigger_words: lora.trigger_words, strength: lora.strength })),
+          loras: fits.map((lora) => {
+            const notes = loraNotes(lora.description);
+            return { id: lora.id, name: lora.name, trigger_words: lora.trigger_words, strength: lora.strength, ...(notes ? { notes } : {}) };
+          }),
         };
       }),
     );
@@ -153,10 +160,22 @@ export async function generateRoutes(fastify: FastifyInstance, options: Generate
       }
       const request = await resolveRequestMedia(fields as GenericRequest, { uploadsDir: options.paths.uploadsDir, outputDir: options.paths.outputDir });
       const recipe = recipes.require(chosen.id);
+      // Without an aspect ratio, a start frame sets it; a file ffprobe cannot read keeps the recipe's default.
+      const imageSize = async (upload: string) => {
+        try {
+          return await probeMedia(safeResolve(options.paths.uploadsDir, upload));
+        } catch {
+          return undefined;
+        }
+      };
+      request.aspect_ratio = await inferAspect(recipe, request, imageSize);
       const { mode, params } = mapRequest(recipe, request);
       const created = [];
       for (let i = 0; i < (count ?? 1); i++) {
-        const prepared = await comfy.prepareRequest({ recipe: recipe.id, mode, params, loras });
+        // Variations of a given seed run seed, seed + 1, …: one seed for all
+        // would render the same picture each time (ComfyUI even replays it from its cache).
+        const seeded = typeof params.seed === 'number' && i > 0 ? { ...params, seed: params.seed + i } : params;
+        const prepared = await comfy.prepareRequest({ recipe: recipe.id, mode, params: seeded, loras });
         created.push(jobs.create(prepared.recipe.kind, jobParams(prepared)));
       }
       return reply.code(202).send({ model: chosen.id, quality: mode, jobs: created });

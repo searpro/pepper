@@ -4,7 +4,7 @@
   "version": 1,
   "kind": "image",
   "name": "Qwen-Image 2.1 Turbo — edit and combine in 8 steps",
-  "description": "qwen-image-edit's instruction edits and combinations (put this garment on this model, place this product in this room) in 8 steps instead of 25. Research-only licence: not for commercial work.",
+  "description": "qwen-image-edit's instruction edits and combinations (put this garment on this model, place this product in this room) in 8 steps instead of 25: the first choice for an edit or a change of expression. Research-only licence: not for commercial work; flux2-klein-edit is the permissive one.",
   "family": "qwen-image-2.1",
   "capabilities": [
     "edit",
@@ -208,5 +208,11 @@
     "48gb",
     "96gb"
   ],
-  "notes": "The output takes the size of image 1 (after `resolution`). The base qwen-image-edit recipe runs 25 steps of the undistilled model; this runs the Turbo checkpoint's 8-step schedule at CFG 1."
+  "notes": "The output takes the size of image 1 (after `resolution`). The base qwen-image-edit recipe runs 25 steps of the undistilled model; this runs the Turbo checkpoint's 8-step schedule at CFG 1.",
+  "verified": {
+    "date": "2026-10-21",
+    "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier: the int8 files, cu130 image)",
+    "seconds": 15,
+    "notes": "By eye: \"change only her sweater to a navy raincoat\" on a Krea 2 still (896x1184). Face, hair, pose, cup and café kept; only the garment changed. 15 s with the model switch from Krea 2."
+  }
 }

@@ -4,7 +4,7 @@
   "version": 1,
   "kind": "image",
   "name": "Z-Image Turbo — fast stills",
-  "description": "Fast, permissively licensed text-to-image in 8 steps. The default when a licence rules others out.",
+  "description": "Fast, permissively licensed text-to-image in 8 steps at about 1 MP. The pick for commercial work when Krea 2's or Qwen's licence rules them out.",
   "family": "z-image",
   "capabilities": [
     "text-to-image",

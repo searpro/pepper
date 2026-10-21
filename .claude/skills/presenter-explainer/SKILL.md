@@ -65,12 +65,17 @@ user's manual posting through Notion.
   an outfit Maya hasn't worn before in every video (the list of used ones
   is in Claude's memory, `feedback-presenter-wardrobe`), and liked settings
   that show the topic (El Niño: storm beach, tropical heat, a downpour with a
-  clear umbrella, a cracked lakebed). `qwen-image-edit` on her library still
-  (~25 s each, `count: 2`, no `aspect_ratio`: it keeps the input's) with
-  "change her clothes completely: she now wears …; no white t-shirt, no
-  bomber jacket", the weather, and "shoulders square, eyes just past the
-  lens, mouth closed". Rain, wind, surf, heat haze and drifting dust all
-  played in H3 with lip sync intact.
+  clear umbrella, a cracked lakebed). `qwen-image-turbo-edit` on her library
+  still (7–15 s each, `count: 2`, no `aspect_ratio`: it keeps the input's;
+  `qwen-image-edit` gave the same look in 17–27 s in an A/B on 2026-10-21)
+  with "change her clothes completely: she now wears …; no white t-shirt, no
+  bomber jacket", the weather, and "a calm, neutral, attentive expression
+  with her lips gently closed, not smiling, no teeth showing. Her arms rest
+  at her sides, hands out of frame. Shoulders square to the camera, eyes
+  just past the lens". Plain "mouth closed" gave an open-mouthed smile and a
+  raised hand on both editors, which is the frame H3 freezes into a grin.
+  Rain, wind, surf, heat haze and drifting dust all played in H3 with lip
+  sync intact.
 - **New presenter:** `krea2-image`, 9:16, `count: 4`, a stated age, clothing,
   "eyes fixed just past the camera lens, focused, with bright catchlights", a
   plain dark studio. Pick one; it is every segment's first frame. H3 renders
@@ -107,6 +112,13 @@ non_diegetic_music: N/A
 
 - ~14 min per 10 s on the 5060 Ti (draft); `final` is twice that. The
   speech lands within 0.02 s of the TTS line, so the cut uses the TTS audio.
+- **Facial Realism LoRA:** `loras: ["minimax-h3-facial-realism-closeup"]`
+  and `Facial Realism. ` at the start of the `[Shot 1]` description. In an
+  A/B at the same seed (2026-10-21, two lines) the performance, lip sync and
+  eye contact were identical and so was the render time; cropped 2× the face
+  had more defined lashes, brows and skin texture and less of a plastic
+  sheen, and the background stayed closer to the still. Use it on presenter
+  takes. `list_models` shows the H3 LoRAs in the library and their notes.
 - Skip lines a full-screen photo covers end to end (use a still loop).
 - **Failure modes seen:** "counts on her fingers" with spoken numbers drew
   digits on screen; "a little shrug / skeptical" turned her sideways and off
@@ -263,8 +275,8 @@ covers are winning.
 - Downloads to the box run ~11 MB/s: Qwen3-TTS is 13.6 GB (all three
   checkpoints), ACE-Step 10 GB.
 - Auto mode blocks `scp`/`docker cp` to the box; the user runs those.
-- Qwen-Image edits take ~10 min each on `16gb` (24 GB files): too slow to
-  use per shot.
+- Qwen-Image edits take 7–27 s each on `16gb` once loaded (Turbo is the
+  faster); the first after another model loads its files first.
 - Projects: these generations are loose jobs, not a Pepper project, because
   Pepper Pro's cut can't overlay photos or captions and has no route to import
   a finished file as a take. A project plan helps when the cut can stay in

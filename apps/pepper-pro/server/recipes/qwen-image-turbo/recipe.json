@@ -4,7 +4,7 @@
   "version": 1,
   "kind": "image",
   "name": "Qwen-Image 2.1 Turbo — stills in 8 steps",
-  "description": "Text to image in 8 steps, native up to 2K: posters, typography and UI with legible text, portraits, transparent PNGs. Research-only licence: not for commercial work.",
+  "description": "Text to image in 8 steps, native up to 2K: the pick for a large, detailed still (the `2k` quality: skin, hair and fabric hold up at full size) and for posters, typography and UI with legible text. Takes Qwen-Image 2.1 LoRAs (realism, styles). Research-only licence: not for commercial work.",
   "family": "qwen-image-2.1",
   "capabilities": [
     "text-to-image",
@@ -201,5 +201,11 @@
     "48gb",
     "96gb"
   ],
-  "notes": "The Turbo checkpoint is distilled for the fixed 8-step schedule in its ManualSigmas node, at CFG 1 (so there is no negative prompt). Sizes should be multiples of 32. Same text encoder and VAE as qwen-image-edit and qwen-image-turbo-edit, stored once."
+  "notes": "The Turbo checkpoint is distilled for the fixed 8-step schedule in its ManualSigmas node, at CFG 1 (so there is no negative prompt). Sizes should be multiples of 32. Same text encoder and VAE as qwen-image-edit and qwen-image-turbo-edit, stored once.",
+  "verified": {
+    "date": "2026-10-21",
+    "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier: the int8 files, cu130 image)",
+    "seconds": 28,
+    "notes": "By eye, not the golden set: a candid café portrait at 3:4 and a travel poster with a title and a dated subtitle. 1 MP (896x1184) in 7-10 s warm; 2k (1760x2368) in 27-28 s, with or without a LoRA (Lenovo UltraReal at 1.0). Poster text exact. At 2k, pores, freckles and hair strands hold up at full size, more than Krea 2's 1 MP; Krea 2 followed the hair colour asked for more closely at the same seed. The LoRA gave flatter, more natural camera light and less polish."
+  }
 }

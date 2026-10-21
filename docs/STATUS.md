@@ -4,9 +4,55 @@ Where Pepper stands, for the next session to pick up from. Keep it current
 rather than appending (`.claude/skills/session-handoff`). Measured numbers
 say what they were measured on; everything else is not measured.
 
-Last updated: 2026-10-20 (LoRA library, Qwen-Image 2.1 Turbo, generation time on every file).
+Last updated: 2026-10-21 (MCP model and LoRA choice; Qwen-Image Turbo verified on 16gb).
 
 ## Resume here
+
+**Claude chooses models and LoRAs over MCP** (2026-10-21): Claude kept
+generating every still on Krea 2. `list_models` was dropping each model's
+`description` and each LoRA's notes, so Claude saw names and inputs but not
+what each is good at, and the default pick ranks verified models first, which
+Qwen-Image Turbo was not. Now `list_models` carries the description,
+`quality_notes` per mode (`2k`: about 4 MP) and each fitting LoRA's `notes`
+(its library notes, cut to their opening sentences), and the tool texts tell
+Claude to pass `model` and `loras` chosen for the request. `install_model`
+takes `notes`/`strength` for a new LoRA, and `lora_id` to update one; the
+LoRAs screen's Notes field says Claude reads it. A requested `quality` narrows
+the default to models that have it, and edits default to the Qwen editors
+(FLUX.2 klein when the licence mode rules them out). The image recipes'
+descriptions now say when to pick each over the others.
+
+Audit on the home box, same prompt and seed (3:4 café portrait), times
+including model switches: `krea2-image` 20–25 s, `zimage-turbo` 17 s,
+`qwen-image-turbo` 1 MP 7–10 s, `2k` (1760×2368) 27–28 s with or without
+Lenovo UltraReal (the first library LoRA rendered through ComfyUI); a poster
+with a title and dated subtitle came out exact on Qwen Turbo and on Krea 2;
+`qwen-image-turbo-edit` changed only a garment in 15 s. At 2k, pores and
+hair strands hold at full size; Krea 2 followed the asked hair colour more
+closely; Lenovo gave flatter, natural camera light. Both Turbo recipes now
+carry `verified`.
+
+Also found and fixed: a generic request with a start frame and no
+`aspect_ratio` rendered at the recipe's default 16:9, stretching a portrait
+(an H3 take of a 3:4 still came out 672×384). The size now follows the start
+frame's shape (`inferAspect`, ffprobe on the upload); the same call gives
+448×576. presenter-explainer always passed `9:16`, so it was never hit there.
+The first H3 LoRA render: `h3-video` `half` with Realism People (`r34l1sm`),
+5 s in 56–64 s, no unloaded-key warnings, identity and direction kept.
+The box now runs this branch's build (`up --build`, cu130 torch index).
+
+**Presenter pipeline A/B** (2026-10-21, a 3-line test, stopped before the
+master and cut; files in `~/projects/presenter-ab-test`): Maya in a new
+outfit by `qwen-image-turbo-edit` (7–15 s; `qwen-image-edit` looked the same
+in 17–27 s), cloned lines Whisper heard word for word, then `h3-video` draft
+takes at the same seed with and without the H3 Facial Realism LoRA (~12 min
+per 9.4 s either way). Same performance, lip sync and eye contact; with the
+LoRA, lashes, brows and skin texture are more defined and the background
+holds closer to the still. The skill now uses Turbo Edit for wardrobe, the
+LoRA on presenter takes, and a firmer closed-mouth direction (plain "mouth
+closed" gave an open smile and a raised hand). Found and fixed on the way:
+`count` with a `seed` gave identical copies (ComfyUI replayed its cache);
+variations now run seed, seed + 1, …. The cover A/B was not run.
 
 **LoRA library and Qwen-Image 2.1 Turbo** (2026-10-20, not yet on a GPU):
 
@@ -24,8 +70,8 @@ Last updated: 2026-10-20 (LoRA library, Qwen-Image 2.1 Turbo, generation time on
   long takes and retakes keep them in every segment. A shot with no recipe
   picks a suitable one that runs its LoRAs, and LoRAs a recipe cannot run
   are reported (`skipped_loras`). Lookups were checked
-  against live Civitai and HuggingFace entries; a LoRA has not yet been
-  rendered through ComfyUI.
+  against live Civitai and HuggingFace entries; a Qwen-Image and an H3 LoRA
+  rendered on the home box on 2026-10-21.
 - **`qwen-image-turbo`** (text to image, `final` at 1 MP and `2k`) and
   **`qwen-image-turbo-edit`** (up to four images) run Comfy-Org's Turbo
   checkpoint with the official templates' 8-step ManualSigmas schedule at
@@ -36,8 +82,9 @@ Last updated: 2026-10-20 (LoRA library, Qwen-Image 2.1 Turbo, generation time on
   wait, prompt, seed, recipe and mode, LoRAs, in one shared viewer;
   portrait media display whole.
 
-Next: render both Turbo recipes and one LoRA per base on the home box and
-fill in `verified`.
+Next: render one LoRA per remaining base (LTX-2.5, Krea 2, Z-Image,
+FLUX.2 klein, InfiniteTalk) on the home box, and write notes on the H3 LoRAs
+once compared with and without (their Civitai text says little).
 
 **Maya's channel intro** (2026-10-19): 58 s, 9:16 4K, outdoors at golden
 hour in a new outfit (a Qwen-Image edit of her library still, 26 s on
@@ -167,6 +214,8 @@ none is, its tools are missing.
 | `ace-step-music` | final | 130 s instrumental bed in 11–18 s |
 | `h3-video` | draft, driven by `audio` | 768×1344, 10 s lip-synced to a qwen3-tts line in ~14 min; the speech lands to within 0.02 s of the line |
 | `zimage-turbo`, `flux2-klein-edit`, `qwen-image-edit` | — | Rendered correctly, checked by eye, with the `24gb-64ram` files (no 16gb variants); not timed |
+| `qwen-image-turbo` | final, 2k | 896×1184 in 7–10 s warm; 1760×2368 in 27–28 s, also with a Qwen LoRA (2026-10-21) |
+| `qwen-image-turbo-edit` | final | A garment swap on an 896×1184 still in 15 s, the rest kept (2026-10-21) |
 
 Details and the rest of the measurements are in `docs/H3-16GB.md` §6.
 `infinitetalk`, `infinitetalk-duo` and `qwen3-tts` were
