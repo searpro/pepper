@@ -7,10 +7,15 @@ project folder; `script.json` there holds the lines and the cues.
   python compose.py --project DIR timeline               # where every cue lands
   python compose.py --project DIR render --scale 0.5 --out preview.mp4
   python compose.py --project DIR render --scale 1 --out final.mp4
+  python compose.py --project DIR render --scale 1 --out final.mp4 --hdr   # also final-hdr10.mp4 and final-hlg.mp4
 
 The project folder: script.json, voice/<id>.wav (one line each), presenter/<id>.mp4
 (that line's lip-synced take, any size; a segment fully covered by photos can be a
 still loop), music/bed.wav (optional), and the photo folders script.json lists.
+With --hdr, also presenter-hdr/<id>.mp4: the same takes finished as HDR10 by
+film-finish (`output: hdr10`). The graphics are drawn once, on a transparent
+layer laid over the SDR take for the SDR cut and, at 203-nit white, over the
+HDR take for the HDR10 cut; HLG is made from the HDR10 cut (hdr.py).
 Every frame is composed in PIL and piped to ffmpeg, so motion is eased exactly.
 Needs numpy, pillow, faster-whisper; fonts are macOS's Avenir Next.
 """
@@ -19,6 +24,8 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+import hdr
 
 AVENIR = '/System/Library/Fonts/Avenir Next.ttc'
 HEAVY, DEMI, MEDIUM = 8, 2, 5
@@ -365,7 +372,55 @@ class PresenterReader:
         return self.img
 
 
-def render(scale, out, start=0.0, end=None):
+class HdrPresenterReader:
+    """The HDR10 take of a segment as 16-bit PQ RGB, framed as the SDR frame
+    is: cover, then the segment's punch-in, scaled up and cropped a quarter
+    of the way down. PQ code values are resized as they are (a perceptual
+    scale, like the SDR frames' gamma)."""
+    def __init__(self, painter):
+        self.p, self.sid, self.proc, self.k, self.img = painter, None, None, -1, None
+
+    def frame(self, sid, want, punch):
+        W, H = self.p.W, self.p.H
+        if sid != self.sid:
+            if self.proc:
+                self.proc.kill()
+            path = ROOT / 'presenter-hdr' / f'{sid}.mp4'
+            if not path.exists():
+                sys.exit(f'--hdr needs {path}: finish the take with film-finish, output hdr10')
+            vf = f'scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H},fps={FPS}'
+            if punch != 1:
+                mw, mh = int(W * punch), int(H * punch)
+                vf += f',scale={mw}:{mh}:flags=bicubic,crop={W}:{H}:{(mw - W) // 2}:{int((mh - H) * 0.25)}'
+            self.proc = subprocess.Popen(['ffmpeg', '-v', 'error', '-i', str(path), '-vf', vf, '-f', 'rawvideo',
+                                          '-pix_fmt', 'rgb48le', '-'], stdout=subprocess.PIPE)
+            self.sid, self.k, self.img = sid, -1, None
+        size = W * H * 6
+        while self.k < want:
+            buf = self.proc.stdout.read(size)
+            if len(buf) < size:
+                break
+            self.k += 1
+            self.img = np.frombuffer(buf, '<u2').reshape(H, W, 3)
+        return self.img
+
+
+def hdr_encoder(p, path):
+    """x265 10-bit HDR10: BT.2020 PQ, P3-D65 1000-nit mastering display, and
+    the light levels film-finish reports for its takes (MaxCLL 1000 is the
+    ceiling; a cut's graphics add no light above 203 nits)."""
+    params = ('colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc:range=limited:repeat-headers=1:hdr10=1:hdr10-opt=1'
+              ':master-display=G(13250,34500)B(7500,3000)R(34000,16000)WP(15635,16450)L(10000000,50):max-cll=1000,400')
+    return subprocess.Popen(['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb48le', '-s', f'{p.W}x{p.H}',
+                             '-r', str(FPS), '-i', '-',
+                             '-vf', 'scale=out_color_matrix=bt2020:out_range=tv,format=yuv420p10le,'
+                                    'setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=smpte2084:range=tv',
+                             '-c:v', 'libx265', '-preset', 'fast', '-crf', '16', '-tag:v', 'hvc1', '-x265-params', params,
+                             '-colorspace', 'bt2020nc', '-color_primaries', 'bt2020', '-color_trc', 'smpte2084', '-color_range', 'tv',
+                             '-movflags', '+faststart', str(path)], stdin=subprocess.PIPE)
+
+
+def render(scale, out, start=0.0, end=None, with_hdr=False):
     segs, total = build_timeline()
     end = total if end is None else min(end, total)
     p = Painter(scale)
@@ -382,20 +437,26 @@ def render(scale, out, start=0.0, end=None):
                             '-movflags', '+faststart', str(ROOT / 'video-only.mp4')],
                            stdin=subprocess.PIPE)
     reader = PresenterReader(p)
+    if with_hdr:
+        enc_hdr, reader_hdr, to_pq = hdr_encoder(p, ROOT / 'video-only-hdr10.mp4'), HdrPresenterReader(p), hdr.GraphicsToPQ()
     n0, n1 = int(start * FPS), int(end * FPS)
     for n in range(n1):
         t = n / FPS
         si = next(i for i, s in enumerate(segs) if s['t0'] <= t < s['t1'] or i == len(segs) - 1)
         seg = segs[si]
         mimg = reader.frame(seg['id'], int((t - seg['t0']) * FPS))
+        himg = reader_hdr.frame(seg['id'], int((t - seg['t0']) * FPS), seg['punch']) if with_hdr else None
         if n < n0:
             continue
-        frame = Image.new('RGBA', (p.W, p.H), (8, 8, 10, 255))
+        base = Image.new('RGBA', (p.W, p.H), (8, 8, 10, 255))
         if mimg is not None:
             z = seg['punch']
             mw, mh = int(p.W * z), int(mimg.height * z)
             m = mimg.resize((mw, mh), Image.BICUBIC) if z != 1 else mimg
-            frame.paste(m, (-(mw - p.W) // 2, -int((mh - p.H) * 0.25)))
+            base.paste(m, (-(mw - p.W) // 2, -int((mh - p.H) * 0.25)))
+        # Everything over the presenter goes on one transparent layer, so the
+        # HDR cut gets the same graphics as the SDR one.
+        frame = Image.new('RGBA', (p.W, p.H), (0, 0, 0, 0))
         # Full-screen photos replace the presenter; cards sit over their lower half.
         for c in seg['cues']:
             if not (c['s'] - 0.001 <= t < c['e'] + 0.25):
@@ -432,15 +493,39 @@ def render(scale, out, start=0.0, end=None):
         g = next((g for g in captions if g['s'] <= t < g['e']), None)
         if g:
             p.caption(frame, g, t)
-        enc.stdin.write(frame.convert('RGB').tobytes())
+        enc.stdin.write(Image.alpha_composite(base, frame).convert('RGB').tobytes())
+        if with_hdr:
+            under = himg if himg is not None else np.zeros((p.H, p.W, 3), np.uint16)
+            enc_hdr.stdin.write(hdr.over_pq(under, np.asarray(frame), to_pq).tobytes())
         if n % (FPS * 5) == 0:
             print(f'{t:6.1f}/{end:.1f}s', flush=True)
     enc.stdin.close()
     enc.wait()
     mix(segs, total, start, end, out)
+    if with_hdr:
+        enc_hdr.stdin.close()
+        enc_hdr.wait()
+        stem = Path(out).stem
+        hdr10 = mix(segs, total, start, end, f'{stem}-hdr10.mp4', video='video-only-hdr10.mp4')
+        deliver_hlg(hdr10, ROOT / f'{stem}-hlg.mp4')
 
 
-def mix(segs, total, start, end, out):
+def deliver_hlg(src, dst):
+    """The HLG delivery (Instagram, from the phone app) from the HDR10 cut,
+    through an exact PQ -> HLG LUT; the sound is copied."""
+    lut = hdr.write_pq_to_hlg(ROOT / 'luts' / 'pq-to-hlg.cube')
+    params = 'colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc:range=limited:repeat-headers=1'
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(src),
+                    '-vf', f"scale=in_color_matrix=bt2020:in_range=tv,format=gbrp16le,lut3d=file='{lut}',"
+                           'scale=out_color_matrix=bt2020:out_range=tv,format=yuv420p10le,'
+                           'setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=arib-std-b67:range=tv',
+                    '-c:v', 'libx265', '-preset', 'fast', '-crf', '16', '-tag:v', 'hvc1', '-x265-params', params,
+                    '-colorspace', 'bt2020nc', '-color_primaries', 'bt2020', '-color_trc', 'arib-std-b67', '-color_range', 'tv',
+                    '-c:a', 'copy', '-movflags', '+faststart', str(dst)], check=True)
+    print('wrote', dst)
+
+
+def mix(segs, total, start, end, out, video='video-only.mp4'):
     """Voice lines at their slots, music under them ducked by the voice."""
     inputs, filters = [], []
     for i, s in enumerate(segs):
@@ -457,12 +542,13 @@ def mix(segs, total, start, end, out):
         filters.append(f'[voice][duck]amix=inputs=2:normalize=0,atrim={start:.3f}:{end:.3f},asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=9[a]')
     else:
         filters.append(f'[key]anullsink;[voice]atrim={start:.3f}:{end:.3f},asetpts=PTS-STARTPTS,loudnorm=I=-14:TP=-1.5:LRA=9[a]')
-    inputs += ['-i', str(ROOT / 'video-only.mp4')]
+    inputs += ['-i', str(ROOT / video)]
     subprocess.run(['ffmpeg', '-v', 'error', '-y', *inputs, '-filter_complex', ';'.join(filters),
                     '-map', f'{len(segs) + (1 if music.exists() else 0)}:v', '-map', '[a]',
                     '-c:v', 'copy', '-c:a', 'aac', '-b:a', '256k',
                     '-shortest', '-movflags', '+faststart', str(ROOT / out)], check=True)
     print('wrote', ROOT / out)
+    return ROOT / out
 
 
 if __name__ == '__main__':
@@ -473,6 +559,7 @@ if __name__ == '__main__':
     ap.add_argument('--out', default='preview.mp4')
     ap.add_argument('--start', type=float, default=0.0)
     ap.add_argument('--end', type=float, default=None)
+    ap.add_argument('--hdr', action='store_true', help='also an HDR10 and an HLG cut, from presenter-hdr/<id>.mp4')
     a = ap.parse_args()
     configure(a.project)
     if a.cmd == 'align':
@@ -483,4 +570,4 @@ if __name__ == '__main__':
                                cues=[(c['img'], round(c['s'], 2), round(c['e'], 2)) for c in s['cues']]) for s in segs], indent=1))
         print('total', round(total, 2))
     else:
-        render(a.scale, a.out, a.start, a.end)
+        render(a.scale, a.out, a.start, a.end, a.hdr)

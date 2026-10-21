@@ -9,8 +9,9 @@ Built for the Tesla Roadster explainer (2026-10-18, 2:04, 9:16 4K): Maya, a
 fictional presenter, explains the car with Tesla's photos and livestream frames
 appearing over her. `examples/roadster-script.json` is that video's script and
 every cue. The scripts here do the parts Pepper Pro can't:
-`scripts/compose.py` (the cut), `scripts/qc.py` (checking takes) and
-`scripts/covers.py` (thumbnails). Step 7 hands the finished video to the
+`scripts/compose.py` (the cut; `scripts/hdr.py` its HDR cuts), `scripts/qc.py`
+(checking takes) and `scripts/covers.py` (thumbnails); the finishing look is
+Pepper Pro's `film-finish` recipe (step 6b). Step 7 hands the finished video to the
 user's manual posting through Notion.
 
 ## Rules the user set
@@ -282,7 +283,8 @@ per 10 s line it adds about 7 h to a 12-line video.
 
 - `rtx-master`, `quality: upscale`, `params: {scale: 2.857, quality: ULTRA}`:
   768×1344 → 2192×3840 in ~40 s a take; frame-by-frame, so lip sync holds.
-  Pull the masters into `presenter/<id>.mp4` (`qc.py --into presenter`).
+  Pull the masters into `presenter-raw/<id>.mp4` (`qc.py --into presenter-raw`)
+  to check them; step 6b finishes them into `presenter/` (and `presenter-hdr/`).
   **A take over ~10.5 s runs the box out of RAM**: a 12.25 s take got
   ComfyUI SIGKILLed, and every master queued behind it failed at once
   ("Cannot connect to ComfyUI"). Split long takes at a frame boundary
@@ -290,7 +292,7 @@ per 10 s line it adds about 7 h to a 12-line video.
   box's uploads (`ssh … docker exec -i pepper-pro sh -c 'cat >
   /data/uploads/NAME.mp4' < file`), master each, and join them with ffmpeg's
   concat demuxer (`-c copy`); the seam doesn't show. Remove any preview
-  symlinks in `presenter/` before `qc.py --into presenter`, or it writes
+  symlinks in `presenter-raw/` before `qc.py --into presenter-raw`, or it writes
   through them into `takes/`.
 - `generate_audio`, `model: ace-step-music`, `audio_type: music`,
   `lyrics: "[Instrumental]"`, `duration` = the cut + 5 s, `count: 2`, a style
@@ -326,23 +328,47 @@ frame at 2160×3840 in PIL and encodes with x264 CRF 16; ~9 min for 2 min of
   render 4K. Deliver the 4K file and a 1080p copy under 30 MB for the phone
   (`-b:v 1650k` for 2 min).
 
-## 6b. Finishing look (planned, not built yet)
+## 6b. Finishing look (before compose, on the box)
 
-The user wants a post-processing stack over the AI takes so the cut looks
-shot rather than generated (2026-10-21), bottom to top:
+The look that makes the takes read as shot rather than generated, applied to
+every master on the box's GPU by the `film-finish` recipe before compose
+(photos, captions and pills go on top of it, clean). Per master, two jobs:
 
-1. Base clip: frame rate matched across takes, speed ramps where a move
-   wants one.
-2. Colour: a primary and secondary grade (LUT, lifted blacks) so every set
-   matches.
-3. Film texture: organic 35 mm / 16 mm grain.
-4. Optical polish: glow, halation, a lens flare where the light allows,
-   slight chromatic aberration.
-5. Export: x264 (or ProRes for a master), tagged Rec.709.
+- `generate_video`, `model: film-finish`, `video:` the rtx-master job's
+  `output_name`, `params: {look: "strong", output: "sdr"}` → `presenter/<id>.mp4`.
+- The same with `output: "hdr10"` → `presenter-hdr/<id>.mp4`, for the HDR cuts.
 
-It belongs before the overlays (photos, captions and pills stay clean on
-top), so it is a per-take or pre-compose pass. Design and A/B it on one take
-before adding it here as a step.
+Looks: `strong` is the one the user picked on 2026-10-21 (finish.py's warm
+LUT, lifted blacks, halation, glow, chromatic shift, vignette, overlay grain;
+the recipe reproduces it within 1-3 code values). `film-strong` / `film` are
+the graded-from-light versions (soft highlight roll-off, teal shadows and
+warm highlights, dense colour that leaves skin and lips alone, halation, a
+Pro-Mist diffusion, lens aberration toward the corners, film grain); `clean`
+has no texture. Use the look the user chose for the series; when it is
+undecided, show a 100% crop of one take in each. `params.match` (another
+take's output name) matches skin and exposure to a hero take of the same set.
+
+The node reports seconds, light levels and the match in the job's `text`.
+The CPU encode sets the speed (x264/x265 on the box's 6 cores), not the GPU.
+On the laptop the same code runs on MPS, slowly:
+`python apps/pepper-pro/server/comfy-nodes/pepper_finish/finish.py IN OUT --look strong`.
+
+## 6c. Deliveries
+
+`compose.py render --scale 1 --out final.mp4 --hdr` writes three cuts from
+one pass (graphics drawn once, their white at 203 nits in HDR as BT.2408
+asks): `final.mp4` (Rec.709 SDR), `final-hdr10.mp4` (BT.2020 PQ, mastering
+and light-level metadata) and `final-hlg.mp4` (BT.2020 HLG, from the HDR10
+cut through an exact LUT). Which goes where:
+
+- YouTube: `final-hdr10.mp4`. YouTube makes its own SDR from it; HLG
+  uploads reportedly get a flat SDR down-conversion, so not HLG there.
+- Instagram: `final-hlg.mp4`, posted **from the phone app**; HDR is
+  reported stripped from web uploads, so from the desktop post `final.mp4`.
+- Facebook, everything else: `final.mp4`.
+
+The HDR cuts need `presenter-hdr/<id>.mp4` for every segment; without
+`--hdr`, compose is SDR only, as before.
 
 ## 7. Publishing kit (Notion)
 
