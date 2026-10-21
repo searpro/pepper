@@ -1,0 +1,58 @@
+{
+  "1": {
+    "inputs": {
+      "file": "input.mp4"
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "Load Video"
+    }
+  },
+  "4": {
+    "inputs": {
+      "file": "match.mp4"
+    },
+    "class_type": "LoadVideo",
+    "_meta": {
+      "title": "Load Reference Take"
+    }
+  },
+  "2": {
+    "inputs": {
+      "video": [
+        "1",
+        0
+      ],
+      "match": [
+        "4",
+        0
+      ],
+      "look": "strong",
+      "output": "sdr",
+      "peak": 1000,
+      "expand": "curve",
+      "lut": "",
+      "lut_mix": 1.0,
+      "match_strength": 0.8,
+      "encoder": "cpu",
+      "seed": 0,
+      "filename_prefix": "pepper-pro"
+    },
+    "class_type": "PepperFilmFinish",
+    "_meta": {
+      "title": "Film Finish (Pepper)"
+    }
+  },
+  "3": {
+    "inputs": {
+      "source": [
+        "2",
+        1
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Report"
+    }
+  }
+}

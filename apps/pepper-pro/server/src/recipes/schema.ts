@@ -219,13 +219,19 @@ export const recipeSchema = z
      */
     lora_base: z.enum(LORA_BASE_IDS).optional(),
     licence: licenceSchema,
-    /** Custom node packs, by directory name, each pinned to a commit in the image. */
+    /**
+     * Custom node packs, by directory name, each pinned to a commit in the
+     * image, or (`path`) one that lives in this repository under the server
+     * (comfy-nodes/), versioned with the recipes that use it.
+     */
     nodes: z
       .array(
         z.object({
           name: z.string().regex(/^[\w.-]+$/),
-          repo: z.string().url(),
-          commit: z.string().regex(/^[0-9a-f]{7,40}$/),
+          repo: z.string().url().optional(),
+          commit: z.string().regex(/^[0-9a-f]{7,40}$/).optional(),
+          /** A pack in this repository, relative to the server directory. */
+          path: z.string().regex(/^comfy-nodes\/[\w.-]+$/).optional(),
           /** Lines of the pack's requirements.txt not to install (a package that would shadow another). */
           skip_requirements: z.array(z.string()).default([]),
           /** Packages the pack imports but does not list. */
@@ -237,6 +243,8 @@ export const recipeSchema = z
            * schemas recorded in the recipe's `node-schemas.json` instead.
            */
           gpu_only: z.boolean().default(false),
+        }).refine((pack) => Boolean(pack.path) !== Boolean(pack.repo && pack.commit), {
+          message: 'a node pack needs either `repo` and `commit`, or `path`',
         }),
       )
       .default([]),
