@@ -4,7 +4,7 @@
   "version": 1,
   "kind": "image",
   "name": "Qwen-Image 2.1 — edit and combine",
-  "description": "Edits an image by instruction, or combines up to three (put this garment on this model, place this product in this room). The strongest editor here, but research-only: not for commercial work.",
+  "description": "Edits an image by instruction, or combines up to three (put this garment on this model, place this product in this room), in 25 steps of the full model; qwen-image-turbo-edit does the same in 8. Research-only: not for commercial work.",
   "family": "qwen-image-2.1",
   "capabilities": [
     "edit",

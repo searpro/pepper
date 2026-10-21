@@ -4,7 +4,7 @@
   "version": 2,
   "kind": "image",
   "name": "FLUX.2 klein 4B — quick edits",
-  "description": "Instruction edits in 4 steps under a permissive licence: recolour, restyle, change a background, or combine with a second image (put this garment on this person, this product in this scene).",
+  "description": "Instruction edits in 4 steps under a permissive licence: recolour, restyle, change a background, or combine with a second image (put this garment on this person, this product in this scene). The editor for commercial work.",
   "family": "flux2-klein",
   "capabilities": [
     "edit",

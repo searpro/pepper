@@ -88,16 +88,19 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
     {
       title: 'List models',
       description:
-        'The models generate_image, generate_video and generate_audio can run: what each takes (prompt, image, ' +
-        'end_image, reference_images, audio, …, required or optional), durations, aspect ratios, qualities ' +
-        '(draft/final), licence, whether it is installed, measured seconds per output where verified, and the ' +
-        'downloaded LoRAs that fit it (`loras`, with their trigger words).',
+        'The models generate_image, generate_video and generate_audio can run, and how to choose between them: ' +
+        "each model's `description` says what it is best at and `quality_notes` what its qualities do (e.g. `2k`); " +
+        'then its inputs (prompt, image, end_image, reference_images, audio, …, required or optional), durations, ' +
+        'aspect ratios, licence, whether it is installed, measured seconds where verified, and the downloaded LoRAs ' +
+        'that fit it (`loras`: trigger words, and `notes` on the look each gives). Call it before generating and ' +
+        'pass the `model` (and `loras`) that fit the request; the default is only the first verified model that ' +
+        'takes the inputs.',
       inputSchema: { kind: z.enum(['image', 'video', 'audio']).optional() },
       annotations: READ_ONLY,
     },
     async (args) => {
       const { models } = await call<{ models: Record<string, unknown>[] }>(ctx, 'GET', `/v1/models${query(args)}`);
-      return { content: [json(models.map((m) => defined({ ...m, description: undefined, install_bytes: m.installed ? undefined : m.install_bytes })))] };
+      return { content: [json(models.map((m) => defined({ ...m, install_bytes: m.installed ? undefined : m.install_bytes })))] };
     },
   );
 
@@ -109,23 +112,44 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         "Download a model's files by `id` (queued; minutes for tens of GB), or add a LoRA to the library from " +
         '`lora_url` (a Civitai page, a HuggingFace repo or file, or a .safetensors link), with `base` when the ' +
         'source does not say which model it is for (pro_status shows when it is downloaded). Refused when ' +
-        'the volume has no room.',
+        'the volume has no room. `notes` record what a LoRA is for (the look, the model and quality it works ' +
+        'best with), which list_models shows beside it; give `lora_id` to change an existing LoRA\'s notes or strength.',
       inputSchema: {
         id: z.string().optional(),
         lora_url: z.string().url().optional(),
+        lora_id: z.string().optional().describe('A LoRA in the library, to update its notes or strength.'),
         base: z.string().optional().describe('A LoRA\'s base model: a lora_base from list_models.'),
         file: z.string().optional().describe('Which file, for a LoRA repository with several.'),
+        notes: z.string().max(4000).optional().describe('What the LoRA does and when to use it.'),
+        strength: z.number().min(-4).max(4).optional().describe('The LoRA\'s default strength; 1 is as trained.'),
       },
     },
-    async ({ id, lora_url, base, file }) => {
-      if (lora_url) return { content: [json(await call(ctx, 'POST', '/v1/loras', defined({ url: lora_url, base, file })))] };
-      if (!id) throw new Error('Give id (a model) or lora_url (a LoRA)');
+    async ({ id, lora_url, lora_id, base, file, notes, strength }) => {
+      if (lora_url) {
+        return { content: [json(await call(ctx, 'POST', '/v1/loras', defined({ url: lora_url, base, file, description: notes, strength })))] };
+      }
+      if (lora_id) {
+        const lora = await call<Record<string, unknown>>(
+          ctx,
+          'PATCH',
+          `/v1/loras/${encodeURIComponent(lora_id)}`,
+          defined({ base, description: notes, strength }),
+        );
+        return { content: [json(defined({ id: lora.id, name: lora.name, base: lora.base, strength: lora.strength, notes: lora.description || undefined }))] };
+      }
+      if (!id) throw new Error('Give id (a model), lora_url (a new LoRA) or lora_id (a LoRA to update)');
       return { content: [json(await call(ctx, 'POST', `/v1/recipes/${encodeURIComponent(id)}/install`, {}))] };
     },
   );
 
   const generic = {
-    model: z.string().optional().describe('A model id from list_models; the best installed fit when omitted.'),
+    model: z
+      .string()
+      .optional()
+      .describe(
+        'A model id from list_models, chosen for the request (its description says what each is best at: people, ' +
+          'text and posters, 2K detail, edits, licence). Omitted, the first verified model that takes the inputs runs.',
+      ),
     prompt: z.string().optional(),
     reference_images: z.array(z.string()).max(8).optional().describe('Pictures of people, products or places to keep consistent.'),
     quality: z.string().optional().describe('"draft" (faster, to try ideas) or "final"; the model default when omitted.'),
@@ -137,7 +161,10 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
     .array(z.union([z.string(), z.object({ id: z.string(), strength: z.number().optional() })]))
     .max(8)
     .optional()
-    .describe('LoRAs from list_models `loras` (ids, or { id, strength }); put their trigger words in the prompt.');
+    .describe(
+      'LoRAs from list_models `loras` (ids, or { id, strength }), chosen by their notes for the look asked for; ' +
+        'put their trigger words in the prompt. Without `model`, they pick a model of their base.',
+    );
   const MEDIA_IN = 'Media inputs take a URL, a data URI, an upload name (add_input) or a previous output_name. ';
   const generateTool = (kind: 'image' | 'video' | 'audio', fallbackWait: number) =>
     async (args: Record<string, unknown>) => {

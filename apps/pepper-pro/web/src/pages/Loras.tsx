@@ -294,7 +294,7 @@ function DetailFields({
       <Field label="Default strength" hint="1 is as trained; lower it if the LoRA overpowers the image. Each generation can change it.">
         <Input type="number" step={0.05} min={-4} max={4} value={details.strength} onChange={(e) => set('strength')(e.target.value)} />
       </Field>
-      <Field label="Notes">
+      <Field label="Notes" hint="What it does and when to use it: the look, and the model, quality and strength it suits. Claude reads these to choose LoRAs.">
         <Textarea rows={3} value={details.description} onChange={(e) => set('description')(e.target.value)} />
       </Field>
     </>

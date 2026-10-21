@@ -30,7 +30,7 @@ recipes/<id>/
 | `wan-dancer` | video | A character dancing to a music track, choreographed to its beat | Apache 2.0 |
 | `krea2-image` | image | Photoreal stills, keyframes, looks | Krea 2 (under $1M) |
 | `zimage-turbo` | image | Fast permissive stills | Apache 2.0 |
-| `qwen-image-turbo` | image | Stills in 8 steps, native 2K; posters, UI and text | Research only |
+| `qwen-image-turbo` | image | Stills in 8 steps, native 2K: large detailed stills, posters, UI and text | Research only |
 | `qwen-image-turbo-edit` | image | `qwen-image-edit` in 8 steps instead of 25, up to four images | Research only |
 | `qwen-image-edit` | image | Edits and combining images (try-on, product placement) | Research only |
 | `flux2-klein-edit` | image | Quick permissive edits, and try-on with a second image | Apache 2.0 |

@@ -14,7 +14,7 @@ import { AnalyzeEngine } from '../src/engines/analyze.js';
 import { ProgressTracker, outputFiles } from '../src/engines/comfy.js';
 import { resolveParams } from '../src/engines/params.js';
 import { buildCutArgs, buildSrt, frameFor, isSilent, parseLoudness, snapToBeats, type Segment } from '../src/engines/render.js';
-import { describeModel, mapRequest, pickModel, type ModelDescription } from '../src/generate.js';
+import { describeModel, inferAspect, loraNotes, mapRequest, nearestAspect, pickModel, type ModelDescription } from '../src/generate.js';
 import { joinArgs, planSegments } from '../src/projects/chain.js';
 import { composePrompt, deriveParams, sizeFor } from '../src/projects/derive.js';
 import type { AssetRow, ProjectRow, ShotRow } from '../src/projects/schema.js';
@@ -751,6 +751,49 @@ describe('generic generation', () => {
     const none = models.map((m) => ({ ...m, unavailable: 'not installed' }));
     expect(() => pickModel('video', { prompt: 'x' }, none)).toThrow(/No video model.*not installed/);
   });
+
+  it('says what each quality is for, and a quality narrows the default to models that have it', () => {
+    expect(model('qwen-image-turbo').quality_notes?.['2k']).toMatch(/4 MP/);
+    expect(model('krea2-image').quality_notes).toBeUndefined();
+    expect(model('qwen-image-turbo').description).toMatch(/2K/);
+    const verified = models.map((m) => ({ ...m, verified: { date: 'd', gpu: 'g' } }));
+    expect(pickModel('image', { prompt: 'x', quality: '2k' }, verified).id).toBe('qwen-image-turbo');
+    expect(pickModel('video', { prompt: 'x', quality: 'half' }, verified).id).toBe('h3-video');
+    expect(() => pickModel('image', { prompt: 'x', quality: 'ultra' }, verified)).toThrow(/has no quality "ultra"/);
+  });
+
+  it('edits on the Qwen editors by default, and on FLUX.2 klein when their licence rules them out', () => {
+    const verified = models.map((m) => ({ ...m, verified: { date: 'd', gpu: 'g' } }));
+    expect(pickModel('image', { prompt: 'x', image: 'a.png' }, verified).id).toBe('qwen-image-turbo-edit');
+    const commercial = verified.map((m) => (m.licence.commercial === 'no' ? { ...m, unavailable: 'research licence' } : m));
+    expect(pickModel('image', { prompt: 'x', image: 'a.png' }, commercial).id).toBe('flux2-klein-edit');
+  });
+
+  it('renders at the shape of the start frame when no aspect ratio is given', async () => {
+    expect(nearestAspect(896, 1184)).toBe('3:4');
+    expect(nearestAspect(1080, 1920)).toBe('9:16');
+    expect(nearestAspect(2560, 1080)).toBe('21:9');
+    const portrait = async () => ({ width: 896, height: 1184 });
+    const h3 = store.require('h3-video');
+    expect(await inferAspect(h3, { prompt: 'x', image: 'p.png' }, portrait)).toBe('3:4');
+    // Given wins; no start frame, or a recipe that takes its size from its input, leaves it unset.
+    expect(await inferAspect(h3, { prompt: 'x', image: 'p.png', aspect_ratio: '16:9' }, portrait)).toBe('16:9');
+    expect(await inferAspect(h3, { prompt: 'x' }, portrait)).toBeUndefined();
+    expect(await inferAspect(h3, { prompt: 'x', image: 'p.png' }, async () => undefined)).toBeUndefined();
+    expect(await inferAspect(store.require('qwen-image-turbo-edit'), { prompt: 'x', image: 'p.png' }, portrait)).toBeUndefined();
+    const { params } = mapRequest(h3, { prompt: 'x', image: 'p.png', aspect_ratio: '3:4' });
+    expect((params.width as number) < (params.height as number)).toBe(true);
+  });
+
+  it("keeps a LoRA's notes to their opening sentences", () => {
+    expect(loraNotes('  Adds   grain.\n')).toBe('Adds grain.');
+    expect(loraNotes('')).toBeUndefined();
+    expect(loraNotes('Try it here: https://example.com/post?inviteCode=x Cinematic grade.')).toBe('Try it here: Cinematic grade.');
+    const long = `Photoreal amateur photos with natural light and skin. ${'Use it at strength 0.8 to 1 with these sampler settings and that scheduler. '.repeat(6)}`;
+    const notes = loraNotes(long)!;
+    expect(notes.length).toBeLessThanOrEqual(241);
+    expect(notes).toMatch(/^Photoreal amateur photos with natural light and skin\..*\.$/);
+  });
 });
 
 describe('recipe uninstall', () => {
@@ -948,6 +991,11 @@ describe('api', () => {
       duration: { min: 0.5, max: 5 },
       installed: true,
     });
+
+    // Variations of a given seed each get their own, so they differ.
+    const varied = (await inject('POST', '/v1/generate', { kind: 'video', model: 'test-video', prompt: 'red', seed: 40, count: 2 })).json();
+    expect(varied.jobs.map((j: { id: string }) => (server.jobs.get(j.id)!.params as { params: { seed: number } }).params.seed)).toEqual([40, 41]);
+    for (const j of varied.jobs) server.jobs.cancel(j.id);
 
     const job = (await inject('POST', '/v1/generate', { kind: 'video', model: 'test-video', prompt: 'red', duration: 2, aspect_ratio: '9:16' })).json();
     expect(job).toMatchObject({ model: 'test-video', quality: 'draft' });
@@ -1985,6 +2033,8 @@ describe('loras', () => {
           name: 'Film Grain (v2)',
           trigger_words: ['filmgrain', 'analog photo', 'kodak portra', 'Outpaint the image: fill the gray areas, keeping the rest unchanged.'],
           strength: 0.8,
+          // The library's notes ride along, so a caller can choose a LoRA by the look it gives.
+          notes: 'Adds grain.',
         },
       ]);
       expect(models.find((m: { id: string }) => m.id === 'krea2-image').loras).toEqual([]);

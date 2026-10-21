@@ -77,24 +77,37 @@ The server only answers while a pod is running:
 
 | Tool | What it does |
 | --- | --- |
-| `list_models` | Every model: what it takes (`prompt`, `image`, `end_image`, `reference_images`, `audio`, `audio_2`, `video`, `voice_reference`, `voice`, `lyrics`, each required or optional), duration range, aspect ratios, qualities, licence, whether it is installed, measured seconds per output where it has been verified on a GPU, and the downloaded LoRAs that fit it (`loras`, with trigger words) |
+| `list_models` | Every model: what it is best at (`description`) and what each quality does (`quality_notes`, e.g. `2k`), what it takes (`prompt`, `image`, `end_image`, `reference_images`, `audio`, `audio_2`, `video`, `voice_reference`, `voice`, `lyrics`, each required or optional), duration range, aspect ratios, qualities, licence, whether it is installed, measured seconds per output where it has been verified on a GPU, and the downloaded LoRAs that fit it (`loras`, with trigger words and `notes` on the look each gives) |
 | `generate_image` | Text to image, or an edit or try-on when `image` (and `reference_images`) are given; `loras` applies LoRAs from the library |
 | `generate_video` | Text or image to video: start and end frames, reference images for a consistent cast, audio to lip-sync or perform to, a driving video for motion transfer |
 | `generate_audio` | Speech (`audio_type: "speech"`: a line in a cloned, preset or described voice) or music (`"music"`: style, lyrics, length) |
 | `get_job` | Waits up to 50 s for one job (`id`) or several (`ids`), and returns their status and `download_url` |
 | `list_jobs`, `cancel_job` | Recent jobs; stop one |
-| `install_model` | Downloads a model's files (`id`), or adds a LoRA to the library from `lora_url`: a Civitai page, a HuggingFace repository or file, or a `.safetensors` link, with `base` when the source does not say which model it is for. It is refused when the volume has no room |
+| `install_model` | Downloads a model's files (`id`), or adds a LoRA to the library from `lora_url`: a Civitai page, a HuggingFace repository or file, or a `.safetensors` link, with `base` when the source does not say which model it is for, and `notes` on what it is for. `lora_id` with `notes` or `strength` updates a LoRA already there. It is refused when the volume has no room |
 | `add_input` | Uploads a file from base64 bytes, for a client with local files and no URL |
 | `plan_project`, `render_shots`, `get_project` | Projects: scenes of shots, draft and final takes, long takes, retakes, and a cut. `get_project` with no id also lists the shared library (recurring characters and voices); a plan names them, and `library: true` saves an asset there. `loras` on a plan asset or shot apply to every take on a model of their base; a shot with no `recipe` gets a suitable one that runs them, and `skipped_loras` (in the plan and render results) names any its recipe cannot run |
 | `analyze` | Beats, stems, Whisper transcription, a vision check of a take |
 | `pro_status`, `get_logs` | Status: the GPU, the queue, installed models; and the logs |
 
-Without `model`, Pepper uses the best installed model that takes every input
-given, preferring models verified on a GPU. For example, reference images
-choose H3 with references, and an image plus two voices choose two-person
-InfiniteTalk. LoRAs narrow the choice to models on their base: a Qwen-Image
-2.1 LoRA picks `qwen-image-turbo`. A LoRA does little unless its trigger
-words are in the prompt; `list_models` gives them.
+Choose the model for the request: read `list_models` first and pass `model`.
+For stills, `krea2-image` is the people and first-frame model at about 1 MP;
+`qwen-image-turbo` with `quality: "2k"` makes large, detailed stills and
+legible text; `zimage-turbo` and `flux2-klein-edit` are the permissive ones
+for commercial work; `qwen-image-turbo-edit` is the first choice for edits.
+Pick LoRAs by their `notes` the same way. A LoRA's notes come from its source
+page, and the LoRAs screen (or `install_model` with `lora_id`) can rewrite them
+to say what it is for and which model and quality it suits.
+
+Without `aspect_ratio`, a model that sets its own size renders at the shape
+of the `image` given as its start frame (else its default, usually 16:9).
+
+Without `model`, Pepper uses the first installed model that takes every input
+given (and has the `quality` asked for), preferring models verified on a GPU.
+That is a fallback, not a choice made for the request. For example, reference
+images choose H3 with references, and an image plus two voices choose
+two-person InfiniteTalk. LoRAs narrow the choice to models on their base: a
+Qwen-Image 2.1 LoRA picks `qwen-image-turbo`. A LoRA does little unless its
+trigger words are in the prompt; `list_models` gives them.
 
 ## A video, end to end
 

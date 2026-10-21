@@ -84,14 +84,16 @@ export interface ModelDescription {
   aspect_ratios?: readonly string[];
   qualities: string[];
   default_quality: string;
+  /** What a quality is for, where the recipe says (`2k`: "About 4 MP …"), so a caller can choose one. */
+  quality_notes?: Record<string, string>;
   /** Measured on a GPU: when, where, and seconds per output of the golden shots. */
   verified?: { date: string; gpu: string; seconds?: number };
   licence: { name: string; commercial: string };
   install_bytes: number;
   /** The base model LoRAs must be made for; absent when it takes none. */
   lora_base?: string;
-  /** Downloaded LoRAs from the library that fit it, with the words that trigger them. */
-  loras?: { id: string; name: string; trigger_words: string[]; strength: number }[];
+  /** Downloaded LoRAs from the library that fit it, with the words that trigger them and what they are for. */
+  loras?: { id: string; name: string; trigger_words: string[]; strength: number; notes?: string }[];
 }
 
 export function describeModel(recipe: Recipe, status: RecipeStatus): ModelDescription {
@@ -108,6 +110,7 @@ export function describeModel(recipe: Recipe, status: RecipeStatus): ModelDescri
   const refs = target(recipe, 'reference_images');
   const duration = target(recipe, 'duration');
   const sized = recipe.params.some((p) => p.name === 'width') && recipe.params.some((p) => p.name === 'height');
+  const notes = Object.entries(recipe.modes).filter(([, mode]) => mode.description);
   const unavailable =
     status.licenceBlock ?? (status.state !== 'installed' ? `not installed (install_model "${recipe.id}" first)` : undefined);
   return {
@@ -124,11 +127,29 @@ export function describeModel(recipe: Recipe, status: RecipeStatus): ModelDescri
     aspect_ratios: sized ? ASPECT_RATIOS : undefined,
     qualities: Object.keys(recipe.modes),
     default_quality: recipe.default_mode,
+    quality_notes: notes.length ? Object.fromEntries(notes.map(([name, mode]) => [name, mode.description!])) : undefined,
     verified: recipe.verified ? { date: recipe.verified.date, gpu: recipe.verified.gpu, seconds: recipe.verified.seconds } : undefined,
     licence: { name: recipe.licence.name, commercial: recipe.licence.commercial },
     install_bytes: status.installBytes,
     lora_base: recipe.lora_base,
   };
+}
+
+/**
+ * A LoRA's notes short enough to sit beside every model that fits it: the
+ * first sentences of what the library says it does, up to about 240 characters.
+ * Civitai descriptions run to pages of sample settings; the opening says what it is for.
+ * Links go: they are often a promotion, and Claude cannot follow them anyway.
+ */
+export function loraNotes(description: string): string | undefined {
+  const text = description
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (text.length <= 240) return text || undefined;
+  const cut = text.slice(0, 240);
+  const sentence = cut.lastIndexOf('. ');
+  return sentence > 80 ? cut.slice(0, sentence + 1) : `${cut.slice(0, cut.lastIndexOf(' '))}…`;
 }
 
 /** The generic fields a request sets, besides the prompt and settings every model takes. */
@@ -144,6 +165,8 @@ function givenInputs(request: GenericRequest): string[] {
 /** Why a model cannot take this request, or null if it can. */
 export function mismatch(model: ModelDescription, request: GenericRequest): string | null {
   if (model.unavailable) return model.unavailable;
+  // A quality names a mode, so asking for `2k` or `half` narrows the choice to models that have it.
+  if (request.quality && !model.qualities.includes(request.quality)) return `has no quality "${request.quality}" (${model.qualities.join(', ')})`;
   for (const field of givenInputs(request)) {
     if (!model.inputs[field]) return `does not take ${field}`;
   }
@@ -159,11 +182,14 @@ export function mismatch(model: ModelDescription, request: GenericRequest): stri
 /**
  * The model a request runs on when it names none: of those installed that
  * can take every input given, a verified one first, then the order below,
- * which puts the best general model of each kind first.
+ * which puts the best general model of each kind first. The Qwen editors
+ * lead the edits; in commercial licence mode they are unavailable, which
+ * leaves FLUX.2 klein. Claude is told to name a model rather than lean on this
+ * (list_models describes each), so the order is a fallback, not a router.
  */
 const PREFERENCE: Record<string, string[]> = {
   video: ['h3-video', 'h3-reference', 'ltx25-video', 'wan22-video', 'infinitetalk', 'infinitetalk-duo', 'longcat-avatar', 'ltx23-audio-to-video', 'wan-animate2', 'scail2-replace', 'wan-dancer', 'seedvr2-upscale-video'],
-  image: ['krea2-image', 'zimage-turbo', 'qwen-image-turbo', 'flux2-klein-edit', 'qwen-image-turbo-edit', 'qwen-image-edit', 'seedvr2-upscale-image'],
+  image: ['krea2-image', 'zimage-turbo', 'qwen-image-turbo', 'qwen-image-turbo-edit', 'qwen-image-edit', 'flux2-klein-edit', 'seedvr2-upscale-image'],
   audio: ['qwen3-tts', 'ace-step-music', 'minimax-music-3'],
 };
 
@@ -182,6 +208,36 @@ export function pickModel(
   if (fits[0]) return fits[0];
   const reasons = ofKind.map((m) => `${m.id}: ${mismatch(m, request)}`).join('; ');
   throw errors.validation(`No ${audioType ?? kind} model here can take this request (${reasons || 'none installed'})`);
+}
+
+/** The listed aspect ratio closest to a width and height, by how far apart the ratios are (log scale). */
+export function nearestAspect(width: number, height: number): (typeof ASPECT_RATIOS)[number] {
+  const ratio = (aspect: string) => {
+    const [w, h] = aspect.split(':').map(Number);
+    return w / h;
+  };
+  const distance = (aspect: string) => Math.abs(Math.log(ratio(aspect) / (width / height)));
+  return ASPECT_RATIOS.reduce((best, aspect) => (distance(aspect) < distance(best) ? aspect : best));
+}
+
+/**
+ * The aspect ratio a request should render at when it gives none: the shape of
+ * its start frame, for a recipe that sets its own size. Otherwise a 9:16
+ * portrait given as `image` would be stretched to the recipe's default 16:9.
+ * `size` reads an upload's dimensions; undefined when it cannot.
+ */
+export async function inferAspect(
+  recipe: Recipe,
+  request: GenericRequest,
+  size: (upload: string) => Promise<{ width?: number; height?: number } | undefined>,
+): Promise<string | undefined> {
+  if (request.aspect_ratio) return request.aspect_ratio;
+  const sized = recipe.params.some((p) => p.name === 'width') && recipe.params.some((p) => p.name === 'height');
+  if (!sized || !target(recipe, 'image')) return undefined;
+  const frame = request.image ?? (target(recipe, 'reference_images') ? undefined : request.reference_images?.[0]);
+  if (!frame) return undefined;
+  const dims = await size(frame);
+  return dims?.width && dims.height ? nearestAspect(dims.width, dims.height) : undefined;
 }
 
 /** A recipe's parameters for a generic request: mode, values by the recipe's own names. */

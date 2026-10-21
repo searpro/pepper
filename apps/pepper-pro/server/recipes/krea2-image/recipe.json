@@ -4,7 +4,7 @@
   "version": 1,
   "kind": "image",
   "name": "Krea 2 Turbo — photoreal stills",
-  "description": "Photographic text-to-image in 8 steps: keyframes, character sheets, fashion and product looks.",
+  "description": "Photographic text-to-image in 8 steps at about 1 MP: the still model for people, and first frames for video (focused eyes and catchlights hold up in H3 dialogue), character sheets, fashion and product looks. Weak on emotion and age: follow with an expression edit. For a large, detailed still, use qwen-image-turbo at 2k.",
   "family": "krea-2",
   "capabilities": [
     "text-to-image",
