@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { stat, unlink } from 'node:fs/promises';
-import { extname } from 'node:path';
-import type { FastifyInstance } from 'fastify';
+import { extname, join } from 'node:path';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { errors } from '../errors.js';
@@ -9,6 +9,7 @@ import { describeGeneration } from '../jobs/generation.js';
 import type { JobManager } from '../jobs/manager.js';
 import { safeResolve, type Paths } from '../paths.js';
 import { listFiles } from '../util/files.js';
+import { sweepThumbnails, thumbnail } from '../util/thumbnails.js';
 import { importOutput, storeUpload } from '../util/uploads.js';
 
 /**
@@ -62,6 +63,33 @@ export interface MediaRoutesOptions {
 export async function mediaRoutes(fastify: FastifyInstance, options: MediaRoutesOptions): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   const { paths, jobs } = options;
+  const thumbDir = join(paths.cacheDir, 'thumbs');
+
+  void sweepThumbnails(thumbDir);
+  const sweep = setInterval(() => void sweepThumbnails(thumbDir), 6 * 60 * 60 * 1000);
+  sweep.unref();
+  fastify.addHook('onClose', async () => clearInterval(sweep));
+
+  /**
+   * A grid tile's preview of an image or video (`util/thumbnails.ts`). 501
+   * without ffmpeg, and for audio, so the tile falls back to its own.
+   */
+  const sendThumbnail = async (dir: string, name: string, reply: FastifyReply, notFound: () => Error) => {
+    const kind = mediaKind(name);
+    const path = safeResolve(dir, name);
+    let thumb: string | null;
+    try {
+      thumb = kind === 'image' || kind === 'video' ? await thumbnail(thumbDir, path, kind) : null;
+    } catch {
+      throw notFound();
+    }
+    if (!thumb) throw errors.unsupported(`No thumbnail for ${name}: it is not an image or video, or ffmpeg is not installed`);
+    return reply
+      .header('Content-Type', 'image/jpeg')
+      // Outputs and uploads are never rewritten under the same name.
+      .header('Cache-Control', 'public, max-age=31536000, immutable')
+      .send(createReadStream(thumb));
+  };
 
   app.get(
     '/v1/outputs',
@@ -140,6 +168,18 @@ export async function mediaRoutes(fastify: FastifyInstance, options: MediaRoutes
       }
       return reply.header('Content-Length', size).send(createReadStream(path));
     },
+  );
+
+  app.get(
+    '/v1/outputs/:name/thumb',
+    {
+      schema: {
+        tags: ['media'],
+        summary: 'A small JPEG preview of an image or video output',
+        params: z.object({ name: z.string() }),
+      },
+    },
+    (req, reply) => sendThumbnail(paths.outputDir, req.params.name, reply, () => errors.outputNotFound(req.params.name)),
   );
 
   app.get(
@@ -320,6 +360,18 @@ export async function mediaRoutes(fastify: FastifyInstance, options: MediaRoutes
         .header('Content-Length', size)
         .send(createReadStream(path));
     },
+  );
+
+  app.get(
+    '/v1/inputs/:name/thumb',
+    {
+      schema: {
+        tags: ['media'],
+        summary: 'A small JPEG preview of an uploaded image or video',
+        params: z.object({ name: z.string() }),
+      },
+    },
+    (req, reply) => sendThumbnail(paths.uploadsDir, req.params.name, reply, () => errors.inputNotFound(req.params.name)),
   );
 
   app.delete(

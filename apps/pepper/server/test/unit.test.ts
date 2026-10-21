@@ -2179,3 +2179,58 @@ describe('backend definitions', () => {
     await expect(backends.reinstall('srv')).rejects.toThrow();
   });
 });
+
+describe('media thumbnails', () => {
+  const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
+
+  async function server() {
+    const dir = await mkdtemp(join(tmpdir(), 'pepper-thumbs-'));
+    const built = await buildServer(loadConfig({ DATA_DIR: dir, OUTPUT_DIR: join(dir, 'out'), LOG_LEVEL: 'fatal' }));
+    await built.app.ready();
+    await mkdir(built.app.paths.outputDir, { recursive: true });
+    return built;
+  }
+
+  it.skipIf(!hasFfmpeg)('makes a small JPEG of an image or video once, and serves it from the cache after', async () => {
+    const { app, closeDb } = await server();
+    try {
+      const out = app.paths.outputDir;
+      const make = (args: string[]) => expect(spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args]).status).toBe(0);
+      make(['-f', 'lavfi', '-i', 'testsrc=size=1536x864', '-frames:v', '1', join(out, 'still.png')]);
+      make(['-f', 'lavfi', '-i', 'testsrc=size=720x1280:rate=24:duration=1', '-pix_fmt', 'yuv420p', join(out, 'clip.mp4')]);
+
+      for (const name of ['still.png', 'clip.mp4']) {
+        const first = await app.inject({ url: `/v1/outputs/${name}/thumb` });
+        expect(first.statusCode, name).toBe(200);
+        expect(first.headers['content-type']).toBe('image/jpeg');
+        expect(first.headers['cache-control']).toMatch(/immutable/);
+        expect(first.rawPayload.length).toBeLessThan(100_000);
+        const again = await app.inject({ url: `/v1/outputs/${name}/thumb` });
+        expect(again.rawPayload.equals(first.rawPayload)).toBe(true);
+      }
+      // Both fit 512px on the long side, the shape kept.
+      const size = (name: string) =>
+        spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', name], { encoding: 'utf8' }).stdout.trim();
+      const thumbs = join(app.paths.cacheDir, 'thumbs');
+      const made = spawnSync('ls', [thumbs], { encoding: 'utf8' }).stdout.trim().split('\n').map((f) => size(join(thumbs, f)));
+      expect(made.sort()).toEqual(['288,512', '512,288'].sort());
+    } finally {
+      await app.close();
+      closeDb();
+    }
+  });
+
+  it('answers 404 for a missing file and 501 for audio, so a tile falls back to its own preview', async () => {
+    const { app, closeDb } = await server();
+    try {
+      await writeFile(join(app.paths.outputDir, 'voice.wav'), 'RIFF');
+      expect((await app.inject({ url: '/v1/outputs/nope.png/thumb' })).statusCode).toBe(404);
+      expect((await app.inject({ url: '/v1/inputs/nope.png/thumb' })).statusCode).toBe(404);
+      expect((await app.inject({ url: '/v1/outputs/voice.wav/thumb' })).statusCode).toBe(501);
+      expect((await app.inject({ url: '/v1/outputs/..%2Fescape.png/thumb' })).statusCode).toBe(400);
+    } finally {
+      await app.close();
+      closeDb();
+    }
+  });
+});

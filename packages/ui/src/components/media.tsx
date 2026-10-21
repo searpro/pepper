@@ -130,10 +130,23 @@ function clipLength(seconds: number): string {
 }
 
 /**
+ * The server's small JPEG of an output or upload (`GET …/:name/thumb`), or
+ * undefined for a file served from anywhere else.
+ */
+export function thumbnailUrl(url: string): string | undefined {
+  return /^\/v1\/(outputs|inputs)\/[^/?#]+$/.test(url) ? `${url}/thumb` : undefined;
+}
+
+/**
  * A file's preview at any shape: the whole frame, letterboxed in a square,
  * so a 9:16 take shows in full beside a 16:9 one instead of a crop of its
- * middle. An image sits over a blurred copy of itself, which fills the bars
- * without fetching anything more; a video's bars are black.
+ * middle. The picture sits over a blurred copy of itself, which fills the
+ * bars without fetching anything more.
+ *
+ * Grids show the server's thumbnail, never the file: a `<video>` per tile
+ * holds a decoder and a full-size frame each, and a few hundred of them ran
+ * the tab out of memory. Only a server without ffmpeg (the thumbnail answers
+ * 501) falls back to the original, a video then mounting while on screen.
  */
 export function MediaPreview({
   url,
@@ -144,9 +157,13 @@ export function MediaPreview({
   url: string;
   kind: MediaItem['kind'];
   className?: string;
-  /** A video's length in seconds, once its metadata has loaded. */
+  /** A video's length in seconds, when the preview plays the file itself to show it. */
   onLength?: (seconds: number) => void;
 }) {
+  const thumb = kind === 'image' || kind === 'video' ? thumbnailUrl(url) : undefined;
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => setFailed(false), [url]);
+  const still = thumb && !failed ? thumb : kind === 'image' ? url : undefined;
   return (
     <div
       className={cn(
@@ -155,31 +172,84 @@ export function MediaPreview({
         className,
       )}
     >
-      {kind === 'image' ? (
+      {still ? (
         <>
-          <img src={url} alt="" aria-hidden loading="lazy" className="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-xl" />
-          <img src={url} alt="" loading="lazy" className="relative size-full object-contain" />
+          <img src={still} alt="" aria-hidden loading="lazy" decoding="async" className="absolute inset-0 size-full scale-110 object-cover opacity-50 blur-xl" />
+          <img src={still} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} className="relative size-full object-contain" />
         </>
       ) : null}
+      {kind === 'video' && !still ? <OnScreenVideo url={url} onLength={onLength} /> : null}
       {kind === 'video' ? (
-        <>
-          {/* The first frame as a poster; it plays, with sound, in the viewer. */}
-          <video
-            src={`${url}#t=0.1`}
-            muted
-            preload="metadata"
-            onLoadedMetadata={(event) => {
-              const { duration } = event.currentTarget;
-              if (Number.isFinite(duration)) onLength?.(duration);
-            }}
-            className="size-full object-contain"
-          />
-          <Play className="absolute left-1/2 top-1/2 size-9 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-2 text-white" />
-        </>
+        <Play className="absolute left-1/2 top-1/2 size-9 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-2 text-white" />
       ) : null}
       {kind === 'audio' || kind === 'other' ? <Music className="size-8 text-muted-foreground" /> : null}
     </div>
   );
+}
+
+/** A video's first frame, mounted only while near the screen so a long list holds a few decoders, not one per file. */
+function OnScreenVideo({ url, onLength }: { url: string; onLength?: (seconds: number) => void }) {
+  const [el, setEl] = React.useState<HTMLDivElement | null>(null);
+  const [visible, setVisible] = React.useState(false);
+  useIntersection(el, '400px', setVisible);
+  return (
+    <div ref={setEl} className="size-full">
+      {visible ? (
+        <video
+          src={`${url}#t=0.1`}
+          muted
+          preload="metadata"
+          onLoadedMetadata={(event) => {
+            const { duration } = event.currentTarget;
+            if (Number.isFinite(duration)) onLength?.(duration);
+          }}
+          className="size-full object-contain"
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Calls `onChange` with whether `el` is within `margin` of the viewport, once
+ * when observed and on every change after. A new `again` observes afresh,
+ * which reports the current state even if it has not changed.
+ */
+function useIntersection(el: Element | null, margin: string, onChange: (near: boolean) => void, again?: unknown) {
+  const callback = React.useRef(onChange);
+  callback.current = onChange;
+  React.useEffect(() => {
+    if (!el) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      callback.current(true);
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => callback.current(entry.isIntersecting), { rootMargin: margin });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el, margin, again]);
+}
+
+/**
+ * The first `step` of a long list, and `step` more each time the returned
+ * sentinel nears the screen: a library of a thousand files renders the
+ * screenful someone is looking at, not every card at once. `reset` (a
+ * filter, a tab) starts again from the top; a poll that refreshes the same
+ * list keeps how far it has grown.
+ */
+export function useShowMore<T>(items: T[], reset: unknown, step = 60): { shown: T[]; sentinel: React.ReactNode } {
+  const [count, setCount] = React.useState(step);
+  React.useEffect(() => setCount(step), [reset, step]);
+  const [el, setEl] = React.useState<HTMLDivElement | null>(null);
+  // Observing afresh after each step asks again once the new cards have laid
+  // out, so a step shorter than the screen grows again, and one that pushed
+  // the sentinel away does not.
+  useIntersection(el, '800px', (near) => near && setCount((c) => c + step), count);
+  const more = count < items.length;
+  return {
+    shown: more ? items.slice(0, count) : items,
+    sentinel: more ? <div ref={setEl} aria-hidden className="col-span-full h-px w-full" /> : null,
+  };
 }
 
 /**
