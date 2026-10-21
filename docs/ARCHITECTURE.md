@@ -429,6 +429,15 @@ long as it lasts, so a 20-minute video never looks idle.
 
 These cost real debugging time; the code comments carry the short version.
 
+- **A grid of media never mounts the files themselves.** A `<video
+  preload="metadata">` per tile holds a decoder and a full decoded frame (a
+  1728×3072 take is ~21 MB), and a Media page of a few hundred outputs crashed
+  the tab. Tiles show `GET /v1/{outputs,inputs}/:name/thumb`, a 512px JPEG that
+  core's `util/thumbnails.ts` makes once with ffmpeg into `cache/thumbs/`, and
+  long lists grow 60 cards at a time as they scroll (`useShowMore` in
+  `packages/ui/src/components/media.tsx`). Without ffmpeg the route answers
+  501 and a tile falls back to the file, a video mounting only while on screen.
+
 - **A full data volume must not stop the server.** A RunPod network volume is
   a quota on a shared filesystem: `statfs` reports petabytes free and the first
   symptom is a failed write. SQLite in WAL mode memory-maps its `-shm` file, and

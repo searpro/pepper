@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, FileAudio, FileVideo, ImagePlus, Library, Upload, X } from 'lucide-react';
-import { MediaPreview, MediaTile, MediaViewer } from '@pepper/ui/components/media';
+import { MediaPreview, MediaTile, MediaViewer, useShowMore } from '@pepper/ui/components/media';
 import {
   Button,
   Dialog,
@@ -190,6 +190,7 @@ function LibraryPicker({
       (!needle || item.name.toLowerCase().includes(needle) || Boolean(item.generation?.prompt?.toLowerCase().includes(needle))),
   );
   const viewed = viewing ? items.findIndex((item) => item.name === viewing) : -1;
+  const { shown, sentinel } = useShowMore(items, `${open} ${tab} ${search}`);
   const key = (item: MediaItem) => `${tab}:${item.name}`;
   const toggle = (item: MediaItem) =>
     setChosen((current) =>
@@ -239,7 +240,7 @@ function LibraryPicker({
             ) : null}
             <div className="grid max-h-[60vh] grid-cols-2 content-start gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
               {/* A click picks a file; its full-size button opens it, to check before using it. */}
-              {items.map((item) => (
+              {shown.map((item) => (
                 <MediaTile
                   key={item.name}
                   item={item}
@@ -249,6 +250,7 @@ function LibraryPicker({
                   onView={() => setViewing(item.name)}
                 />
               ))}
+              {sentinel}
             </div>
             {error ? <ErrorNote>{error}</ErrorNote> : null}
             <div className="flex items-center justify-end gap-2">

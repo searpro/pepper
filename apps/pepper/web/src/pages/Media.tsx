@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download, Image as ImageIcon, Library, Maximize2, Trash2, Upload } from 'lucide-react';
+import { Download, Image as ImageIcon, Library, Maximize2, Play, Trash2, Upload } from 'lucide-react';
 import { api, useResource, type MediaItem } from '@pepper/ui/lib/api';
+import { MediaPreview, thumbnailUrl, useShowMore } from '@pepper/ui/components/media';
 import { outputToInput, setHandoff } from '@/lib/images';
 import { ImageDetailsDialog } from '@/components/ImageDetails';
 import {
@@ -43,6 +44,8 @@ export function MediaPage() {
   );
 
   const images = items.filter((item) => item.kind === 'image');
+  const generations = useShowMore(items, filter);
+  const uploaded = useShowMore(uploads.data?.uploads ?? [], 'uploads');
 
   const deleteOutput = async (name: string) => {
     await api.delete(`/v1/outputs/${encodeURIComponent(name)}`);
@@ -98,7 +101,7 @@ export function MediaPage() {
             />
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-              {items.map((item) => (
+              {generations.shown.map((item) => (
                 <MediaCard
                   key={item.name}
                   item={item}
@@ -106,6 +109,7 @@ export function MediaPage() {
                   onDelete={() => deleteOutput(item.name)}
                 />
               ))}
+              {generations.sentinel}
             </div>
           )}
         </TabsContent>
@@ -133,7 +137,7 @@ export function MediaPage() {
             />
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
-              {uploads.data?.uploads.map((item) => (
+              {uploaded.shown.map((item) => (
                 <MediaCard
                   key={item.name}
                   item={item}
@@ -143,6 +147,7 @@ export function MediaPage() {
                   }}
                 />
               ))}
+              {uploaded.sentinel}
             </div>
           )}
         </TabsContent>
@@ -243,27 +248,33 @@ function MediaCard({
   );
 }
 
+/**
+ * The server's thumbnail of an image or video (`…/thumb`), never a `<video>`
+ * per tile: those hold a decoder and a full-size frame each, and a library
+ * of them crashed the tab. Without ffmpeg on the server it falls back to the
+ * shared preview, which plays a video only while it is on screen.
+ */
 function MediaThumb({ item }: { item: MediaItem }) {
-  if (item.kind === 'image') {
+  const thumb = thumbnailUrl(item.url);
+  const [failed, setFailed] = React.useState(false);
+  if ((item.kind === 'image' || item.kind === 'video') && thumb && !failed) {
     return (
-      <img
-        src={item.url}
-        alt={item.name}
-        loading="lazy"
-        className="aspect-square w-full object-cover"
-      />
+      <div className="relative">
+        <img
+          src={thumb}
+          alt={item.name}
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+          className="aspect-square w-full object-cover"
+        />
+        {item.kind === 'video' ? (
+          <Play className="absolute left-1/2 top-1/2 size-8 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-2 text-white" />
+        ) : null}
+      </div>
     );
   }
-  if (item.kind === 'video') {
-    return (
-      <video
-        src={item.url}
-        className="aspect-square w-full object-cover"
-        preload="metadata"
-        muted
-      />
-    );
-  }
+  if (item.kind === 'image' || item.kind === 'video') return <MediaPreview url={item.url} kind={item.kind} />;
   return (
     <div className="flex aspect-square w-full flex-col items-center justify-center gap-2 bg-muted p-2">
       <Library className="size-6 text-muted-foreground/60" />

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Library, Search, Trash2 } from 'lucide-react';
 import { Page } from '@pepper/ui/components/layout';
-import { MediaTile, MediaViewer } from '@pepper/ui/components/media';
+import { MediaTile, MediaViewer, useShowMore } from '@pepper/ui/components/media';
 import {
   Button,
   EmptyState,
@@ -108,6 +108,7 @@ export function MediaPage() {
   };
 
   const index = open ? items.findIndex((i) => i.name === open) : -1;
+  const { shown, sentinel } = useShowMore(items, `${tab} ${kind} ${source} ${search} ${sort}`);
 
   return (
     <Page
@@ -201,9 +202,10 @@ export function MediaPage() {
           />
         ) : null}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {items.map((item) => (
+          {shown.map((item) => (
             <MediaTile key={item.name} item={item} selected={selected.has(item.name)} onToggle={() => toggle(item.name)} onOpen={() => setOpen(item.name)} />
           ))}
+          {sentinel}
         </div>
       </Tabs>
 
