@@ -72,6 +72,8 @@ export function resolveParams(recipe: Recipe, mode: ModeSpec, input: ParamValues
     }
   }
   const values: ParamValues = {};
+  // Modes built in code rather than parsed (tests) may leave `required` out.
+  const needed = mode.required ?? [];
   for (const param of recipe.params) {
     let value = input[param.name];
     if (value === undefined || value === null || (MEDIA_TYPES.has(param.type) && value === '')) {
@@ -82,8 +84,10 @@ export function resolveParams(recipe: Recipe, mode: ModeSpec, input: ParamValues
       // (LongCat-Avatar's sampler stops at 2^31-1).
       value = randomInt(0, Math.min(2 ** 47, (param.max ?? 2 ** 47 - 1) + 1));
     }
-    if (value === undefined || value === null) {
-      if (param.required) throw errors.validation(`${param.name} is required by recipe "${recipe.id}"`);
+    if (value === undefined || value === null || (needed.includes(param.name) && value === '')) {
+      if (param.required || needed.includes(param.name)) {
+        throw errors.validation(`${param.name} is required by recipe "${recipe.id}"${param.required ? '' : ' in this mode'}`);
+      }
       continue;
     }
     values[param.name] = coerce(param, value);

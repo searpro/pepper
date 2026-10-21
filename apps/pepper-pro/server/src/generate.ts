@@ -190,7 +190,7 @@ export function mismatch(model: ModelDescription, request: GenericRequest): stri
 const PREFERENCE: Record<string, string[]> = {
   video: ['h3-video', 'h3-reference', 'ltx25-video', 'wan22-video', 'infinitetalk', 'infinitetalk-duo', 'longcat-avatar', 'ltx23-audio-to-video', 'wan-animate2', 'scail2-replace', 'wan-dancer', 'seedvr2-upscale-video'],
   image: ['krea2-image', 'zimage-turbo', 'qwen-image-turbo', 'qwen-image-turbo-edit', 'qwen-image-edit', 'flux2-klein-edit', 'seedvr2-upscale-image'],
-  audio: ['qwen3-tts', 'ace-step-music', 'minimax-music-3'],
+  audio: ['qwen3-tts', 'ace-step-music', 'yue2-music', 'minimax-music-3'],
 };
 
 export function pickModel(
@@ -306,8 +306,10 @@ export function mapRequest(recipe: Recipe, request: GenericRequest): { mode: str
 
 /**
  * `quality` names a mode; without it, a speech recipe's mode follows from how
- * the voice was given (a clip to clone, a preset name, a description), and
- * anything else uses the recipe's default.
+ * the voice was given (a clip to clone, a preset name, a description), a
+ * request that gives every input a mode requires gets that mode (YuE2's
+ * cover for a song, its score mode for a score), and anything else uses the
+ * recipe's default.
  */
 function chooseMode(recipe: Recipe, request: GenericRequest): string {
   if (request.quality) {
@@ -320,6 +322,14 @@ function chooseMode(recipe: Recipe, request: GenericRequest): string {
     if (request.voice_reference && recipe.modes.final) return 'final';
     if (isPreset && recipe.modes.preset) return 'preset';
     if (request.voice && recipe.modes.design) return 'design';
+  }
+  const given = new Set(Object.entries(request.params ?? {}).filter(([, value]) => value !== undefined && value !== '').map(([name]) => name));
+  for (const field of givenInputs(request)) {
+    const param = target(recipe, field);
+    if (param) given.add(param.name);
+  }
+  for (const [name, mode] of Object.entries(recipe.modes)) {
+    if (mode.required.length > 0 && mode.required.every((param) => given.has(param))) return name;
   }
   return recipe.default_mode;
 }

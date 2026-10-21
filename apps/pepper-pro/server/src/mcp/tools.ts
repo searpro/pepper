@@ -238,7 +238,8 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
       description:
         'Speech (`audio_type: "speech"`): `prompt` is the line; give `voice_reference` (a few seconds of a ' +
         'voice to clone) or `voice` (a preset name or a description of a voice). Music (`audio_type: ' +
-        '"music"`): `prompt` is the style, `lyrics` the words, `duration` the length. ' +
+        '"music"`): `prompt` is the style, `lyrics` the words, `duration` the length (YuE2: a cap); `audio` is a song to ' +
+        'cover. A YuE2 job\'s `text` is its ABC score: pass it back, edited or not, as `params.score` to keep the tune. ' +
         MEDIA_IN +
         SHOWN,
       _meta: SHOWS_MEDIA,
@@ -248,6 +249,7 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         voice_reference: z.string().optional(),
         voice: z.string().optional(),
         lyrics: z.string().optional(),
+        audio: z.string().optional().describe('A song to cover (music models that take one).'),
         duration: z.number().positive().optional(),
         wait_seconds: waitSeconds(40),
       },

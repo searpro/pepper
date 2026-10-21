@@ -185,10 +185,12 @@ export class ComfyEngine implements Engine {
 
           const result = await this.collect(recipe, outputs, workflow);
           const first = result[0];
+          const text = outputText(outputs, workflow);
           return {
             [`${first.kind}_url`]: first.url,
             [`${first.kind}_path`]: first.path,
             outputs: result.map(({ path: _path, ...rest }) => rest),
+            ...(text !== undefined ? { text } : {}),
             metadata: {
               kind: recipe.kind,
               recipe: recipe.id,
@@ -357,6 +359,7 @@ export class ComfyEngine implements Engine {
     const collected: { kind: 'image' | 'video' | 'audio'; name: string; url: string; path: string }[] = [];
     await mkdir(this.deps.paths.outputDir, { recursive: true });
     for (const { node, kind } of workflow.outputs) {
+      if (kind === 'text') continue;
       for (const file of outputFiles(outputs[node])) {
         const source = this.sourcePath(file);
         try {
@@ -394,6 +397,26 @@ function safeSegment(segment: string): string {
     throw proErrors.engineFailed(`ComfyUI reported an unexpected output folder "${segment}"`);
   }
   return segment;
+}
+
+/**
+ * The text a workflow's `text` outputs showed (PreviewAny reports
+ * `{ text: [...] }`), joined; undefined when it has none. A node fed a list
+ * (SheetSage2 returns one score per input) shows one entry per item.
+ */
+export function outputText(
+  outputs: Record<string, Record<string, unknown>>,
+  workflow: Pick<WorkflowSpec, 'outputs'>,
+): string | undefined {
+  const parts: string[] = [];
+  for (const { node, kind } of workflow.outputs) {
+    if (kind !== 'text') continue;
+    const value = outputs[node]?.text;
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (typeof item === 'string' && item.trim()) parts.push(item);
+    }
+  }
+  return parts.length ? parts.join('\n\n') : undefined;
 }
 
 /** Files one output node reported, whatever key it used (images, gifs, videos, audio). */

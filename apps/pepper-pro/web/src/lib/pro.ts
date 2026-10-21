@@ -41,7 +41,15 @@ export interface Recipe {
   licence: Licence;
   tiers: string[];
   /** `loras`: the mode's workflow takes LoRAs from the library. */
-  modes: { id: string; label: string; description?: string; loras: boolean }[];
+  modes: {
+    id: string;
+    label: string;
+    description?: string;
+    loras: boolean;
+    /** The parameters this mode reads, and those it needs although the recipe does not. */
+    params?: string[];
+    required?: string[];
+  }[];
   default_mode: string;
   /** The base model LoRAs must be made for; absent when it takes none. */
   lora_base?: string;
