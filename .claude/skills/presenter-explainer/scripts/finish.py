@@ -94,7 +94,8 @@ def finish(src, dst, look, lut, prores=False, lut_mix=1.0):
     fg = graph(look, lut, w, lut_mix).replace('{h}', str(h))
     tags = ['-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv']
     codec = (['-c:v', 'prores_ks', '-profile:v', '3', '-pix_fmt', 'yuv422p10le'] if prores
-             else ['-c:v', 'libx264', '-preset', 'slow', '-crf', '14', '-pix_fmt', 'yuv420p'])
+             else ['-c:v', 'libx264', '-preset', 'slow', '-crf', '14', '-pix_fmt', 'yuv420p',
+                   '-x264-params', 'colorprim=bt709:transfer=bt709:colormatrix=bt709'])
     if prores:
         fg = fg.replace('format=yuv420p[v]', 'format=yuv422p10le[v]')
     dst.parent.mkdir(parents=True, exist_ok=True)

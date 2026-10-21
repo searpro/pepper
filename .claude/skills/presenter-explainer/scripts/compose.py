@@ -372,7 +372,14 @@ def render(scale, out, start=0.0, end=None):
     captions = [g for s in segs for g in caption_groups(s['words'])]
     enc = subprocess.Popen(['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{p.W}x{p.H}',
                             '-r', str(FPS), '-i', '-', '-c:v', 'libx264', '-preset', 'slow', '-crf', '16',
-                            '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(ROOT / 'video-only.mp4')],
+                            '-pix_fmt', 'yuv420p',
+                            # Tagged Rec.709 so players and the platforms don't guess (the finishing
+                            # pass tags the takes the same way).
+                            '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv',
+                            # From a raw pipe, ffmpeg's flags alone left primaries and transfer
+                            # unset in the stream; x264 writes all three into the VUI itself.
+                            '-x264-params', 'colorprim=bt709:transfer=bt709:colormatrix=bt709',
+                            '-movflags', '+faststart', str(ROOT / 'video-only.mp4')],
                            stdin=subprocess.PIPE)
     reader = PresenterReader(p)
     n0, n1 = int(start * FPS), int(end * FPS)
