@@ -1,0 +1,448 @@
+{
+  "schema": 1,
+  "id": "yue2-music",
+  "version": 1,
+  "kind": "audio",
+  "name": "YuE2 — composed songs, covers and score edits",
+  "description": "Full songs with vocals from a style and lyrics, written first as a melody-and-chord score and then sung, 48 kHz stereo, up to several minutes. The strongest open song model (SongBench above Suno v5), and the only one here that covers a song (`audio`: same tune, new style and words) or sings an edited score. Non-commercial.",
+  "family": "yue2",
+  "capabilities": [
+    "music",
+    "vocals",
+    "song",
+    "cover",
+    "score"
+  ],
+  "lora_base": "yue2",
+  "licence": {
+    "id": "cc-by-nc-4.0",
+    "name": "CC BY-NC 4.0",
+    "url": "https://huggingface.co/m-a-p/YuE2-3B",
+    "commercial": "no",
+    "obligations": [
+      "Non-commercial use only, for the YuE2 and SheetSage2 weights and the songs they make.",
+      "Credit m-a-p (YuE2) when publishing a song."
+    ]
+  },
+  "files": [
+    {
+      "id": "checkpoint",
+      "folder": "checkpoints",
+      "label": "YuE2 3B (bf16, all in one: planner, music model, VAE)",
+      "variants": [
+        {
+          "repo": "Comfy-Org/YuE2",
+          "path": "checkpoints/yue2_3b_bf16.safetensors",
+          "bytes": 7799983228,
+          "sha256": "33765adbf9813c9a50318218760b2fd819a319862460a04884607581961c6fee"
+        }
+      ]
+    },
+    {
+      "id": "sheetsage2",
+      "folder": "audio_encoders",
+      "label": "SheetSage2 (transcribes a song to an ABC score, for covers)",
+      "optional": true,
+      "variants": [
+        {
+          "repo": "Comfy-Org/YuE2",
+          "path": "audio_encoders/sheetsage2_bf16.safetensors",
+          "bytes": 1386868122,
+          "sha256": "5fd960ce3df281e3f3a889d174584d88f96247711480cf96377b12d7e8b6adc5"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "prompt",
+      "type": "text",
+      "label": "Style",
+      "required": true,
+      "description": "Genre, mood, instruments, vocal (\"soulful jazz-pop, expressive male vocal, Rhodes, brushed drums, 88 BPM\")."
+    },
+    {
+      "name": "lyrics",
+      "type": "text",
+      "label": "Lyrics",
+      "default": "",
+      "description": "With [Verse], [Chorus], [Bridge]… section tags. For a cover or a score, keep the original's lines and syllable counts so the words fit the tune."
+    },
+    {
+      "name": "audio",
+      "type": "audio",
+      "label": "Song to cover",
+      "description": "Cover mode: a recording whose melody is transcribed and sung again in the new style."
+    },
+    {
+      "name": "score",
+      "type": "text",
+      "label": "ABC score",
+      "description": "Score mode: an ABC score to sing, usually the one a song or cover take returned, edited or not."
+    },
+    {
+      "name": "plan",
+      "type": "enum",
+      "label": "Score",
+      "default": "full",
+      "options": [
+        "full",
+        "melody"
+      ],
+      "description": "full: melody and chords; melody: the melody only (covers, and a score without chords)."
+    },
+    {
+      "name": "duration",
+      "type": "float",
+      "label": "Longest (s)",
+      "default": 360,
+      "min": 5,
+      "max": 900,
+      "description": "A cap, not a length: the song ends where its lyrics and score do, or here if sooner."
+    },
+    {
+      "name": "cfg",
+      "type": "float",
+      "label": "Style guidance",
+      "min": 0,
+      "max": 3,
+      "description": "Unset, the model's own (1.0 with a score, 1.01 without); about 1.2 follows the style more closely."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Absent or negative draws one; a take stores it."
+    }
+  ],
+  "workflows": {
+    "song": {
+      "file": "song.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "30",
+          "input": "style"
+        },
+        {
+          "param": "lyrics",
+          "node": "30",
+          "input": "lyrics"
+        },
+        {
+          "param": "seed",
+          "node": "30",
+          "input": "seed"
+        },
+        {
+          "param": "plan",
+          "node": "30",
+          "input": "mode"
+        },
+        {
+          "param": "prompt",
+          "node": "31",
+          "input": "style"
+        },
+        {
+          "param": "lyrics",
+          "node": "31",
+          "input": "lyrics"
+        },
+        {
+          "param": "seed",
+          "node": "31",
+          "input": "seed"
+        },
+        {
+          "param": "seed",
+          "node": "41",
+          "input": "seed"
+        },
+        {
+          "param": "plan",
+          "node": "31",
+          "input": "mode"
+        },
+        {
+          "param": "duration",
+          "node": "31",
+          "input": "max_duration"
+        },
+        {
+          "param": "cfg",
+          "node": "31",
+          "input": "cfg_scale"
+        },
+        {
+          "file": "checkpoint",
+          "node": "10",
+          "input": "ckpt_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "51",
+          "kind": "audio"
+        },
+        {
+          "node": "52",
+          "kind": "text"
+        }
+      ],
+      "progress": {
+        "30": 2,
+        "31": 8,
+        "41": 1
+      },
+      "lora_targets": [
+        {
+          "node": "10",
+          "output": 0
+        }
+      ]
+    },
+    "free": {
+      "file": "free.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "31",
+          "input": "style"
+        },
+        {
+          "param": "lyrics",
+          "node": "31",
+          "input": "lyrics"
+        },
+        {
+          "param": "seed",
+          "node": "31",
+          "input": "seed"
+        },
+        {
+          "param": "seed",
+          "node": "41",
+          "input": "seed"
+        },
+        {
+          "param": "duration",
+          "node": "31",
+          "input": "max_duration"
+        },
+        {
+          "param": "cfg",
+          "node": "31",
+          "input": "cfg_scale"
+        },
+        {
+          "file": "checkpoint",
+          "node": "10",
+          "input": "ckpt_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "51",
+          "kind": "audio"
+        }
+      ],
+      "progress": {
+        "31": 8,
+        "41": 1
+      },
+      "lora_targets": [
+        {
+          "node": "10",
+          "output": 0
+        }
+      ]
+    },
+    "score": {
+      "file": "score.json",
+      "bindings": [
+        {
+          "param": "prompt",
+          "node": "31",
+          "input": "style"
+        },
+        {
+          "param": "lyrics",
+          "node": "31",
+          "input": "lyrics"
+        },
+        {
+          "param": "score",
+          "node": "31",
+          "input": "abc"
+        },
+        {
+          "param": "seed",
+          "node": "31",
+          "input": "seed"
+        },
+        {
+          "param": "seed",
+          "node": "41",
+          "input": "seed"
+        },
+        {
+          "param": "plan",
+          "node": "31",
+          "input": "mode"
+        },
+        {
+          "param": "duration",
+          "node": "31",
+          "input": "max_duration"
+        },
+        {
+          "param": "cfg",
+          "node": "31",
+          "input": "cfg_scale"
+        },
+        {
+          "file": "checkpoint",
+          "node": "10",
+          "input": "ckpt_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "51",
+          "kind": "audio"
+        }
+      ],
+      "progress": {
+        "31": 8,
+        "41": 1
+      },
+      "lora_targets": [
+        {
+          "node": "10",
+          "output": 0
+        }
+      ]
+    },
+    "cover": {
+      "file": "cover.json",
+      "bindings": [
+        {
+          "param": "audio",
+          "node": "1",
+          "input": "audio"
+        },
+        {
+          "param": "plan",
+          "node": "30",
+          "input": "mode"
+        },
+        {
+          "file": "sheetsage2",
+          "node": "11",
+          "input": "audio_encoder_name"
+        },
+        {
+          "param": "prompt",
+          "node": "31",
+          "input": "style"
+        },
+        {
+          "param": "lyrics",
+          "node": "31",
+          "input": "lyrics"
+        },
+        {
+          "param": "seed",
+          "node": "31",
+          "input": "seed"
+        },
+        {
+          "param": "seed",
+          "node": "41",
+          "input": "seed"
+        },
+        {
+          "param": "plan",
+          "node": "31",
+          "input": "mode"
+        },
+        {
+          "param": "duration",
+          "node": "31",
+          "input": "max_duration"
+        },
+        {
+          "param": "cfg",
+          "node": "31",
+          "input": "cfg_scale"
+        },
+        {
+          "file": "checkpoint",
+          "node": "10",
+          "input": "ckpt_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "51",
+          "kind": "audio"
+        },
+        {
+          "node": "52",
+          "kind": "text"
+        }
+      ],
+      "progress": {
+        "31": 8,
+        "41": 1
+      },
+      "lora_targets": [
+        {
+          "node": "10",
+          "output": 0
+        }
+      ]
+    }
+  },
+  "modes": {
+    "song": {
+      "label": "Composed",
+      "description": "Writes the melody and chords as an ABC score, then sings it; the job's `text` is that score, to edit and sing again with `score`.",
+      "workflow": "song"
+    },
+    "free": {
+      "label": "Unplanned",
+      "description": "Sings straight from style and lyrics with no score: a little faster, looser in structure.",
+      "workflow": "free"
+    },
+    "score": {
+      "label": "From a score",
+      "description": "Sings the ABC score given as `params.score` (one a song or cover take returned, edited or not): keep a tune, change its style, words or notes.",
+      "workflow": "score",
+      "required": [
+        "score"
+      ]
+    },
+    "cover": {
+      "label": "Cover",
+      "description": "Transcribes the melody of `audio` (SheetSage2) and sings it in a new style with new lyrics; the job's `text` is the transcribed score.",
+      "workflow": "cover",
+      "required": [
+        "audio"
+      ],
+      "defaults": {
+        "plan": "melody"
+      }
+    }
+  },
+  "default_mode": "song",
+  "tiers": [
+    "16gb",
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "From Comfy-Org's templates (audio_yue2_text2music, audio_yue2_music_cover), native nodes in the pinned ComfyUI. The templates load the int8 checkpoint (3.96 GB); bf16 runs on every tier (the reference pipeline peaks at 11-14 GB of VRAM), so the recipe uses it rather than a quantised build. Library LoRAs patch the music model only; a YuE2 LoRA's planner half is not applied."
+}

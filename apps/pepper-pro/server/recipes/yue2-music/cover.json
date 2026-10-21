@@ -1,0 +1,135 @@
+{
+  "1": {
+    "class_type": "LoadAudio",
+    "inputs": {
+      "audio": "input.wav"
+    }
+  },
+  "10": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "yue2_3b_bf16.safetensors"
+    }
+  },
+  "11": {
+    "class_type": "AudioEncoderLoader",
+    "inputs": {
+      "audio_encoder_name": "sheetsage2_bf16.safetensors"
+    }
+  },
+  "30": {
+    "class_type": "SheetSage2AudioToABC",
+    "inputs": {
+      "audio_encoder": [
+        "11",
+        0
+      ],
+      "audio": [
+        "1",
+        0
+      ],
+      "mode": "melody"
+    }
+  },
+  "31": {
+    "class_type": "YuE2GenerateMusic",
+    "inputs": {
+      "clip": [
+        "10",
+        1
+      ],
+      "style": "",
+      "lyrics": "",
+      "abc": [
+        "30",
+        0
+      ],
+      "seed": 0,
+      "mode": "melody",
+      "max_duration": 360,
+      "temperature": 1,
+      "top_p": 0.95,
+      "top_k": 100,
+      "repetition_penalty": 1.2
+    }
+  },
+  "32": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "31",
+        0
+      ]
+    }
+  },
+  "40": {
+    "class_type": "EmptyYuE2LatentAudio",
+    "inputs": {
+      "seconds": [
+        "31",
+        1
+      ],
+      "batch_size": 1
+    }
+  },
+  "41": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "10",
+        0
+      ],
+      "positive": [
+        "31",
+        0
+      ],
+      "negative": [
+        "32",
+        0
+      ],
+      "latent_image": [
+        "40",
+        0
+      ],
+      "seed": 0,
+      "steps": 32,
+      "cfg": 1,
+      "sampler_name": "dpm_2",
+      "scheduler": "sgm_uniform",
+      "denoise": 1
+    }
+  },
+  "50": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "41",
+        0
+      ],
+      "vae": [
+        "10",
+        2
+      ]
+    }
+  },
+  "51": {
+    "class_type": "SaveAudioAdvanced",
+    "inputs": {
+      "filename_prefix": "pepper-pro",
+      "format": "flac",
+      "audio": [
+        "50",
+        0
+      ]
+    }
+  },
+  "52": {
+    "class_type": "PreviewAny",
+    "inputs": {
+      "source": [
+        "30",
+        0
+      ]
+    }
+  }
+}

@@ -32,6 +32,8 @@ export const LORA_BASES = [
     label: 'Wan 2.1 14B',
     hints: [/wan[\s._-]*(video[\s._-]*)?2\.1[^\d]*14\s*b/i, /wan[\s._-]*(video[\s._-]*)?2\.1/i, /^wan[\s._-]*video[\s._-]*14b[\s._-]*(t2v|i2v)/i],
   },
+  // Civitai has no YuE2 base yet; HuggingFace cards and trainer outputs name it.
+  { id: 'yue2', label: 'YuE2 3B', hints: [/yue[\s._-]*2/i] },
 ] as const satisfies readonly LoraBase[];
 
 export const LORA_BASE_IDS = LORA_BASES.map((base) => base.id) as [LoraBaseId, ...LoraBaseId[]];

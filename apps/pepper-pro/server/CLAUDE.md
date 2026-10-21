@@ -19,7 +19,9 @@ Everything else (jobs, downloads, logs, auth, media, MCP) is `@pepper/core`.
   projects (`recipes/README.md`).
 - `src/engines/`: `build.ts` turns a recipe mode plus values into a prompt;
   `comfy.ts` runs one prompt at a time (ComfyUI's interrupt is global), frees
-  models on a family switch, recycles ComfyUI after N jobs; `render.ts` cuts
+  models on a family switch, recycles ComfyUI after N jobs, and puts a
+  workflow's `text` outputs (PreviewAny; YuE2's ABC score) in the job's
+  `text`; `params.ts` enforces a mode's `required` list; `render.ts` cuts
   with ffmpeg; `analyze.ts` runs `python/analyze.py` (beats, stems) on the
   CPU and vision checks through llama.cpp.
 - `src/projects/`: tables (`schema.ts`), shot → recipe parameters

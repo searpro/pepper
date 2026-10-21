@@ -257,10 +257,17 @@ Open:
   and media, with GPU boxes as agents pulling jobs. It was discussed in
   Phases 0–4, but nothing is written or built. The home box would be the
   first agent.
+- **YuE2 (`yue2-music`, added 2026-10-21):** songs, covers (SheetSage2
+  transcribes the recording), unplanned songs and edited ABC scores, on
+  ComfyUI's native nodes at the pinned v0.38.1, bf16 on every tier. Validated
+  against a CPU ComfyUI only; next is a golden run on the home box: a 3-4 min
+  song in `song` mode (seconds, peak VRAM and RAM against the 4090's 71 s /
+  11 GB), a cover of a short recording, and its score sung back in `score`
+  mode, then fill in `verified`. CC BY-NC: personal and non-commercial only.
 - **Recipes never run on any GPU:** `ace-step-music`, `h3-reference`,
   `longcat-avatar`, `ltx23-audio-to-video`, `ltx25-video`,
   `ming-image-design`, `minimax-music-3`, `seedvr2-upscale-image`,
-  `wan-animate2`, `wan-dancer`.
+  `wan-animate2`, `wan-dancer`, `yue2-music`.
 
 ## Pepper
 

@@ -11,7 +11,7 @@ import { insertLoras, prune, validatePrompt } from '../src/comfy/graph.js';
 import { loadConfig } from '../src/config.js';
 import { buildPrompt } from '../src/engines/build.js';
 import { AnalyzeEngine } from '../src/engines/analyze.js';
-import { ProgressTracker, outputFiles } from '../src/engines/comfy.js';
+import { ProgressTracker, outputFiles, outputText } from '../src/engines/comfy.js';
 import { resolveParams } from '../src/engines/params.js';
 import { buildCutArgs, buildSrt, frameFor, isSilent, parseLoudness, snapToBeats, type Segment } from '../src/engines/render.js';
 import { describeModel, inferAspect, loraNotes, mapRequest, nearestAspect, pickModel, type ModelDescription } from '../src/generate.js';
@@ -22,6 +22,7 @@ import { checkRecipe } from '../src/recipes/check.js';
 import { goldenFileSchema, goldenParams } from '../src/golden/service.js';
 import { recipeSchema, type Recipe } from '../src/recipes/schema.js';
 import { RecipeStore, licenceBlock, variantFor, variantName, variantUrl } from '../src/recipes/store.js';
+import { modeParams } from '../src/routes/recipes.js';
 import { comfyLayout } from '../src/recipes/layout.js';
 import { buildPaths } from '../src/paths.js';
 import { modelPathsYaml } from '../src/backends.js';
@@ -88,8 +89,11 @@ describe('recipes', () => {
       licence: { id: 'x', name: 'X', commercial: 'yes' },
       files: [],
       params: [],
-      workflows: { main: { file: 'w.json', bindings: [{ param: 'nope', node: '1', input: 'x' }, { file: 'ghost', node: '1', input: 'y' }], outputs: [{ node: '1', kind: 'image' }] } },
-      modes: { a: { label: 'A', workflow: 'missing' } },
+      workflows: {
+        main: { file: 'w.json', bindings: [{ param: 'nope', node: '1', input: 'x' }, { file: 'ghost', node: '1', input: 'y' }], outputs: [{ node: '1', kind: 'image' }] },
+        words: { file: 'v.json', bindings: [], outputs: [{ node: '2', kind: 'text' }] },
+      },
+      modes: { a: { label: 'A', workflow: 'missing' }, c: { label: 'C', workflow: 'main', required: ['song'] } },
       default_mode: 'b',
       tiers: ['32gb'],
     };
@@ -100,6 +104,8 @@ describe('recipes', () => {
     expect(messages).toMatch(/unknown file "ghost"/);
     expect(messages).toMatch(/unknown workflow "missing"/);
     expect(messages).toMatch(/default_mode "b"/);
+    expect(messages).toMatch(/mode "c" requires unknown param "song"/);
+    expect(messages).toMatch(/workflow "words" has no file output/);
   });
 
   it('picks the file variant for a tier and builds its URL', () => {
@@ -419,6 +425,13 @@ describe('engine helpers', () => {
       outputFiles({ images: [{ filename: 'a.png', subfolder: '', type: 'output' }], animated: [true], audio: [{ filename: 'b.flac', subfolder: 'audio', type: 'output' }] }).map((f) => f.filename),
     ).toEqual(['a.png', 'b.flac']);
   });
+
+  it("reads a workflow's text outputs into one string, skipping nodes that are not text", () => {
+    const workflow = { outputs: [{ node: '51', kind: 'audio' as const }, { node: '52', kind: 'text' as const }] };
+    expect(outputText({ '51': { audio: [{ filename: 'a.flac' }] }, '52': { text: ['X:1\nK:C\nCDEF|'] } }, workflow)).toBe('X:1\nK:C\nCDEF|');
+    expect(outputText({ '52': { text: ['a', ' ', 'b'] } }, workflow)).toBe('a\n\nb');
+    expect(outputText({ '51': { audio: [] } }, workflow)).toBeUndefined();
+  });
 });
 
 describe('shots to recipe parameters', () => {
@@ -737,6 +750,24 @@ describe('generic generation', () => {
     expect(mapRequest(tts, { prompt: 'Hello.', voice: 'serena' })).toMatchObject({ mode: 'preset', params: { text: 'Hello.', speaker: 'Serena' } });
     expect(mapRequest(tts, { prompt: 'Hello.', voice: 'a warm, slow old man' })).toMatchObject({ mode: 'design', params: { voice: 'a warm, slow old man' } });
     expect(mapRequest(tts, { prompt: 'Hello.', voice_reference: 'me.wav' })).toMatchObject({ mode: 'final', params: { voice_ref: 'me.wav' } });
+
+    // A mode that requires an input is the one a request giving it means.
+    const yue2 = store.require('yue2-music');
+    expect(mapRequest(yue2, { prompt: 'jazz-pop', lyrics: '[Verse]\nla' }).mode).toBe('song');
+    expect(mapRequest(yue2, { prompt: 'jazz-pop', audio: 'song.flac' })).toMatchObject({ mode: 'cover', params: { audio: 'song.flac' } });
+    expect(mapRequest(yue2, { prompt: 'jazz-pop', params: { score: 'X:1' } }).mode).toBe('score');
+    // A score is the more particular ask: given with a song, it is sung and the song is not transcribed.
+    expect(mapRequest(yue2, { prompt: 'jazz-pop', audio: 'song.flac', params: { score: 'X:1' } }).mode).toBe('score');
+    expect(mapRequest(yue2, { prompt: 'jazz-pop', quality: 'free' }).mode).toBe('free');
+    expect(() => resolveParams(yue2, yue2.modes.cover, { prompt: 'x' })).toThrow(/audio is required .* in this mode/);
+    // The Generate form asks only for what a mode's graph reads.
+    expect(modeParams(yue2, yue2.modes.song)).toEqual(['prompt', 'lyrics', 'plan', 'duration', 'cfg', 'seed']);
+    expect(modeParams(yue2, yue2.modes.free)).toEqual(['prompt', 'lyrics', 'duration', 'cfg', 'seed']);
+    expect(modeParams(yue2, yue2.modes.cover)).toContain('audio');
+    expect(modeParams(yue2, yue2.modes.cover)).not.toContain('score');
+    expect(modeParams(tts, tts.modes.preset)).toContain('speaker');
+    expect(modeParams(tts, tts.modes.preset)).not.toContain('voice_ref');
+    expect(resolveParams(yue2, yue2.modes.cover, { prompt: 'x', audio: 'a.flac' }).plan).toBe('melody');
   });
 
   it('picks the best installed model that takes every input given', () => {
@@ -745,6 +776,7 @@ describe('generic generation', () => {
     expect(pickModel('video', { prompt: 'x', image: 'a.png', audio: 'v.wav', audio_2: 'w.wav' }, models).id).toBe('infinitetalk-duo');
     expect(pickModel('image', { image: 'a.png' }, models).id).toBe('seedvr2-upscale-image');
     expect(pickModel('audio', { prompt: 'x', lyrics: 'la la' }, models, 'music').capabilities).toContain('music');
+    expect(pickModel('audio', { prompt: 'x', audio: 'song.flac' }, models, 'music').id).toBe('yue2-music');
     // A model verified on a GPU wins over an unverified one that ranks higher.
     const verifiedFirst = [{ ...model('krea2-image'), verified: undefined }, { ...model('zimage-turbo'), verified: { date: 'd', gpu: 'g' } }];
     expect(pickModel('image', { prompt: 'x' }, verifiedFirst).id).toBe('zimage-turbo');
@@ -1768,6 +1800,7 @@ describe('loras', () => {
     expect(guessBase('Qwen')).toBeUndefined();
     expect(guessBase(undefined, 'Flux.2 Klein 4B')).toBe('flux2-klein-4b');
     expect(guessBase('ZImageTurbo')).toBe('z-image');
+    expect(guessBase('m-a-p/YuE2-3B')).toBe('yue2');
     expect(guessBase('Wan Video 2.1 I2V 14B 480p')).toBe('wan-2.1-14b');
     expect(guessBase('SDXL 1.0')).toBeUndefined();
     // Civitai's names for the video bases.
