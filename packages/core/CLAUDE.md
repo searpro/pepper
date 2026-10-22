@@ -29,6 +29,10 @@ app** (`npm run build -w @pepper/core`; the root `build` scripts do).
 - `mcp/kit.ts`: the helpers every tool uses (`call`, `submit`, `waitForJob`,
   `jobsResult`) and the shared registrars (`registerJobTools`,
   `registerInputTool`, `registerLogTool`, `registerMediaResources`).
+  Results stay in the caller's context for the rest of its conversation, and
+  Claude Code shows the model `structuredContent` instead of the text blocks:
+  keep both the same compact summary (`jobsResult`'s `extra` for anything
+  beside the jobs), and previews small unless asked (`preview`).
 - `util/ffmpeg.ts`: `probeMedia` and `runFfmpegTracked` (progress from ffmpeg's
   own clock) are what Pro's cut render uses; keep them product-neutral.
 

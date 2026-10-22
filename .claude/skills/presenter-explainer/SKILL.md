@@ -60,6 +60,44 @@ are cheap (7–13 s each), so show pictures rather than describe them.
 Keep the project's `PLAN.md` current through these (script, picks, sources,
 what is decided), so another session can pick it up.
 
+## Who does what, on which model
+
+A whole video in one session ran to 500–700k tokens of context, all on
+Opus at high effort. Only the creative calls need that, so split the work:
+
+| Work | Where | Model, effort |
+| --- | --- | --- |
+| Topics, facts, sources, real photos (0–1) | `explainer-researcher` agent | Sonnet, medium |
+| Script, looks, storyboard, H3 directions (1–2) | this session | as the user chose (Opus, high) |
+| Voice, takes, retakes, masters (3–5) | this session, or a new one from `PLAN.md` | medium effort |
+| QC of every batch of stills and takes | `take-reviewer` agent | Sonnet, medium |
+| Finish, compose, deliveries (6–6c) | a new session from `PLAN.md` | Sonnet, medium |
+| Publishing kit (7) | `publishing-kit-writer` agent | Sonnet, medium |
+
+**Using the agents is the user's standing direction**: spawn them for
+these steps without asking. Do not run web searches, look at frames, or
+write the Notion kit in this session. Every batch of stills or takes goes
+to `take-reviewer` as it lands (several batches can run in parallel). Act
+on its table, and open a frame yourself only where it flags something you
+need to judge. An agent starts cold, so its brief carries the project
+folder, the ids, and what to check or write. It returns a short table. Show the user the
+pictures they approve yourself (`SendUserFile`); you do not need to open
+them all first.
+
+After checkpoint 4 (the storyboard approved) and after the last take
+passes QC, bring `PLAN.md` up to date and offer the next phase as a new
+session: `start_session` with `initiation: "own_initiative"`, `context:
+"fresh"`, the `effort` or `model` from the table, and a brief that points
+at `PLAN.md`. The user starts it with a click. A session cannot change its
+own model or effort; failing that, suggest `/compact`.
+
+Through the steps:
+
+- Call `list_models` once per kind.
+- Follow renders with a background monitor, or `get_job` on the ids still
+  running at 50 s, with `preview: "none"` when a sheet will show them.
+- Open single frames only where the reviewer's numbers flag something.
+
 ## 0. What makes a video work (the channel's numbers so far)
 
 At ~1 day after posting all three at once (2026-10-20, YouTube): the 58 s

@@ -1746,12 +1746,16 @@ describe('mcp', () => {
         attempts: 1,
         createdAt: new Date().toISOString(),
       } as const;
-      const result = await jobsResult({ app, baseUrl: 'https://pepper.test', apiToken: app.config.apiToken, jobs: app.jobs, outputDir: app.paths.outputDir, uploadsDir: app.paths.uploadsDir }, [{ ...job }]);
-      expect(JSON.parse((result.content[0] as { text: string }).text).url).toBe('https://pepper.test/v1/outputs/clip.webm');
+      const result = await jobsResult({ app, baseUrl: 'https://pepper.test', apiToken: app.config.apiToken, jobs: app.jobs, outputDir: app.paths.outputDir, uploadsDir: app.paths.uploadsDir }, [{ ...job, result: { ...job.result, text: 'a transcript' } }]);
       const [shownJob] = (result.structuredContent as { jobs: Array<Record<string, string>> }).jobs;
-      expect(shownJob).toMatchObject({ id: 'j1', media: 'video', status: 'completed', seed: 7 });
-      expect(shownJob.media_url).toMatch(/^https:\/\/pepper\.test\/v1\/outputs\/clip\.webm\?exp=\d+&sig=/);
-      const fetched = await app.inject({ url: shownJob.media_url.replace('https://pepper.test', '') });
+      // One compact summary for both, since Claude Code shows the model only
+      // structuredContent: one signed link, the text, no timestamps.
+      expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(shownJob);
+      expect(shownJob).toMatchObject({ id: 'j1', status: 'completed', seed: 7, output_name: 'clip.webm', text: 'a transcript' });
+      expect(Object.keys(shownJob)).not.toEqual(expect.arrayContaining(['created_at']));
+      expect(shownJob.progress).toBeUndefined();
+      expect(shownJob.url).toMatch(/^https:\/\/pepper\.test\/v1\/outputs\/clip\.webm\?exp=\d+&sig=/);
+      const fetched = await app.inject({ url: shownJob.url.replace('https://pepper.test', '') });
       expect(fetched.statusCode).toBe(200);
 
       // The same file through MCP itself, for a host that blocks the direct link.
@@ -1766,6 +1770,26 @@ describe('mcp', () => {
         { ...job, status: 'running', progress: 0.25, result: undefined },
       ]);
       expect((running.structuredContent as { jobs: unknown[] }).jobs[0]).toMatchObject({ status: 'running', progress: 0.25 });
+
+      // Image previews fit their long edge to the size asked for, or are left out.
+      if (spawnSync('ffmpeg', ['-version']).status === 0) {
+        const still = join(app.paths.outputDir, 'tall.png');
+        spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=red:s=900x1600', '-frames:v', '1', still]);
+        const image = { ...job, id: 'j2', kind: 'image', result: { image_url: '/v1/outputs/tall.png' } } as const;
+        const ctx = { app, baseUrl: 'https://pepper.test', apiToken: app.config.apiToken, jobs: app.jobs, outputDir: app.paths.outputDir, uploadsDir: app.paths.uploadsDir };
+        const sizeOf = async (preview: 'small' | 'large' | 'none') => {
+          const shown = await jobsResult(ctx, [{ ...image }], { preview });
+          const block = shown.content.find((c) => c.type === 'image') as { data: string } | undefined;
+          if (!block) return null;
+          const file = join(dir, `preview-${preview}.jpg`);
+          await writeFile(file, Buffer.from(block.data, 'base64'));
+          const probe = spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=width,height', '-of', 'csv=p=0', file], { encoding: 'utf8' });
+          return probe.stdout.trim();
+        };
+        expect(await sizeOf('small')).toBe('432,768');
+        expect(await sizeOf('large')).toBe('882,1568');
+        expect(await sizeOf('none')).toBeNull();
+      }
     } finally {
       await app.close();
       closeDb();

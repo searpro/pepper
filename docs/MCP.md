@@ -81,7 +81,7 @@ The server only answers while a pod is running:
 | `generate_image` | Text to image, or an edit or try-on when `image` (and `reference_images`) are given; `loras` applies LoRAs from the library |
 | `generate_video` | Text or image to video: start and end frames, reference images for a consistent cast, audio to lip-sync or perform to, a driving video for motion transfer |
 | `generate_audio` | Speech (`audio_type: "speech"`: a line in a cloned, preset or described voice) or music (`"music"`: style, lyrics, length; `audio` to cover a song with YuE2, whose job `text` is the ABC score to pass back as `params.score`) |
-| `get_job` | Waits up to 50 s for one job (`id`) or several (`ids`), and returns their status and `download_url` |
+| `get_job` | Waits up to 50 s for one job (`id`) or several (`ids`), and returns their status and `url`; `preview` sizes the inline image (`small`, `large` for faces and detail, `none` when already seen) |
 | `list_jobs`, `cancel_job` | Recent jobs; stop one |
 | `install_model` | Downloads a model's files (`id`), or adds a LoRA to the library from `lora_url`: a Civitai page, a HuggingFace repository or file, or a `.safetensors` link, with `base` when the source does not say which model it is for, and `notes` on what it is for. `lora_id` with `notes` or `strength` updates a LoRA already there. It is refused when the volume has no room |
 | `add_input` | Uploads a file from base64 bytes, for a client with local files and no URL |
@@ -127,7 +127,7 @@ trigger words are in the prompt; `list_models` gives them.
    It returns at once with `model`, `quality` and the job (`id`, `status: "queued"`).
 3. `get_job` with `ids: ["…"]`, repeated until `status` is `completed`. A
    5 s H3 draft takes about 8 minutes on a 32 GB card.
-4. Fetch the finished job's `download_url`. It needs no token and is valid
+4. Fetch the finished job's `url`. It needs no token and is valid
    for 7 days, but outputs are deleted after 24 hours
    (`OUTPUT_RETENTION_MS`), so copy them out promptly.
 
