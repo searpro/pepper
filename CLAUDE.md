@@ -65,7 +65,7 @@ There is no linter or formatter configured; match the surrounding style
 | `Dockerfile`, `Dockerfile.pro`, `.github/workflows/*.yml` | The images pods run (`ghcr.io/searpro/pepper`, `…/pepper-pro`), rebuilt on pushes to `main`; `test.yml` runs typecheck and tests |
 | `.mcp.json`, `.claude/pepper-mcp.mjs` | Claude Code's `pepper` MCP server: a stdio bridge to a running instance |
 | `.claude/skills/*` | `pepper-dev` (change → local checks → GPU), `workflow-to-recipe` (a ComfyUI workflow → recipes at its samples' quality), `session-handoff` (pull other sessions' context in; keep `docs/STATUS.md`), `catalogue-curator` (research → entry → test → PR), `presenter-explainer` (a researched explainer: cloned voice, H3 lip-sync, real photos composed over the presenter) |
-| `.claude/agents/*` | `model-file-scout` (files, bytes, sha256 per tier), `recipe-reviewer` (a recipe diff against the contract), `session-historian` (digest of a large transcript) |
+| `.claude/agents/*` | Sonnet subagents: `model-file-scout` (files, bytes, sha256 per tier), `recipe-reviewer` (a recipe diff against the contract), `session-historian` (digest of a large transcript), and for explainers `explainer-researcher`, `take-reviewer`, `publishing-kit-writer` |
 | `docs/STATUS.md` | The handoff between sessions: current state, measurements, open items, next steps |
 | `docs/ARCHITECTURE.md` | Design reasons, **Gotchas** and **Conventions** (grep `^## ` for the line) |
 | `docs/CATALOGUE.md` | Pepper's remote catalogue manifest format (catalogue lives in searpro/pepper-catalogue) |
@@ -113,6 +113,60 @@ There is no linter or formatter configured; match the surrounding style
   unit tests + the UI, and say so. Pepper Pro's engine can be exercised on a
   CPU ComfyUI with the model-free fixture recipes (its `CLAUDE.md` says how);
   its real recipes need a GPU.
+
+## Token budget
+
+Every turn re-reads the whole conversation, so what stays in context costs
+again on every later call. Media sessions measured 2026-10-22 averaged 360k
+tokens a turn and peaked at 730k; `.claude/settings.json` auto-compacts at
+250k (`/autocompact` changes it for one session).
+
+- One deliverable per session. At a natural break (a video's checkpoint, a
+  merged PR) write the handoff (`PLAN.md`, `docs/STATUS.md`) and continue
+  fresh or `/compact`, rather than carrying every earlier turn along.
+- Pepper MCP: `pro_status` and `list_models` once per session (per kind).
+  Poll only the ids still running, at `wait_seconds: 50`, or let a
+  background monitor wait. `preview: "none"` for jobs you will judge from a
+  contact sheet, `"large"` only for faces and fine detail.
+- Images cost ~1.5k tokens each until the session ends: judge a batch from
+  one labelled contact sheet, not frame by frame, and never reopen one you
+  have seen. Server-side checks (`analyze` `check` / `transcribe`, the
+  skill's `identity.py`, `qc.py`) answer in text; use them first.
+- Command output: `| tail -n 20` or `grep` on long logs, ffmpeg with
+  `-hide_banner -loglevel error -nostats`, `grep -n '^## '` then a section
+  rather than `cat` of a whole doc. Broad reading (other sessions,
+  sweeping the code) goes to a subagent, whose reading does not stay here.
+- Models: a session cannot change its own model or effort; the user picks
+  them per session in the app. Hand a new phase to a new session with a
+  lower `effort` or `model` (`start_session`) rather than lower the bar in
+  place. The presenter-explainer skill has the table for a video.
+
+## Subagents (the user's standing direction)
+
+The user wants the main context kept clean. In this repo, **spawn these
+subagents without asking first** whenever the work matches; this
+instruction is the user asking. They run on Sonnet, and only their short
+report joins the main context. Ad-hoc agents default to Sonnet through
+`CLAUDE_CODE_SUBAGENT_MODEL`.
+
+| Work | Agent |
+| --- | --- |
+| Web research: topics, facts, sources, photos | `explainer-researcher` |
+| Looking at stills, takes, frames or contact sheets to judge them | `take-reviewer` |
+| A finished video's publishing kit and Notion page | `publishing-kit-writer` |
+| Another session's transcript, or a large log | `session-historian` |
+| Model files for a recipe | `model-file-scout` |
+| Checking a recipe change | `recipe-reviewer` |
+| Sweeping the code for where or how something is done (more than about 3 searches) | `Explore` |
+
+Delegate when the work reads a lot and the answer is short: many pages,
+images, files or log lines for one verdict or table. Keep it here when it
+is a single lookup, a file you are about to edit, or a judgment that needs
+this conversation's history; a spawn starts cold and costs its own
+tokens. Write the brief as for a colleague who has seen nothing: the
+paths, the ids, what to check, and the shape of the answer. Run
+independent agents in parallel, and do not re-read what an agent has
+already reported.
 
 ## Running on a GPU
 

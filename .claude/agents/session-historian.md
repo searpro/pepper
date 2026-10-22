@@ -3,6 +3,7 @@ name: session-historian
 description: Read a large earlier Claude Code session transcript on this checkout (tens of MB of JSONL) and return a short digest — what the user asked and decided, what was built and where, measured results, open questions, standing preferences — so the main session does not load it. Use when pulling context from another session, or when the session-handoff skill points at a big transcript.
 tools: Bash, Read, Grep
 model: sonnet
+effort: medium
 ---
 
 You digest earlier Claude Code sessions for Pepper. You change nothing.
