@@ -645,6 +645,27 @@ projector on the CPU (`--no-mmproj-offload`). Prompts run at ~800
 tokens/s, so a turn after a render (a full re-prefill of 42k tokens)
 takes ~78 s; the flags are in `.env.example`.
 
+**The MoE models with MTP too.** Qwen3.6-35B-A3B has an MTP head in
+Unsloth's separate `Qwen3.6-35B-A3B-MTP-GGUF` build, and Gemma 4
+26B-A4B has a small drafter file (`mtp-gemma-4-26B-A4B-it`, 0.46 GB, passed
+as `--model-draft`). Speeds on the home box, with ~25k-token prompts, in
+tokens/s:
+
+| Model | Flags | Prompt | Thinking | Code | VRAM |
+| --- | --- | --- | --- | --- | --- |
+| Qwen3.6 | defaults | 1,855 | 52 | 52 | 14.9 GB |
+| Qwen3.6 | MTP n-max 3, 20 layers' experts on the CPU, ub 2048 | 1,360 | 68 | 82 | 15.1 GB |
+| Gemma 4 | defaults | 2,590 | 46 | 44 | 14.9 GB |
+| Gemma 4 | MTP drafter n-max 3, all layers on the GPU, ub 1024 | 3,170 | 107 | 118 | 15.5 GB |
+
+Gemma's defaults were slow for the same reason as Qwen3.8's: with 4096
+ubatches and the projector on the GPU, `auto` moved layers to the CPU.
+Qwen3.6's 22 GB never fits the card, so MTP buys its decode speed with
+smaller ubatches (4096 no longer fits) and a quarter less prefill. ngram
+drafting (`ngram-mod`) accepted too few drafts to help either model, and
+vision works with MTP on both. Through Pepper Pro's `/v1/messages`, a warm
+turn ran at 70 tokens/s on Qwen3.6 and 115–150 on Gemma.
+
 **Waiting without being dropped** (`routes/messages.ts`). A turn can sit
 behind renders for many minutes, and Cloudflare's tunnel drops a response
 silent for 100 s. A streamed request gets SSE headers and a `ping` event

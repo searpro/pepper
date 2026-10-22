@@ -307,6 +307,18 @@ start JIT-compiles for ~60 s; searpro/llama.cpp#1 adds `120a-real`
 stack was brought up with the args exported; `deploy/home/.env` still
 holds the old `LLM_AGENT_ARGS` until the user updates it.
 
+**Qwen3.6 and Gemma 4 tuned the same way (2026-10-22).** The prefill and
+decode figures before and after are in `docs/PEPPER-PRO.md` §14 (in short,
+Gemma 46 → ~110 t/s, Qwen3.6 52 → ~70–80 t/s), and the args are in
+`.env.example`. They were verified through Pro, including an image
+question. New files on the box: `models/llm/Qwen3.6-35B-A3B-MTP-UD-Q4_K_M.gguf`
+(the old non-MTP Q4_K_M sits beside it, 22 GB, deletable) and
+`models/llm-draft/mtp-gemma-4-26B-A4B-it-Q8_0.gguf`. The stack is back on
+Qwen3.8 + MTP, again with exported args. searpro/llama.cpp#1 (sm_120a) is
+merged and the b11819 release run (actions run 39803473542) was still
+building; once it publishes, Pro needs its llama.cpp reinstalled to drop
+the ~60 s first-request JIT.
+
 ### Other open items
 
 - **LongCat-Avatar:** the full-length draft was killed at segment 11 of 17
