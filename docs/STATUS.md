@@ -312,7 +312,7 @@ decode figures before and after are in `docs/PEPPER-PRO.md` §14 (in short,
 Gemma 46 → ~110 t/s, Qwen3.6 52 → ~70–80 t/s), and the args are in
 `.env.example`. They were verified through Pro, including an image
 question. New files on the box: `models/llm/Qwen3.6-35B-A3B-MTP-UD-Q4_K_M.gguf`
-(the old non-MTP Q4_K_M sits beside it, 22 GB, deletable) and
+(it replaced the non-MTP Q4_K_M, now deleted) and
 `models/llm-draft/mtp-gemma-4-26B-A4B-it-Q8_0.gguf`. The stack is back on
 Qwen3.8 + MTP, again with exported args. searpro/llama.cpp#1 (sm_120a) is
 merged and the b11819 release run (actions run 39803473542) was still

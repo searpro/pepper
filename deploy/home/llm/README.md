@@ -7,19 +7,10 @@ taking turns; `docs/PEPPER-PRO.md` §14 has the design and the measurements.
 
 ## Once: the box
 
-Pepper Pro must be up with an agent model set. Put these in
-`deploy/home/.env` (or export them), so every `up` writes them into the
-stack's `.env`:
-
-```
-LLM_AGENT_MODEL=Qwen3.6-35B-A3B-MTP-UD-Q4_K_M.gguf
-LLM_AGENT_ARGS=--n-gpu-layers 99 --n-cpu-moe 20 --batch-size 2048 --ubatch-size 2048 --no-mmproj-offload --spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-n-min 0 --temp 0.6 --top-k 20 --top-p 0.95
-```
-
-The model file and `mmproj-Qwen3.6-35B-A3B.gguf` sit in Pro's `models/llm`.
-Gemma 4 and Qwen3.8 27B are the alternatives, with their flags in
-`apps/pepper-pro/server/.env.example`. All three draft tokens with MTP
-(multi-token prediction), placing layers by hand. Writing code, the speeds are:
+Pepper Pro must be up with an agent model set. Put one model's two lines
+in `deploy/home/.env` (or export them), so every `up` writes them into the
+stack's `.env`. All three draft tokens with MTP (multi-token prediction)
+and place their layers by hand. Writing code, the speeds are:
 
 | Model | Default flags | Tuned flags |
 | --- | --- | --- |
@@ -27,7 +18,32 @@ Gemma 4 and Qwen3.8 27B are the alternatives, with their flags in
 | Qwen3.6 | 52 tokens/s | ~80 tokens/s |
 | Qwen3.8 | 10 tokens/s | ~60 tokens/s |
 
-Gemma's drafter is its own file in `models/llm-draft`.
+**Qwen3.6 35B-A3B** (96k context). The model and
+`mmproj-Qwen3.6-35B-A3B.gguf` sit in Pro's `models/llm`:
+
+```
+LLM_AGENT_MODEL=Qwen3.6-35B-A3B-MTP-UD-Q4_K_M.gguf
+LLM_AGENT_ARGS=--n-gpu-layers 99 --n-cpu-moe 20 --batch-size 2048 --ubatch-size 2048 --no-mmproj-offload --spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-n-min 0 --temp 0.6 --top-k 20 --top-p 0.95
+```
+
+**Gemma 4 26B-A4B**, the fastest (64k context). The model and
+`mmproj-gemma-4-26B-A4B-it.gguf` sit in `models/llm`, and its MTP drafter
+sits in `models/llm-draft`:
+
+```
+LLM_AGENT_MODEL=gemma-4-26B-A4B-it-UD-IQ4_XS.gguf
+LLM_AGENT_ARGS=--ctx-size 65536 --n-gpu-layers 99 --batch-size 2048 --ubatch-size 1024 --no-mmproj-offload --model-draft /data/models/llm-draft/mtp-gemma-4-26B-A4B-it-Q8_0.gguf --spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-n-min 0 --temp 1.0 --top-k 64 --top-p 0.95
+```
+
+**Qwen3.8 27B**, dense (64k context). The model, `mmproj-Qwen3.8-27B.gguf`
+and the fixed chat template sit in `models/llm`:
+
+```
+LLM_AGENT_MODEL=Qwen3.8-27B-UD-IQ3_S.gguf
+LLM_AGENT_ARGS=--ctx-size 65536 --n-gpu-layers 99 --batch-size 2048 --ubatch-size 1024 --no-mmproj-offload --spec-type draft-mtp --spec-draft-n-max 4 --spec-draft-n-min 0 --temp 0.6 --top-k 20 --top-p 0.95 --chat-template-file /data/models/llm/Qwen3.8-27B-fixed.jinja
+```
+
+`apps/pepper-pro/server/.env.example` says why each flag is there.
 Start `claude-box.sh` with `AGENT_CTX=65536` for Gemma or Qwen3.8.
 Then `uv run deploy/home/launch.py up --product pro`. The script checks
 `/v1/llm/gpu` before starting and says so if the box is not answering.
