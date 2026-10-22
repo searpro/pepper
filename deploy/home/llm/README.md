@@ -17,6 +17,10 @@ LLM_AGENT_ARGS=--temp 0.6 --top-k 20 --top-p 0.95
 ```
 
 The model file and `mmproj-Qwen3.6-35B-A3B.gguf` sit in Pro's `models/llm`.
+Gemma 4 and Qwen3.8 27B are the alternatives, with their flags in
+`apps/pepper-pro/server/.env.example`; Qwen3.8 needs its MTP flags (draft
+decoding, ~60 tokens/s on code instead of 26) and `--n-gpu-layers 99`.
+Start `claude-box.sh` with `AGENT_CTX=65536` for either.
 Then `uv run deploy/home/launch.py up --product pro`. The script checks
 `/v1/llm/gpu` before starting and says so if the box is not answering.
 

@@ -634,6 +634,17 @@ waited for it and rendered after. A real `claude-box.sh` session (40k
 tokens of Claude Code context) queued a render over MCP and got both
 notes back.
 
+**A dense agent model: Qwen3.8 27B with MTP.** Its GGUF carries a
+multi-token-prediction head, which llama.cpp uses as its own draft model
+(`--spec-type draft-mtp --spec-draft-n-max 4`): ~60 tokens/s writing
+code and ~40 thinking on the home box, against 26 without it, for ~0.7 GB
+more VRAM. It fits 16 GB at a 64k context only with every layer on the
+GPU (`--n-gpu-layers 99`; llama.cpp's `auto` moves layers to the CPU and
+decode drops to 10 tokens/s), 1024-token ubatches and the vision
+projector on the CPU (`--no-mmproj-offload`). Prompts run at ~800
+tokens/s, so a turn after a render (a full re-prefill of 42k tokens)
+takes ~78 s; the flags are in `.env.example`.
+
 **Waiting without being dropped** (`routes/messages.ts`). A turn can sit
 behind renders for many minutes, and Cloudflare's tunnel drops a response
 silent for 100 s. A streamed request gets SSE headers and a `ping` event
