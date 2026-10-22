@@ -12,15 +12,23 @@ Pepper Pro must be up with an agent model set. Put these in
 stack's `.env`:
 
 ```
-LLM_AGENT_MODEL=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
-LLM_AGENT_ARGS=--temp 0.6 --top-k 20 --top-p 0.95
+LLM_AGENT_MODEL=Qwen3.6-35B-A3B-MTP-UD-Q4_K_M.gguf
+LLM_AGENT_ARGS=--n-gpu-layers 99 --n-cpu-moe 20 --batch-size 2048 --ubatch-size 2048 --no-mmproj-offload --spec-type draft-mtp --spec-draft-n-max 3 --spec-draft-n-min 0 --temp 0.6 --top-k 20 --top-p 0.95
 ```
 
 The model file and `mmproj-Qwen3.6-35B-A3B.gguf` sit in Pro's `models/llm`.
 Gemma 4 and Qwen3.8 27B are the alternatives, with their flags in
-`apps/pepper-pro/server/.env.example`; Qwen3.8 needs its MTP flags (draft
-decoding, ~60 tokens/s on code instead of 26) and `--n-gpu-layers 99`.
-Start `claude-box.sh` with `AGENT_CTX=65536` for either.
+`apps/pepper-pro/server/.env.example`. All three draft tokens with MTP
+(multi-token prediction), placing layers by hand. Writing code, the speeds are:
+
+| Model | Default flags | Tuned flags |
+| --- | --- | --- |
+| Gemma 4 | 46 tokens/s | ~115 tokens/s |
+| Qwen3.6 | 52 tokens/s | ~80 tokens/s |
+| Qwen3.8 | 10 tokens/s | ~60 tokens/s |
+
+Gemma's drafter is its own file in `models/llm-draft`.
+Start `claude-box.sh` with `AGENT_CTX=65536` for Gemma or Qwen3.8.
 Then `uv run deploy/home/launch.py up --product pro`. The script checks
 `/v1/llm/gpu` before starting and says so if the box is not answering.
 
@@ -45,7 +53,7 @@ Anthropic's models, started the usual way, is untouched.
 - **Turns wait for renders.** Renders go first: while any render is queued
   or running, your next turn waits (the status line says for what and how
   long), then the model reloads (~12 s) and reads the conversation again
-  (~1,600 tokens/s; 40k tokens is about 25 s). A turn with no render in
+  (~1,350 tokens/s for Qwen3.6, ~3,200 for Gemma; 40k tokens is about 30 s or 13 s). A turn with no render in
   between answers in seconds.
 - **So queue in batches.** Ask for every still, voice line or take of a
   step in one turn, then let them run: each turn spent polling between
