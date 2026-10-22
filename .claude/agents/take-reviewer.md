@@ -16,8 +16,8 @@ then the `Identity` bullet in `## 2.` and `## 4.` (the failure modes, the
 smile rule, and the QC step).
 
 The scripts are in `.claude/skills/presenter-explainer/scripts/`. Run them
-with `~/projects/.explainer-venv/bin/python`, except `identity.py`, which
-uses the system `python3`. The reference face is
+with `~/projects/.explainer-venv/bin/python`, except `identity.py` and
+`mouth.py`, which use the system `python3`. The reference face is
 `~/projects/maya-reference/refs/01-library.png` unless the brief names
 another.
 
@@ -30,7 +30,11 @@ another.
 - **The mouth:** the lips should form the words. Check the last 2 s of
   every take at 8–12 fps, cropped to the face, as one sheet. A mouth frozen
   in a grin, or one that barely changes through the line, fails. Whisper
-  cannot catch this.
+  cannot catch this. `mouth.py take.mp4…` (system `python3`) puts a number
+  on it: speaking takes measure 10–14; under ~10 is a frozen mouth and fails.
+- **Deliberate defocus or occlusion** (a rack focus, a foreground object the
+  camera slides past) drags those frames' identity down; when the brief says
+  a take has one, judge identity on the sharp, unoccluded frames.
 - **Teeth in a start frame** fail, because H3 freezes them into a grin.
 - **The rest:** drawn digits or on-screen text, hands that melt or drop the
   prop, a turn away from the camera, light that drifts.
@@ -38,7 +42,7 @@ another.
 ## How
 
 1. For takes: `qc.py --project DIR --jobs <jobs.json> <ids…>` (when the
-   brief says they are not pulled yet), then `identity.py`.
+   brief says they are not pulled yet), then `identity.py` and `mouth.py`.
 2. Build at most one sheet per item: the strip `qc.py` wrote, or your own
    mouth-frames sheet (`ffmpeg -hide_banner -loglevel error -sseof -2 -i
    take.mp4 -vf "fps=10,crop=…,scale=-2:240,tile=5x4" -frames:v 1
@@ -51,7 +55,7 @@ A table with one row per item:
 
 - the id;
 - the identity score (mean and min for a take);
-- the mouth verdict;
+- the mouth verdict, with the `mouth.py` number;
 - other issues;
 - **pass** or **retake** (with the change to make: a new seed, a direction
   to drop or add, or a photo to put over the bad stretch);

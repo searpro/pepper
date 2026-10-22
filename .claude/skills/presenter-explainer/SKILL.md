@@ -9,8 +9,10 @@ Built for the Tesla Roadster explainer (2026-10-18, 2:04, 9:16 4K): Maya, a
 fictional presenter, explains the car with Tesla's photos and livestream frames
 appearing over her. `examples/roadster-script.json` is that video's script and
 every cue. The scripts here do the parts Pepper Pro can't:
-`scripts/compose.py` (the cut; `scripts/hdr.py` its HDR cuts), `scripts/qc.py`
-(checking takes) and `scripts/covers.py` (thumbnails); the finishing look is
+`scripts/compose.py` (the cut; `scripts/hdr.py` its HDR cuts), `scripts/qc.py`,
+`scripts/identity.py` and `scripts/mouth.py` (checking takes),
+`scripts/covers.py` (thumbnails) and `scripts/pepper.py` (Pepper without the
+MCP tools, see Gotchas); the finishing look is
 Pepper Pro's `film-finish` recipe (step 6b). Step 7 hands the finished video to the
 user's manual posting through Notion.
 
@@ -30,6 +32,13 @@ user's manual posting through Notion.
   matter, not on every line. Her face stays visible and turned toward the
   camera enough for the lip sync to read. Plan this as a storyboard (step 2)
   and let the user approve it before anything renders.
+- **Each video gets its own cinematography** (2026-10-22): the moves of
+  earlier videos make the channel look like a template. Push-in, ~20° arc,
+  sideways truck, steadicam walk-back, pull-back-and-rise and dolly-in are
+  used; reach for lens character (anamorphic, shallow depth of field), a
+  rise out of a blurred foreground, a parallax reveal past a foreground
+  object, a water-level float, a crane-up, a cutaway insert (step 4 has
+  what H3 can and can't do).
 - **No LTX refine on speaking shots**: it re-renders mouths without the audio.
 
 ## Checkpoints: what the user sees and approves, in order
@@ -197,7 +206,13 @@ Short won by far. So:
   in her hands and body: 0.85–0.89 with either `qwen-image-edit` or the turbo
   editor, against 0.71 for the same action with her head turned down. Avoid: replacing a drifted face by passing the
   library still as a second image (0.64–0.68, worse), and three-quarter or
-  downward heads in start frames. `MiniMax H3 reference mode` (`h3-reference`)
+  downward heads in start frames. Keep start frames waist-up: on 2026-10-22
+  "barefoot" in an outfit prompt pulled every still to full length and the
+  small face scored 0.74–0.83, against 0.87–0.90 for the same dress asked
+  for "keep the same framing: a medium shot from the waist up". Dim light
+  costs too: night and lantern-lit takes landed at 0.70–0.75 from start
+  frames at 0.86–0.89. Frames that are defocused or occluded on purpose (a
+  rack focus, a foreground trunk) score low; judge the sharp ones. `MiniMax H3 reference mode` (`h3-reference`)
   can bind several pictures to one subject, which may hold her better, but it
   is untested in Pepper and its 16 GB build is the NVFP4 file.
 - **Then the storyboard: one start frame per line, showing her mid-action.**
@@ -285,6 +300,14 @@ lens" (the earlier videos' default), but no line is static in a video now.
   ("a single small nod after the last word"), and if it still grins, cut
   away to a full-screen image for the last phrase. Check the final 2 s at
   8–12 fps on every take; a 7-frame strip misses it.
+- **Calming words freeze the lips too.** To stop an overacted take (furrowed
+  brow, wide eyes), "calm and quietly amazed … an even, gentle delivery"
+  gave a take whose mouth barely moved (mouth motion 4.8 against 12.4 for
+  the overacted one; the user: "the character is not talking"). What gave
+  both a calm face and lip sync (10–12.6 on six lines, 2026-10-22): "Her
+  mouth opens clearly and visibly on every word, with full, natural
+  articulation. Her brow stays relaxed, no frowning, eyes at their natural
+  size." Never describe the delivery as even, gentle, soft or quiet.
 - **Camera moves work** (channel intro, 2026-10-19), all with eye contact
   kept: a push-in to a close-up, a ~20° arc ("she turns her head with it so
   her eyes stay fixed just past the lens"), a sideways truck, a walk toward a
@@ -292,6 +315,27 @@ lens" (the earlier videos' default), but no line is static in a video now.
   trucks travel further than "small amplitude" and can drift the light to
   afternoon; "the warm golden-hour backlight … stays the same throughout the
   shot" held it.
+- **More moves, tried on the glowing-beaches video** (2026-10-22, with "Shot
+  on a large-format cinema camera with a vintage anamorphic lens: very
+  shallow depth of field, oval bokeh … a gentle, organic handheld float"):
+  worked — rising out of a blurred foreground (start frame with glowing surf
+  across the bottom of the frame, the camera lifts to eye level as she walks
+  into focus), a parallax reveal (start frame with a blurred broken trunk
+  across the frame, "the camera slides sideways past it … revealing her"),
+  a camera floating at water level beside a kayak, and a crane-up to a high
+  angle. Did not: a dolly zoom (H3 craned up instead and her face ended
+  small), a tilt down to her hand on a word and back, a boom up from sand
+  level (the camera just floated), and a rack focus from her face to a prop
+  read only weakly (the user: "the focus shift isn't working"). Build the
+  move into the start frame (the foreground object, the low angle) rather
+  than asking H3 to invent it.
+- **A cutaway insert** shows a prop better than a focus pull: an H3 take
+  with no `audio`, the prop's close-up as `image` (an edit of the set still
+  with her face out of frame), ~3.5 s, the `[Shot 1]` description ending
+  "Her face stays out of frame. Nobody speaks." and a soundscape with "no
+  voices". Splice it into the line's master before the finish (`ffmpeg`
+  trim + concat at the word times from `align.json`); the cut keeps the TTS
+  audio, and it covers that stretch of her face too.
 - **QC every take as it lands**: `scripts/qc.py --project DIR --jobs
   h3-jobs.json S03` saves the take, a 7-frame strip of the upper frame and the
   transcript. Look at the strip, and at a dense run of mouth frames when the
@@ -305,7 +349,9 @@ lens" (the earlier videos' default), but no line is static in a video now.
   Realism LoRA made no difference (0.72 with, 0.74 without), `final` none
   (0.74, twice the time), and a "calm, relaxed brow, natural eye size"
   direction none (0.71). The start frame is the lever that works (0.63 →
-  0.72–0.74, the published El Niño takes' level). A monitor that polls the job ids and
+  0.72–0.74, the published El Niño takes' level). Then `python3
+  scripts/mouth.py takes/S03.mp4`: a speaking take below ~10 has a frozen
+  mouth whatever Whisper says. A monitor that polls the job ids and
   prints each completion saves polling by hand.
 
 **Detail** (measured on one 5 s take, 2026-10-18). The recipes save takes
@@ -482,3 +528,13 @@ covers are winning.
   a finished file as a take. A project plan helps when the cut can stay in
   Pepper.
 - The local ffmpeg has no `drawtext`; all text is drawn in PIL.
+- **The `pepper` MCP tools are missing** when no instance was up as the
+  session started; they don't come back by themselves once it is. Ask the
+  user to reconnect it (`/mcp`), or go on through the same bridge:
+  `node scripts/pepper_call.mjs TOOL '{…}'` (`--list` for the schemas) and
+  `scripts/pepper.py` (`submit`, `jobs`; `pepper.py wait JOBS.json S01 …`
+  and `pepper.py fetch JOBS.json DIR`). The bridge reads the token itself.
+- SSH to the home box is `lijin@lk-gpu-server`; the local user name is
+  rejected ("Permission denied (publickey,password)").
+- Download outputs with `curl`: the laptop's python.org Python has no CA
+  bundle, so `urllib` fails on HTTPS.
