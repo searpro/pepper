@@ -1,0 +1,361 @@
+{
+  "schema": 1,
+  "id": "h3-master",
+  "version": 1,
+  "kind": "video",
+  "name": "MiniMax H3 — master from latents",
+  "description": "Delivers H3 takes at 1920×1088: their saved latents are upscaled 2× by H3's own latent upscaler and re-sampled by H3 at a low denoise, in overlapping 5 s windows, each under the conditioning its take was made with. A run of shots that continue each other is mastered as one piece, so the texture is decided across the joins and there is no seam. Used by projects when a take with latents is mastered.",
+  "family": "minimax-h3-master",
+  "capabilities": [
+    "upscale",
+    "finish",
+    "joint-master"
+  ],
+  "licence": {
+    "id": "minimax-h3-community",
+    "name": "MiniMax H3 Community Licence",
+    "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/LICENSE",
+    "commercial": "under-20M",
+    "excluded_territories": [
+      "US",
+      "EU",
+      "UK",
+      "KR"
+    ],
+    "ui_notice": "MiniMax H3",
+    "obligations": [
+      "Show \"MiniMax H3\" in any product or service that uses its outputs commercially.",
+      "Not for use in, or by residents of, the excluded territories.",
+      "Label outputs as AI-generated where the law requires it."
+    ]
+  },
+  "nodes": [
+    {
+      "name": "comfyui-obvpm-timeline",
+      "repo": "https://github.com/chanon/comfyui-obvpm-timeline",
+      "commit": "03a4b83f46c39fa07f7a002c6d85fe00004a29f2"
+    },
+    {
+      "name": "Comfyui_Minimax_h3_latent_Upscaler",
+      "repo": "https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler",
+      "commit": "40316cf008b2fd8663263270669eb4da23f89d2c"
+    }
+  ],
+  "files": [
+    {
+      "id": "model_fl2va",
+      "folder": "diffusion_models",
+      "label": "MiniMax H3 fl2va (22B)",
+      "description": "Re-samples takes made with h3-video.",
+      "variants": [
+        {
+          "tiers": [
+            "16gb"
+          ],
+          "repo": "Abiray/Minimax-H3-nvfp4-INT4-INT8-Convrot",
+          "path": "MiniMax_H3_FL2VA_pruned_nvfp4.safetensors",
+          "bytes": 12528636865,
+          "sha256": "6ab7f0c48141e7919b32f925ca3def22e06a6aebeb9e0b6f5a0be0fe8409976f"
+        },
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb"
+          ],
+          "repo": "Comfy-Org/MiniMax-H3",
+          "path": "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+          "bytes": 20970379616,
+          "sha256": "e889202c41dafb67b10d67b97f0d8541508036a6090af23425a5c2615d03c47a"
+        },
+        {
+          "tiers": [
+            "48gb"
+          ],
+          "repo": "Comfy-Org/MiniMax-H3",
+          "path": "diffusion_models/minimax_h3_fl2va_int8_convrot.safetensors",
+          "bytes": 34038892334,
+          "sha256": "7ad4c73e6e378b822ffd1629f27f632d3787d95f5e468e3af958f98c58df96a5"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/MiniMax-H3",
+          "path": "diffusion_models/minimax_h3_fl2va_bf16.safetensors",
+          "bytes": 66280487368,
+          "sha256": "907d4add438438ec1544f5240c3b38532ed934fe6be75677a6bbda2a6fdd6182"
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "model_ref2va",
+      "folder": "diffusion_models",
+      "label": "MiniMax H3 ref2va (22B)",
+      "description": "Re-samples takes made with h3-reference.",
+      "variants": [
+        {
+          "tiers": [
+            "16gb"
+          ],
+          "repo": "Abiray/Minimax-H3-nvfp4-INT4-INT8-Convrot",
+          "path": "MiniMax_H3_Ref2VA_pruned_nvfp4.safetensors",
+          "bytes": 12528636866,
+          "sha256": "3e1be702c95bc057c05a7d1867e8aeea33073dcf5743835f2f27f06a2f34c596"
+        },
+        {
+          "tiers": [
+            "24gb-64ram",
+            "32gb"
+          ],
+          "repo": "Comfy-Org/MiniMax-H3",
+          "path": "diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors",
+          "bytes": 20970379616,
+          "sha256": "9255f52b6677845ad238f20dfaafa94727053694127ab7f255c048f0f9365779"
+        },
+        {
+          "tiers": [
+            "48gb"
+          ],
+          "repo": "Comfy-Org/MiniMax-H3",
+          "path": "diffusion_models/minimax_h3_ref2va_int8_convrot.safetensors",
+          "bytes": 34038894550,
+          "sha256": "9eef934046a0671bc8a5daf87100705e1478419c574cfde70c50fbe6885f76a9"
+        },
+        {
+          "tiers": [
+            "96gb"
+          ],
+          "repo": "Comfy-Org/MiniMax-H3",
+          "path": "diffusion_models/minimax_h3_ref2va_bf16.safetensors",
+          "bytes": 66280487368,
+          "sha256": "e32c54c1a7b4f5f397f195cea267ccb18806303bb665678c4bee60953bdf3026"
+        }
+      ],
+      "optional": true
+    },
+    {
+      "id": "video_vae",
+      "folder": "vae",
+      "label": "Video VAE (fp16)",
+      "description": "The full-precision decoder: the master is the delivered picture.",
+      "variants": [
+        {
+          "repo": "Comfy-Org/MiniMax-H3",
+          "path": "vae/minimax_h3_video_vae_fp16.safetensors",
+          "bytes": 5207808496,
+          "sha256": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522"
+        }
+      ]
+    },
+    {
+      "id": "audio_vae",
+      "folder": "vae",
+      "label": "Audio VAE",
+      "variants": [
+        {
+          "repo": "Comfy-Org/MiniMax-H3",
+          "path": "vae/minimax_h3_audio_vae_fp32.safetensors",
+          "bytes": 605254808,
+          "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+        }
+      ]
+    },
+    {
+      "id": "upscaler",
+      "folder": "latent_upscale_models",
+      "label": "H3 latent upscaler (3D)",
+      "description": "A neural 2× on H3's 24-channel latents, run in short chunks along time.",
+      "variants": [
+        {
+          "repo": "LBH-123-AI/Minimax_h3_latent_Upscaler",
+          "path": "minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors",
+          "bytes": 690592992,
+          "sha256": "4f57821f5837f32f7142b67d815606dbd7550f194e5c769f7d6c3f83b146a5e6"
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "name": "sequence",
+      "type": "text",
+      "label": "Takes",
+      "required": true,
+      "description": "The takes to master, one per line, by their names in ComfyUI's output folder, in playing order; each with its .mctx and .cond beside it. Set by projects."
+    },
+    {
+      "name": "scale",
+      "type": "float",
+      "label": "Scale",
+      "default": 2.0,
+      "min": 1.25,
+      "max": 2.5,
+      "description": "How much larger than the takes: 2 turns 960×544 into 1920×1088."
+    },
+    {
+      "name": "denoise",
+      "type": "float",
+      "label": "Refine strength",
+      "default": 0.2,
+      "min": 0.05,
+      "max": 0.5,
+      "description": "How much of the picture H3 draws again. With H3's shift of 12, 0.2 starts at 75% noise: new skin and fabric detail, the same faces and motion. Higher invents more and can change faces."
+    },
+    {
+      "name": "steps",
+      "type": "int",
+      "label": "Steps",
+      "default": 10,
+      "min": 4,
+      "max": 20
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed"
+    }
+  ],
+  "workflows": {
+    "fl2va": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "sequence",
+          "node": "4",
+          "input": "sequence"
+        },
+        {
+          "param": "scale",
+          "node": "6",
+          "input": "mode.scale"
+        },
+        {
+          "param": "denoise",
+          "node": "13",
+          "input": "denoise"
+        },
+        {
+          "param": "steps",
+          "node": "13",
+          "input": "steps"
+        },
+        {
+          "param": "seed",
+          "node": "10",
+          "input": "noise_seed"
+        },
+        {
+          "file": "model_fl2va",
+          "node": "1",
+          "input": "unet_name"
+        },
+        {
+          "file": "video_vae",
+          "node": "15",
+          "input": "vae_name"
+        },
+        {
+          "file": "audio_vae",
+          "node": "16",
+          "input": "vae_name"
+        },
+        {
+          "file": "upscaler",
+          "node": "6",
+          "input": "model_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "17",
+          "kind": "video",
+          "scan": true
+        }
+      ]
+    },
+    "ref2va": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "sequence",
+          "node": "4",
+          "input": "sequence"
+        },
+        {
+          "param": "scale",
+          "node": "6",
+          "input": "mode.scale"
+        },
+        {
+          "param": "denoise",
+          "node": "13",
+          "input": "denoise"
+        },
+        {
+          "param": "steps",
+          "node": "13",
+          "input": "steps"
+        },
+        {
+          "param": "seed",
+          "node": "10",
+          "input": "noise_seed"
+        },
+        {
+          "file": "model_ref2va",
+          "node": "1",
+          "input": "unet_name"
+        },
+        {
+          "file": "video_vae",
+          "node": "15",
+          "input": "vae_name"
+        },
+        {
+          "file": "audio_vae",
+          "node": "16",
+          "input": "vae_name"
+        },
+        {
+          "file": "upscaler",
+          "node": "6",
+          "input": "model_name"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "17",
+          "kind": "video",
+          "scan": true
+        }
+      ]
+    }
+  },
+  "modes": {
+    "fl2va": {
+      "label": "Takes from h3-video",
+      "workflow": "fl2va"
+    },
+    "ref2va": {
+      "label": "Takes from h3-reference",
+      "workflow": "ref2va"
+    }
+  },
+  "default_mode": "fl2va",
+  "joint_master": {
+    "param": "sequence",
+    "families": {
+      "minimax-h3-fl2va": "fl2va",
+      "minimax-h3-ref2va": "ref2va"
+    }
+  },
+  "tiers": [
+    "16gb",
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "From obvpm's joint refine (chanon/comfyui-obvpm-timeline, docs/h3.md). The latent upscaler must chunk along time: upscaled whole, it normalises every frame against the entire video and the refine hallucinates on the drift. Memory is one window's worth; the weights stream from RAM beside it."
+}

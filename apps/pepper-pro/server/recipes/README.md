@@ -19,7 +19,9 @@ recipes/<id>/
 | `h3-reference` | video | A recurring cast from reference pictures and voice clips; dialogue scenes | MiniMax H3 |
 | `ltx25-video` | video | Fast b-roll and transitions between two keyframes | LTX-2.x (under $10M) |
 | `ltx23-audio-to-video` | video | One image performing to a finished track or recorded line | LTX-2 (under $10M) |
+| `h3-master` | video | Finishing H3 takes from their latents: 2× latent upscale and an H3 re-sample, a run of continuing shots as one piece | MiniMax H3 |
 | `seedvr2-upscale-video` | video | Finishing: restore and upscale a chosen take | Apache 2.0 |
+| `rtx-upscale-video` | video | Delivery: NVIDIA RTX Video Super Resolution to 1440p or 4K, frame by frame, no invented detail | NVIDIA VFX SDK |
 | `infinitetalk` | video | A portrait lip-synced to a voice recording, 3-12 s | Apache 2.0 |
 | `infinitetalk-duo` | video | Two people in one frame, each lip-synced to their own line (left speaks first) | Apache 2.0 |
 | `longcat-avatar` | video | A portrait speaking or singing a long recording (minutes) with body and hand motion | MIT |
@@ -79,6 +81,36 @@ project service uses it for two things (`src/projects/chain.ts`):
 - A retake keeps a finished take up to a second and renders the rest again
   from there (`POST /v1/takes/:id/retake`, or `render_shots` with
   `from_take` and `retake_from`), as a new take beside the original.
+
+`latent` (`{ "param": "context" }` on the H3 recipes) is the better route
+where a take has its latents: the H3 recipes save every take with obvpm's
+sidecars (`<take>.mctx.safetensors`, the raw video and audio latents, and
+`<take>.cond.safetensors`, its conditioning), which travel with the take.
+A shot that `continues` the one before it then gets `context` (the earlier
+take, staged in ComfyUI's output folder under `pepper-ctx/`) instead of
+`previous`; obvpm's `H3LoadMCtx` and `H3MCtxApplyPins` pin its last 39
+frames as latents, and the new take is saved with them trimmed off. There
+is no VAE round trip at the join, so the continuation does not degrade, and
+the cut trims nothing. Takes without latents (older ones, other recipes)
+still continue through `previous`.
+
+## Masters
+
+`POST /v1/takes/:id/master` (or `render_shots` with `master: true`) makes
+the file a cut plays in place of a take. A take with latents goes to the
+installed recipe whose `joint_master.families` names its recipe family
+(`h3-master`): the run of shots that continue each other from their latents
+is passed as one `sequence`, upscaled 2× by H3's latent upscaler (chunked
+along time), re-sampled by H3 at denoise 0.2 in overlapping 5 s windows,
+each under its own take's conditioning, and decoded as one file, which the
+service splits back into one master per take at their frames. Refined
+separately, two takes would invent their fine texture differently on
+either side of the join. Any other take is upscaled by SeedVR2.
+
+A save node that reports no files to ComfyUI's history (the obvpm savers
+return a path) is marked `"scan": true` in the workflow's `outputs`: the
+engine collects the files written under the job's prefix, sidecars
+included.
 
 ## Bindings
 

@@ -15,6 +15,8 @@ import { probeMedia, runFfmpeg } from '@pepper/core/util/ffmpeg.js';
 import type { Recipe, RecipeParam } from '../recipes/schema.js';
 import type { RecipeStore } from '../recipes/store.js';
 import { joinArgs, planSegments, type JoinPart, type TakeChain } from './chain.js';
+import { continuityRun, jointSplitArgs, jointSplits, type JointPart } from './joint.js';
+import { carrySidecars, hasLatents, removeSidecars } from '../engines/sidecars.js';
 import { composePrompt, deriveParams } from './derive.js';
 import {
   assets,
@@ -604,9 +606,21 @@ export class ProjectService {
       throw errors.validation(`Shot ${shot.id} continues the shot before it: choose a finished video take of that shot first`);
     }
     // The take as rendered, not its master: the continuation works at the model's own size.
-    const upload = `cont-${take.id}${extname(take.file)}`;
-    await copyFile(this.takeFile(take.projectId, take.file), safeResolve(this.deps.paths.uploadsDir, upload));
-    const out = { ...params, [recipe.continuation.param]: upload };
+    const source = this.takeFile(take.projectId, take.file);
+    const latent = recipe.continuation.latent;
+    let out: Record<string, unknown>;
+    if (latent && (await hasLatents(source))) {
+      // From its saved latents: the clip and its sidecars go where the
+      // obvpm loader reads clips (ComfyUI's output folder), and the new take
+      // continues them exactly, with nothing re-encoded at the join.
+      const clip = await this.stageClip(take, source);
+      out = { ...params, [latent.param]: clip };
+      delete out[recipe.continuation.param];
+    } else {
+      const upload = `cont-${take.id}${extname(take.file)}`;
+      await copyFile(source, safeResolve(this.deps.paths.uploadsDir, upload));
+      out = { ...params, [recipe.continuation.param]: upload };
+    }
     for (const name of ['first_frame', 'image']) delete out[name];
     // The prompt was written for an opening frame the take no longer has.
     if (typeof out.prompt === 'string' && !(shot.params as Record<string, unknown>).prompt) {
@@ -616,13 +630,32 @@ export class ProjectService {
     return out;
   }
 
+  /**
+   * A take with its latents, where the obvpm H3 nodes read clips: ComfyUI's
+   * output folder, under `pepper-ctx/` and the take's id. Returns the name
+   * those nodes take (relative to the output folder).
+   */
+  private async stageClip(take: TakeRow, source: string): Promise<string> {
+    const dir = join(this.deps.paths.comfyOutputDir, 'pepper-ctx');
+    await mkdir(dir, { recursive: true });
+    const name = `${take.id}${extname(source)}`;
+    const target = safeResolve(dir, name);
+    await copyFile(source, target);
+    await carrySidecars(source, target);
+    return `pepper-ctx/${name}`;
+  }
+
   /** Seconds a continuing shot's take repeats of the shot before it, which the cut trims. */
   private continuedOverlap(shot: ShotRow, take: TakeRow): number {
     if (!shot.continues) return 0;
     const job = this.deps.jobs.get(take.jobId);
-    const id = (job?.params as RecipeJobParams | undefined)?.recipe ?? shot.recipeId;
+    const request = job?.params as RecipeJobParams | undefined;
+    const id = request?.recipe ?? shot.recipeId;
     try {
-      return id ? (this.deps.recipes.require(id).continuation?.overlap_s ?? 0) : 0;
+      const continuation = id ? this.deps.recipes.require(id).continuation : undefined;
+      // Continued from latents, the take starts where the last one ended.
+      if (continuation?.latent && request?.params?.[continuation.latent.param] !== undefined) return 0;
+      return continuation?.overlap_s ?? 0;
     } catch {
       return 0;
     }
@@ -945,7 +978,10 @@ export class ProjectService {
     const take = this.requireTake(id);
     const job = this.deps.jobs.get(take.jobId);
     if (job && (job.status === 'queued' || job.status === 'running')) this.deps.jobs.cancel(job.id);
-    if (take.file) await rm(this.takeFile(take.projectId, take.file), { force: true });
+    if (take.file) {
+      await rm(this.takeFile(take.projectId, take.file), { force: true });
+      await removeSidecars(this.takeFile(take.projectId, take.file));
+    }
     const master = take.master as TakeMaster | null;
     if (master?.file) await rm(this.takeFile(take.projectId, master.file), { force: true });
     const chain = take.chain as TakeChain | null;
@@ -969,6 +1005,7 @@ export class ProjectService {
     if (!take) return;
     const result = (job.result ?? {}) as Record<string, unknown>;
     const path = (result.video_path ?? result.image_path ?? result.audio_path) as string | undefined;
+    if ((job.params as unknown as RecipeJobParams).master_takes) return this.settleJointMaster(job, path);
     if ((job.params as { master?: boolean }).master) return this.settleMaster(take, job, path);
     if (take.chain) return this.advanceChain(take, job, path);
     if (!path || job.status !== 'completed') return;
@@ -977,6 +1014,9 @@ export class ProjectService {
       const target = this.takeFile(take.projectId, name);
       await mkdir(join(safeResolve(this.deps.paths.projectsDir, take.projectId), 'files'), { recursive: true });
       await copyFile(path, target);
+      // An H3 take's latents come with it: they are what a continuing shot
+      // and the joint master read.
+      await carrySidecars(path, target);
       this.db.update(takes).set({ file: name }).where(eq(takes.id, take.id)).run();
     } catch (err) {
       this.deps.log.warn({ take: take.id, err: (err as Error).message }, 'could not keep a take in its project');
@@ -1001,6 +1041,10 @@ export class ProjectService {
       const job = this.deps.jobs.get(current.jobId);
       if (job && (job.status === 'queued' || job.status === 'running')) return this.viewTake(take);
     }
+    // A take with its latents is mastered by re-sampling them, together with
+    // every take its shot continues or is continued by.
+    const joint = options.recipe ? null : await this.jointMasterFor(take);
+    if (joint) return this.masterJoint(take, joint.recipe, joint.mode, options);
     const recipe = await this.masterRecipe(options.recipe);
     const scale = recipe.params.find((p) => p.name === 'scale');
     // The recipe reads its input from uploads, like any other.
@@ -1033,6 +1077,9 @@ export class ProjectService {
   async masterChosen(shotIds: string[], options: { recipe?: string; scale?: number } = {}): Promise<{ takes: TakeView[]; skipped: string[] }> {
     const out: TakeView[] = [];
     const skipped: string[] = [];
+    // A joint master covers every take of its run: one job per run, however
+    // many of its shots are asked for (and however soon that job settles).
+    const queued = new Set<string>();
     for (const shotId of shotIds) {
       const shot = this.requireShot(shotId);
       const take = shot.chosenTakeId ? this.db.select().from(takes).where(eq(takes.id, shot.chosenTakeId)).get() : undefined;
@@ -1040,15 +1087,140 @@ export class ProjectService {
         skipped.push(shotId);
         continue;
       }
-      out.push(await this.masterTake(take.id, options));
+      const current = take.master as TakeMaster | null;
+      if (current && queued.has(current.jobId)) {
+        out.push(this.viewTake(take));
+        continue;
+      }
+      const view = await this.masterTake(take.id, options);
+      if (view.master) queued.add(view.master.jobId);
+      out.push(view);
     }
     return { takes: out, skipped };
+  }
+
+  /** The recipe a take was rendered with, if it is still loaded. */
+  private takeRecipe(take: TakeRow): Recipe | null {
+    const id = (this.deps.jobs.get(take.jobId)?.params as RecipeJobParams | undefined)?.recipe;
+    try {
+      return id ? this.deps.recipes.require(id) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** An installed joint-master recipe, and its mode, for a take that has its latents. */
+  private async jointMasterFor(take: TakeRow): Promise<{ recipe: Recipe; mode: string } | null> {
+    const family = this.takeRecipe(take)?.family;
+    if (!family || !take.file || !(await hasLatents(this.takeFile(take.projectId, take.file)))) return null;
+    for (const recipe of this.deps.recipes.list()) {
+      const mode = recipe.joint_master?.families[family];
+      if (!mode) continue;
+      const status = await this.deps.recipes.status(recipe, this.deps.config.tier, this.deps.config.licenceMode);
+      if (status.state !== 'installed') continue;
+      // Each mode re-samples with its own model, which the recipe holds as optional.
+      const bound = new Set(recipe.workflows[recipe.modes[mode].workflow].bindings.flatMap((b) => ('file' in b ? [b.file] : [])));
+      const files = await this.deps.recipes.resolveFiles(recipe, this.deps.config.tier);
+      if (files.some((f) => bound.has(f.file.id) && !f.installed)) continue;
+      return { recipe, mode };
+    }
+    return null;
+  }
+
+  /**
+   * The chosen takes of the run of shots a take's shot belongs to, in
+   * order: shots that continue each other from their latents. A take that
+   * is not its shot's chosen one is mastered alone.
+   */
+  private continuityTakes(take: TakeRow): TakeRow[] {
+    const shot = this.requireShot(take.shotId);
+    if (shot.chosenTakeId !== take.id) return [take];
+    const siblings = this.listShots(shot.projectId, shot.sceneId).sort((a, b) => a.position - b.position);
+    const chosen = siblings.map((s) => (s.chosenTakeId ? (this.db.select().from(takes).where(eq(takes.id, s.chosenTakeId)).get() ?? null) : null));
+    const index = siblings.findIndex((s) => s.id === shot.id);
+    const continuesFrom = (i: number): boolean => {
+      const current = chosen[i];
+      const previous = chosen[i - 1];
+      if (!siblings[i].continues || !current?.file || !previous?.file) return false;
+      const recipe = this.takeRecipe(current);
+      const param = recipe?.continuation?.latent?.param;
+      const request = this.deps.jobs.get(current.jobId)?.params as RecipeJobParams | undefined;
+      // Continued from exactly the previous shot's chosen take, from its latents.
+      return !!param && request?.params?.[param] === `pepper-ctx/${previous.id}${extname(previous.file)}`;
+    };
+    const { first, last } = continuityRun(siblings.length, index, continuesFrom);
+    return chosen.slice(first, last + 1).filter((t): t is TakeRow => t !== null);
+  }
+
+  /** One joint master job for a take's run, every take in it marked as mastering. */
+  private async masterJoint(take: TakeRow, recipe: Recipe, mode: string, options: { scale?: number }): Promise<TakeView> {
+    const run = this.continuityTakes(take);
+    const lines: string[] = [];
+    for (const part of run) lines.push(await this.stageClip(part, this.takeFile(part.projectId, part.file!)));
+    const scale = recipe.params.find((p) => p.name === 'scale');
+    const prepared = await this.deps.comfy.prepareRequest(
+      {
+        recipe: recipe.id,
+        mode,
+        params: { [recipe.joint_master!.param]: lines.join('\n'), ...(scale && options.scale !== undefined ? { scale: options.scale } : {}) },
+        shot_id: take.shotId,
+      },
+      { licenceMode: this.requireProject(take.projectId).licenceMode as LicenceMode },
+    );
+    const job = this.deps.jobs.create(prepared.recipe.kind, {
+      recipe: prepared.recipe.id,
+      mode: prepared.mode,
+      params: prepared.values,
+      shot_id: take.shotId,
+      take_id: take.id,
+      master: true,
+      master_takes: run.map((t) => t.id),
+    });
+    for (const part of run) {
+      const current = part.master as TakeMaster | null;
+      if (current?.file) await rm(this.takeFile(part.projectId, current.file), { force: true });
+      const master: TakeMaster = { jobId: job.id, recipe: recipe.id, state: 'rendering' };
+      this.db.update(takes).set({ master }).where(eq(takes.id, part.id)).run();
+    }
+    this.touch(take.projectId);
+    return this.viewTake(this.requireTake(take.id));
+  }
+
+  /** A joint master settled: split its render back into one master per take. */
+  private async settleJointMaster(job: Job, path: string | undefined): Promise<void> {
+    const ids = (job.params as unknown as RecipeJobParams).master_takes ?? [];
+    const run = ids.map((id) => this.db.select().from(takes).where(eq(takes.id, id)).get()).filter((t): t is TakeRow => !!t);
+    const mine = run.filter((t) => (t.master as TakeMaster | null)?.jobId === job.id);
+    const fail = (error: string) => {
+      for (const t of mine) this.db.update(takes).set({ master: { ...(t.master as TakeMaster), state: 'failed', error } }).where(eq(takes.id, t.id)).run();
+    };
+    if (job.status !== 'completed' || !path) return fail(job.error?.message ?? `The master ${job.status}`);
+    try {
+      const parts: JointPart[] = [];
+      for (const t of run) parts.push({ takeId: t.id, durationS: (await probeMedia(this.takeFile(t.projectId, t.file!))).duration });
+      const { hasAudio } = await probeMedia(path);
+      for (const range of jointSplits(parts)) {
+        const t = mine.find((m) => m.id === range.takeId);
+        if (!t) continue;
+        const name = `${t.id}-master.mp4`;
+        await runFfmpeg(jointSplitArgs(path, range, this.takeFile(t.projectId, name), hasAudio), 600_000);
+        this.db.update(takes).set({ master: { ...(t.master as TakeMaster), state: 'done', file: name } }).where(eq(takes.id, t.id)).run();
+      }
+    } catch (err) {
+      const message = (err as Error).message;
+      this.deps.log.warn({ job: job.id, err: message }, 'could not split a joint master');
+      fail(message);
+    }
   }
 
   /** The finishing recipe a master uses: the one asked for, else the first installed video upscaler. */
   private async masterRecipe(id?: string): Promise<Recipe> {
     if (id) return this.deps.recipes.require(id);
-    for (const recipe of this.deps.recipes.list()) {
+    // A restoring upscaler (SeedVR2) before one that only enlarges (RTX VSR).
+    const candidates = [...this.deps.recipes.list()].sort(
+      (a, b) => Number(b.capabilities.includes('restore')) - Number(a.capabilities.includes('restore')),
+    );
+    for (const recipe of candidates) {
       if (recipe.kind !== 'video' || !recipe.capabilities.includes('upscale') || !recipe.params.some((p) => p.name === 'video')) continue;
       const status = await this.deps.recipes.status(recipe, this.deps.config.tier, this.deps.config.licenceMode);
       if (status.state === 'installed') return recipe;

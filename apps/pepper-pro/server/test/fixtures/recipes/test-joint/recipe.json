@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "test-joint",
+  "version": 1,
+  "kind": "video",
+  "name": "Test joint master",
+  "description": "Stands in for h3-master: takes a sequence of saved takes and writes one solid clip. Model-free, for joint-master tests.",
+  "family": "test-joint",
+  "capabilities": ["upscale", "joint-master"],
+  "licence": { "id": "test", "name": "Test", "commercial": "yes" },
+  "files": [],
+  "params": [
+    { "name": "sequence", "type": "text", "label": "Takes", "required": true },
+    { "name": "scale", "type": "float", "label": "Scale", "default": 2, "min": 1, "max": 4 },
+    { "name": "seed", "type": "seed", "label": "Seed" }
+  ],
+  "workflows": {
+    "main": { "file": "workflow.json", "bindings": [], "outputs": [{ "node": "4", "kind": "video" }] }
+  },
+  "modes": { "final": { "label": "Final", "workflow": "main" } },
+  "default_mode": "final",
+  "joint_master": { "param": "sequence", "families": { "test": "final" } },
+  "tiers": ["32gb"]
+}

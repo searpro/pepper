@@ -30,9 +30,15 @@ Everything else (jobs, downloads, logs, auth, media, MCP) is `@pepper/core`.
   job waiting on its children would hold the only job slot) and joined with
   ffmpeg. A shot marked `continues` renders from the previous shot's chosen
   take through the same continuation, and a new cut trims the overlap, so a
-  scene of directed shots plays as one take. `masterTake` upscales a chosen
-  take for delivery (an `upscale` recipe, SeedVR2) with its soundtrack kept;
-  the cut plays `deliveryFile`, the master once done.
+  scene of directed shots plays as one take. H3 takes carry their latents
+  (obvpm `.mctx`/`.cond` sidecars beside the file, `engines/sidecars.ts`),
+  so a continuing shot continues them exactly (`continuation.latent`, the
+  clip staged in ComfyUI's output folder under `pepper-ctx/`) and the cut
+  trims nothing. `masterTake` makes a take's delivery file: a take with
+  latents goes to a `joint_master` recipe (h3-master) together with its
+  whole run of continuing shots, and the one render is split back per take
+  (`joint.ts`); others are upscaled by an `upscale` recipe (SeedVR2) with
+  their soundtrack kept. The cut plays `deliveryFile`, the master once done.
 - `src/projects/derive.ts`: shot → recipe parameters, and the prompt. A
   recipe's `prompt_format` (`h3-base`, `h3-reference`) composes MiniMax's
   structured H3 prompts (docs/H3-16GB.md §3); a prompt already in that
@@ -51,7 +57,9 @@ Everything else (jobs, downloads, logs, auth, media, MCP) is `@pepper/core`.
   a `CREATE TABLE IF NOT EXISTS` in the schema SQL.
 - Every job gives its save nodes a unique `filename_prefix`: ComfyUI caches
   an unchanged node and reports its previous file, which an earlier job has
-  already moved out.
+  already moved out. A save node that reports nothing to the history (the
+  obvpm H3 savers) is an output with `scan: true`: the engine finds its files
+  by that prefix.
 
 ## Recipes
 

@@ -124,8 +124,13 @@ const workflowSchema = z.object({
   /** API-format JSON, relative to the recipe's directory. */
   file: z.string().regex(/^[\w./-]+\.json$/),
   bindings: z.array(bindingSchema),
-  /** Nodes whose files are the result, in order. */
-  outputs: z.array(z.object({ node: z.string(), kind: z.enum(['image', 'video', 'audio']) })).min(1),
+  /**
+   * Nodes whose files are the result, in order. `scan` is for a save node
+   * that reports no files to ComfyUI's history (the obvpm H3 savers return
+   * their path as a value): the files it wrote under the job's prefix are
+   * found on disk instead, with the latent sidecars beside them.
+   */
+  outputs: z.array(z.object({ node: z.string(), kind: z.enum(['image', 'video', 'audio']), scan: z.boolean().default(false) })).min(1),
   /**
    * Relative cost of the nodes that report step progress, so a job's bar
    * moves evenly across a two-stage render instead of filling twice.
@@ -230,13 +235,44 @@ export const recipeSchema = z
      * is the video input whose tail opens the new clip, which then repeats
      * `overlap_s` seconds of it that the cut trims away.
      */
-    continuation: z.object({ param: z.string(), overlap_s: z.number().positive() }).optional(),
+    continuation: z
+      .object({
+        param: z.string(),
+        overlap_s: z.number().positive(),
+        /**
+         * The input that continues a take from its saved latents instead
+         * (a `string` naming the clip in ComfyUI's output folder), used when
+         * the take has them. There is no VAE round trip, so nothing degrades
+         * at the join, and the new take holds none of the old one's frames:
+         * the cut trims nothing.
+         */
+        latent: z.object({ param: z.string() }).optional(),
+      })
+      .optional(),
+    /**
+     * A recipe that masters takes from their saved latents (the H3 joint
+     * refine): `param` takes the sequence of clips, one per line, which it
+     * upscales and re-samples as one piece and renders as one file.
+     */
+    joint_master: z.object({ param: z.string(), families: z.record(z.string()) }).optional(),
   })
   .superRefine((recipe, ctx) => {
     const params = new Set(recipe.params.map((p) => p.name));
     const files = new Set(recipe.files.map((f) => f.id));
     if (recipe.continuation && recipe.params.find((p) => p.name === recipe.continuation!.param)?.type !== 'video') {
       ctx.addIssue({ code: 'custom', message: `continuation param "${recipe.continuation.param}" is not a video param` });
+    }
+    const latent = recipe.continuation?.latent;
+    if (latent && recipe.params.find((p) => p.name === latent.param)?.type !== 'string') {
+      ctx.addIssue({ code: 'custom', message: `latent continuation param "${latent.param}" is not a string param` });
+    }
+    if (recipe.joint_master) {
+      if (recipe.params.find((p) => p.name === recipe.joint_master!.param)?.type !== 'text') {
+        ctx.addIssue({ code: 'custom', message: `joint_master param "${recipe.joint_master.param}" is not a text param` });
+      }
+      for (const [family, mode] of Object.entries(recipe.joint_master.families)) {
+        if (!recipe.modes[mode]) ctx.addIssue({ code: 'custom', message: `joint_master maps ${family} to unknown mode "${mode}"` });
+      }
     }
     if (!recipe.modes[recipe.default_mode]) {
       ctx.addIssue({ code: 'custom', message: `default_mode "${recipe.default_mode}" is not a mode` });

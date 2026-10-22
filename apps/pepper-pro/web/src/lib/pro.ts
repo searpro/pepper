@@ -136,7 +136,7 @@ export interface Take {
     sourceTakeId?: string;
     error?: string;
   } | null;
-  /** The take upscaled for delivery (SeedVR2), which a cut plays in its place once done. */
+  /** The take mastered for delivery (h3-master or SeedVR2), which a cut plays in its place once done. */
   master: {
     recipe: string;
     state: 'rendering' | 'done' | 'failed';

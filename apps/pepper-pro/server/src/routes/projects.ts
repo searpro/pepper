@@ -371,8 +371,10 @@ export async function projectRoutes(fastify: FastifyInstance, options: ProjectRo
         tags,
         summary: 'Master a take for delivery',
         description:
-          'Upscales a finished video take with a finishing recipe (the installed SeedVR2 video upscaler unless ' +
-          '`recipe` names one), keeping its soundtrack. The take is unchanged; a cut uses the master once it is done.',
+          'Masters a finished video take for delivery. A take with saved latents (H3) is re-sampled from them by ' +
+          'h3-master, together with every take of the run of shots that continue each other; any other take is ' +
+          'upscaled by the installed SeedVR2 video upscaler, or the recipe `recipe` names, keeping its soundtrack. ' +
+          'The take is unchanged; a cut uses the master once it is done.',
         params: id,
         body: z.object({ recipe: z.string().optional(), scale: z.number().min(1).max(4).optional() }).default({}),
       },

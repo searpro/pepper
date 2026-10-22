@@ -12,6 +12,7 @@
   "params": [
     { "name": "prompt", "type": "text", "label": "Prompt" },
     { "name": "previous", "type": "video", "label": "Continue from" },
+    { "name": "context", "type": "string", "label": "Continue from (latents)" },
     { "name": "duration", "type": "float", "label": "Seconds", "default": 1, "min": 0.5, "max": 1.5 },
     { "name": "seed", "type": "seed", "label": "Seed" }
   ],
@@ -28,5 +29,5 @@
   "modes": { "draft": { "label": "Draft", "workflow": "main" } },
   "default_mode": "draft",
   "tiers": ["32gb"],
-  "continuation": { "param": "previous", "overlap_s": 0.25 }
+  "continuation": { "param": "previous", "overlap_s": 0.25, "latent": { "param": "context" } }
 }

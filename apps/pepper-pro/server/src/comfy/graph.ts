@@ -92,9 +92,10 @@ export interface ValidateOptions {
 
 /**
  * Inputs whose choices are lists of files on disk (`unet_name`, `lora_name`,
- * `clip_name2`, `text_encoder`, ModelPatchLoader's `name`, LongCat's `vae` and `lora`, LoadImage's `image`…). `sampler_name` is a real choice list.
+ * `clip_name2`, `text_encoder`, ModelPatchLoader's `name`, LongCat's `vae` and `lora`, LoadImage's `image`, the obvpm
+ * H3 loaders' `clip`, a video in the output folder…). `sampler_name` is a real choice list.
  */
-const FILE_INPUT = /^(?!sampler_name$)(.+_name\d*|name|vae|lora|text_encoder\d*|image|audio|video|file)$/;
+const FILE_INPUT = /^(?!sampler_name$)(.+_name\d*|name|vae|lora|text_encoder\d*|image|audio|video|file|clip)$/;
 
 /**
  * Check a prompt against the node types a ComfyUI knows: every class exists,

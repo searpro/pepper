@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "h3-video",
-  "version": 1,
+  "version": 2,
   "kind": "video",
   "name": "MiniMax H3 — video with sound",
   "description": "Video and its soundtrack in one pass, from a prompt and optionally a first frame, a last frame, a driving audio clip (lip-sync to a voice) or a previous clip to continue. The workhorse for talking shots, product shots and anything that needs matching sound.",
@@ -196,6 +196,12 @@
       "description": "A clip to continue: its last second opens this one. Leave first_frame empty."
     },
     {
+      "name": "context",
+      "type": "string",
+      "label": "Continue from (latents)",
+      "description": "A saved take to continue from its latents, by its name in ComfyUI's output folder; set by projects for a shot that continues the one before it."
+    },
+    {
       "name": "duration",
       "type": "float",
       "label": "Seconds",
@@ -207,7 +213,7 @@
       "name": "width",
       "type": "int",
       "label": "Width",
-      "default": 1344,
+      "default": 960,
       "min": 256,
       "max": 2048
     },
@@ -215,7 +221,7 @@
       "name": "height",
       "type": "int",
       "label": "Height",
-      "default": 768,
+      "default": 544,
       "min": 256,
       "max": 2048
     },
@@ -292,6 +298,15 @@
           ]
         },
         {
+          "param": "context",
+          "nodes": [
+            {
+              "node": "230",
+              "input": "clip"
+            }
+          ]
+        },
+        {
           "file": "model",
           "node": "105:6",
           "input": "unet_name"
@@ -320,7 +335,8 @@
       "outputs": [
         {
           "node": "92",
-          "kind": "video"
+          "kind": "video",
+          "scan": true
         }
       ],
       "bypass": [
@@ -347,8 +363,8 @@
   },
   "modes": {
     "draft": {
-      "label": "Draft (turbo, 8 steps)",
-      "description": "Distilled LoRA: about a third of the time. For choosing takes.",
+      "label": "Preview (turbo, 8 steps)",
+      "description": "Distilled LoRA, for blocking a shot quickly; faces and voices are weakest here.",
       "workflow": "main",
       "set": [
         {
@@ -359,8 +375,8 @@
       ]
     },
     "final": {
-      "label": "Final (20 steps)",
-      "description": "The full model. Same seed as a draft gives a close, not identical, take.",
+      "label": "Take (20 steps)",
+      "description": "The full model at 960×544: the take to choose and master.",
       "workflow": "main",
       "set": [
         {
@@ -371,7 +387,7 @@
       ]
     }
   },
-  "default_mode": "draft",
+  "default_mode": "final",
   "tiers": [
     "16gb",
     "24gb-64ram",
@@ -379,15 +395,25 @@
     "48gb",
     "96gb"
   ],
-  "notes": "Sizes snap to multiples of 32; lengths to 24 fps frames on the 17k+5 grid (5 s = 124 frames). Trained range is about 5-15 s. With `previous`, the new clip repeats the old one's last second: trim 22 frames when cutting them together.",
+  "notes": "Takes render at about 0.5 MP (960×544) and keep their latents; mastering (h3-master) upscales and re-samples them with H3 itself to 1920×1088, a whole run of continuing shots as one piece. Sizes snap to multiples of 32; lengths snap to 24 fps frames on the 17k+5 grid (5 s = 124 frames). Trained range is about 5-15 s. A take continued from latents (`context`) holds none of the old take's frames; continued from a video (`previous`) it repeats the last 22 frames, which the cut trims.",
   "continuation": {
     "param": "previous",
-    "overlap_s": 0.9167
+    "overlap_s": 0.9167,
+    "latent": {
+      "param": "context"
+    }
   },
   "verified": {
     "date": "2026-10-16",
     "gpu": "RTX 5060 Ti 16 GB, 32 GB RAM (16gb tier, pruned FL2VA NVFP4 on the cu130 image, Kitchen attention)",
     "seconds": 390,
     "notes": "Draft mode, 1344x768, 6 s (158 frames) from a first frame and one line: 390 s with the model load, a shot continuing it 445 s; peak 15.7 GB VRAM and 18.5 GB RAM at 170 W, no thrashing. The action, push-in, identity and street held; speech at 8 steps was close but slurred ('Not today, Nagen.'). The continuation seam was invisible. Earlier, on an RTX PRO 4500 Blackwell 32 GB, 62 GB RAM (32gb tier): about 7.6 min per 5 s draft."
-  }
+  },
+  "nodes": [
+    {
+      "name": "comfyui-obvpm-timeline",
+      "repo": "https://github.com/chanon/comfyui-obvpm-timeline",
+      "commit": "03a4b83f46c39fa07f7a002c6d85fe00004a29f2"
+    }
+  ]
 }

@@ -337,7 +337,7 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
             <Badge
               variant={take.master.state === 'done' ? 'success' : take.master.state === 'failed' ? 'destructive' : 'outline'}
               className="whitespace-nowrap"
-              title={take.master.error ?? `Upscaled for delivery with ${take.master.recipe}; the cut plays it in place of the take`}
+              title={take.master.error ?? `Mastered for delivery with ${take.master.recipe}; the cut plays it in place of the take`}
             >
               {take.master.state === 'done' ? 'mastered' : take.master.state === 'failed' ? 'master failed' : `mastering ${Math.round((take.master.progress ?? 0) * 100)}%`}
             </Badge>
@@ -427,7 +427,7 @@ function TakeCard({ take, chosen, onChanged, onError }: { take: Take; chosen: bo
               size="icon-sm"
               variant="ghost"
               aria-label="Master for delivery"
-              title="Upscale this take for delivery (SeedVR2), keeping its sound; the cut plays the master"
+              title="Master this take for delivery: H3 takes are re-sampled at 1920×1088 (with the shots they continue), others upscaled by SeedVR2; the cut plays the master"
               disabled={take.status !== 'completed' || take.master?.state === 'rendering'}
               onClick={() => run(() => api.post(`/v1/takes/${take.id}/master`, {}))}
             >

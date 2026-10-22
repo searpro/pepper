@@ -1,0 +1,62 @@
+{
+  "73": {
+    "class_type": "LoadVideo",
+    "inputs": {
+      "file": "input.mp4"
+    }
+  },
+  "74": {
+    "class_type": "GetVideoComponents",
+    "inputs": {
+      "video": [
+        "73",
+        0
+      ]
+    }
+  },
+  "75": {
+    "class_type": "RTXVideoSuperResolution",
+    "inputs": {
+      "images": [
+        "74",
+        0
+      ],
+      "resize_type": "scale by multiplier",
+      "resize_type.scale": 2.0,
+      "quality": "HIGHBITRATE_ULTRA",
+      "strength": 1.0,
+      "image_encoding": "8-bit RGB"
+    }
+  },
+  "76": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": [
+        "75",
+        0
+      ],
+      "audio": [
+        "74",
+        1
+      ],
+      "fps": [
+        "74",
+        2
+      ]
+    }
+  },
+  "77": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "76",
+        0
+      ],
+      "filename_prefix": "pepper-pro",
+      "format": "mp4",
+      "format.codec": "h264",
+      "format.codec.encoding": "re-encode",
+      "format.codec.encoding.crf": 14
+    }
+  }
+}

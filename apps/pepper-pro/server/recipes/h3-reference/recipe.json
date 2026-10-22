@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "id": "h3-reference",
-  "version": 1,
+  "version": 2,
   "kind": "video",
   "name": "MiniMax H3 — cast from references",
   "description": "Video with sound from reference pictures of up to four characters, props or places, and up to three voice clips. The prompt names them as <Subject n> and <Picture n>, which is how a recurring cast stays the same person across shots. For dialogue between characters.",
@@ -12,7 +12,8 @@
     "references",
     "voice-refs",
     "native-audio",
-    "text-to-video"
+    "text-to-video",
+    "continuation"
   ],
   "prompt_format": "h3-reference",
   "licence": {
@@ -183,6 +184,18 @@
       "description": "A few seconds of each speaker, in speaking order."
     },
     {
+      "name": "previous",
+      "type": "video",
+      "label": "Continue from",
+      "description": "A clip to continue: its last second opens this one, and the references still hold who is in it."
+    },
+    {
+      "name": "context",
+      "type": "string",
+      "label": "Continue from (latents)",
+      "description": "A saved take to continue from its latents, by its name in ComfyUI's output folder; set by projects for a shot that continues the one before it."
+    },
+    {
       "name": "duration",
       "type": "float",
       "label": "Seconds",
@@ -194,7 +207,7 @@
       "name": "width",
       "type": "int",
       "label": "Width",
-      "default": 1344,
+      "default": 960,
       "min": 256,
       "max": 2048
     },
@@ -202,7 +215,7 @@
       "name": "height",
       "type": "int",
       "label": "Height",
-      "default": 768,
+      "default": 544,
       "min": 256,
       "max": 2048
     },
@@ -304,19 +317,49 @@
           "file": "turbo_lora",
           "node": "145",
           "input": "lora_name"
+        },
+        {
+          "param": "previous",
+          "nodes": [
+            {
+              "node": "220",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "param": "context",
+          "nodes": [
+            {
+              "node": "230",
+              "input": "clip"
+            }
+          ]
         }
       ],
       "outputs": [
         {
           "node": "92",
-          "kind": "video"
+          "kind": "video",
+          "scan": true
+        }
+      ],
+      "bypass": [
+        {
+          "node": "223",
+          "requires": [
+            "image"
+          ],
+          "through": {
+            "0": "positive"
+          }
         }
       ]
     }
   },
   "modes": {
     "draft": {
-      "label": "Draft (turbo, 4 steps)",
+      "label": "Preview (turbo, 4 steps)",
       "workflow": "main",
       "set": [
         {
@@ -324,10 +367,11 @@
           "input": "value",
           "value": true
         }
-      ]
+      ],
+      "description": "Distilled LoRA, for blocking a shot quickly; faces and voices are weakest here."
     },
     "final": {
-      "label": "Final (20 steps)",
+      "label": "Take (20 steps)",
       "workflow": "main",
       "set": [
         {
@@ -335,15 +379,30 @@
           "input": "value",
           "value": false
         }
-      ]
+      ],
+      "description": "The full model at 960×544: the take to choose and master."
     }
   },
-  "default_mode": "draft",
+  "default_mode": "final",
   "tiers": [
     "24gb-64ram",
     "32gb",
     "48gb",
     "96gb"
   ],
-  "notes": "The ref2va turbo LoRA is v0.1: drafts are rougher than h3-video's. A hybrid loader that grafts ref2va blocks onto fl2va (scottmudge/ComfyUI_MinimaxH3HybridLoader) is a candidate for a later version once it has been measured."
+  "notes": "Takes render at about 0.5 MP (960×544) and keep their latents; mastering (h3-master) upscales and re-samples them with H3 itself to 1920×1088, a whole run of continuing shots as one piece. A shot that continues the one before it keeps its references, so identity is re-anchored on the character's pictures every shot rather than carried only through generated frames, which drift. The ref2va turbo LoRA is v0.1: drafts are rougher than h3-video's. A hybrid loader that grafts ref2va blocks onto fl2va (scottmudge/ComfyUI_MinimaxH3HybridLoader) is a candidate for a later version once it has been measured.",
+  "nodes": [
+    {
+      "name": "comfyui-obvpm-timeline",
+      "repo": "https://github.com/chanon/comfyui-obvpm-timeline",
+      "commit": "03a4b83f46c39fa07f7a002c6d85fe00004a29f2"
+    }
+  ],
+  "continuation": {
+    "param": "previous",
+    "overlap_s": 0.9167,
+    "latent": {
+      "param": "context"
+    }
+  }
 }

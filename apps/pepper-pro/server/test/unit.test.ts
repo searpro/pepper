@@ -16,6 +16,7 @@ import { resolveParams } from '../src/engines/params.js';
 import { buildCutArgs, buildSrt, frameFor, isSilent, parseLoudness, snapToBeats, type Segment } from '../src/engines/render.js';
 import { describeModel, mapRequest, pickModel, type ModelDescription } from '../src/generate.js';
 import { joinArgs, planSegments } from '../src/projects/chain.js';
+import { continuityRun, jointSplitArgs, jointSplits } from '../src/projects/joint.js';
 import { composePrompt, deriveParams, sizeFor } from '../src/projects/derive.js';
 import type { AssetRow, ProjectRow, ShotRow } from '../src/projects/schema.js';
 import { checkRecipe } from '../src/recipes/check.js';
@@ -69,7 +70,7 @@ const OBJECT_INFO: ObjectInfo = {
 describe('recipes', () => {
   it('loads the fixture recipes and their workflows', async () => {
     const store = await loadStore();
-    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-upscale', 'test-video']);
+    expect(store.list().map((r) => r.id).sort()).toEqual(['test-audio', 'test-continue', 'test-image', 'test-joint', 'test-upscale', 'test-video']);
     expect(store.broken).toEqual([]);
     expect(Object.keys(store.workflow(store.require('test-image'), 'main'))).toContain('4');
   });
@@ -1422,6 +1423,105 @@ describe('continuing shots', () => {
       server.closeDb();
     }
   }, 60_000);
+
+  it('continues from saved latents, and masters the run as one piece split back into its takes', async () => {
+    if (!haveFfmpeg) return;
+    const server = await buildServer(await tempConfig());
+    try {
+      // Stand-ins for ComfyUI: an H3 take is a clip with its latent
+      // sidecars beside it; the joint master renders the whole run, twice
+      // the size, as one file.
+      const dir = await mkdtemp(join(tmpdir(), 'pepper-latents-'));
+      const clip = join(dir, 'clip.mp4');
+      const joint = join(dir, 'joint.mp4');
+      spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=64x64:d=1:r=24', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=1', '-shortest', '-pix_fmt', 'yuv420p', clip]);
+      spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=128x128:d=2:r=24', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=2', '-shortest', '-pix_fmt', 'yuv420p', joint]);
+      await writeFile(join(dir, 'clip.mctx.safetensors'), 'latents');
+      await writeFile(join(dir, 'clip.cond.safetensors'), 'conditioning');
+      const seen: Record<string, unknown>[] = [];
+      server.jobs.registerExecutor('video', async ({ job }) => {
+        seen.push(job.params);
+        return { video_path: (job.params as { master?: boolean }).master ? joint : clip };
+      });
+      const settle = async (id: string, done: (view: ReturnType<typeof server.projects.viewTake>) => boolean) => {
+        for (let i = 0; i < 400; i++) {
+          const view = server.projects.viewTake(server.projects.requireTake(id));
+          if (done(view)) return view;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        throw new Error(`take ${id} did not settle`);
+      };
+
+      const project = server.projects.createProject({ name: 'Latents' });
+      const scene = server.projects.createScene(project.id);
+      const first = server.projects.createShot(scene.id, { prompt: 'She walks in', recipeId: 'test-continue', durationS: 1 });
+      const second = server.projects.createShot(scene.id, { prompt: 'She sits down', recipeId: 'test-continue', durationS: 1, continues: true });
+
+      const [opening] = await server.projects.renderShots([first.id], {});
+      await settle(opening.id, (v) => Boolean(v.file));
+      server.projects.chooseTake(opening.id);
+      // The take keeps its latents in the project.
+      expect(existsSync(server.projects.takeFile(project.id, `${opening.id}.mctx.safetensors`))).toBe(true);
+      expect(existsSync(server.projects.takeFile(project.id, `${opening.id}.cond.safetensors`))).toBe(true);
+
+      const [carried] = await server.projects.renderShots([second.id], {});
+      const params = (seen.at(-1) as { params: Record<string, unknown> }).params;
+      // Continued from the latents, staged where the obvpm loader reads clips.
+      expect(params.context).toBe(`pepper-ctx/${opening.id}.mp4`);
+      expect(params.previous).toBeUndefined();
+      expect(existsSync(join(server.paths.comfyOutputDir, 'pepper-ctx', `${opening.id}.mctx.safetensors`))).toBe(true);
+      await settle(carried.id, (v) => Boolean(v.file));
+      server.projects.chooseTake(carried.id);
+      // Nothing repeats at the join, so the cut trims nothing.
+      expect(server.projects.createCut(project.id).items).toEqual([{ take_id: opening.id }, { take_id: carried.id }]);
+
+      // Mastering either shot masters the run: one job, both takes.
+      const { takes: mastering } = await server.projects.masterChosen([first.id, second.id]);
+      expect(mastering.map((t) => t.master?.recipe)).toEqual(['test-joint', 'test-joint']);
+      const masters = seen.filter((p) => (p as { master?: boolean }).master) as { master_takes: string[]; params: { sequence: string } }[];
+      expect(masters).toHaveLength(1);
+      expect(masters[0].master_takes).toEqual([opening.id, carried.id]);
+      expect(masters[0].params.sequence).toBe(`pepper-ctx/${opening.id}.mp4\npepper-ctx/${carried.id}.mp4`);
+
+      for (const take of [opening, carried]) {
+        const done = await settle(take.id, (v) => v.master?.state === 'done' || v.master?.state === 'failed');
+        expect(done.master).toMatchObject({ state: 'done', file: `${take.id}-master.mp4` });
+        // Each take's own second of the joint render, at its size, with its sound.
+        const info = await probeMedia(server.projects.takeFile(project.id, done.master!.file!));
+        expect(info).toMatchObject({ width: 128, height: 128, hasAudio: true });
+        expect(info.duration).toBeGreaterThan(0.9);
+        expect(info.duration).toBeLessThan(1.1);
+      }
+
+      await server.projects.deleteTake(carried.id);
+      expect(existsSync(server.projects.takeFile(project.id, `${carried.id}.mctx.safetensors`))).toBe(false);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  }, 60_000);
+});
+
+describe('joint master', () => {
+  it('splits a joint render at each take’s frames', () => {
+    expect(jointSplits([{ takeId: 'a', durationS: 6.583 }, { takeId: 'b', durationS: 5.125 }])).toEqual([
+      { takeId: 'a', start: 0, end: 158 },
+      { takeId: 'b', start: 158, end: 281 },
+    ]);
+    const args = jointSplitArgs('in.mp4', { start: 158, end: 281 }, 'out.mp4', true);
+    expect(args).toEqual(expect.arrayContaining(['-vf', 'trim=start_frame=158:end_frame=281,setpts=PTS-STARTPTS']));
+    expect(args.join(' ')).toContain('atrim=start=6.583333:end=11.708333');
+    expect(jointSplitArgs('in.mp4', { start: 0, end: 24 }, 'out.mp4', false)).toContain('-an');
+  });
+
+  it('finds the run of shots that continue each other', () => {
+    // Shots 1 and 2 continue the one before them; 3 does not; 4 continues 3.
+    const continues = [false, true, true, false, true];
+    expect(continuityRun(5, 1, (i) => continues[i])).toEqual({ first: 0, last: 2 });
+    expect(continuityRun(5, 0, (i) => continues[i])).toEqual({ first: 0, last: 2 });
+    expect(continuityRun(5, 4, (i) => continues[i])).toEqual({ first: 3, last: 4 });
+    expect(continuityRun(1, 0, () => false)).toEqual({ first: 0, last: 0 });
+  });
 });
 
 describe('continuation prompts', () => {

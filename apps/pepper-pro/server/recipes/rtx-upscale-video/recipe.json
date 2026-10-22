@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "id": "rtx-upscale-video",
+  "version": 1,
+  "kind": "video",
+  "name": "RTX Video Super Resolution",
+  "description": "NVIDIA's RTX Video Super Resolution on the GPU's own engine: a fast, frame-by-frame upscale (up to 4×, or to a size up to 8K) that adds no detail of its own, so it cannot make a face shimmer. For taking a finished master to 1440p or 4K; it does not repair what the render got wrong (H3 masters and SeedVR2 do that).",
+  "family": "nvidia-vfx",
+  "capabilities": [
+    "upscale",
+    "delivery"
+  ],
+  "licence": {
+    "id": "nvidia-vfx",
+    "name": "NVIDIA Video Effects SDK (via nvidia-vfx)",
+    "url": "https://pypi.org/project/nvidia-vfx/",
+    "commercial": "yes"
+  },
+  "nodes": [
+    {
+      "name": "ComfyUI_Nvidia_VFX_Nodes",
+      "repo": "https://github.com/Comfy-Org/ComfyUI_Nvidia_VFX_Nodes",
+      "commit": "38d790ded00650681fa3645362efe28c8560cf40",
+      "pip": [
+        "nvidia-vfx==0.2.0.0"
+      ]
+    }
+  ],
+  "files": [],
+  "params": [
+    {
+      "name": "video",
+      "type": "video",
+      "label": "Video",
+      "required": true
+    },
+    {
+      "name": "scale",
+      "type": "float",
+      "label": "Scale",
+      "default": 2,
+      "min": 1,
+      "max": 4,
+      "description": "Sizes round to multiples of 8."
+    },
+    {
+      "name": "quality",
+      "type": "enum",
+      "label": "Mode",
+      "default": "HIGHBITRATE_ULTRA",
+      "options": [
+        "HIGHBITRATE_ULTRA",
+        "HIGHBITRATE_HIGH",
+        "ULTRA",
+        "HIGH",
+        "DEBLUR_ULTRA",
+        "DENOISE_ULTRA"
+      ],
+      "description": "HIGHBITRATE for clean renders (no compression clean-up); ULTRA and HIGH for compressed sources; DEBLUR and DENOISE keep the size."
+    },
+    {
+      "name": "seed",
+      "type": "seed",
+      "label": "Seed",
+      "description": "Unused: the upscale is deterministic."
+    }
+  ],
+  "workflows": {
+    "main": {
+      "file": "workflow.json",
+      "bindings": [
+        {
+          "param": "video",
+          "nodes": [
+            {
+              "node": "73",
+              "input": "file"
+            }
+          ]
+        },
+        {
+          "param": "scale",
+          "node": "75",
+          "input": "resize_type.scale"
+        },
+        {
+          "param": "quality",
+          "node": "75",
+          "input": "quality"
+        }
+      ],
+      "outputs": [
+        {
+          "node": "77",
+          "kind": "video"
+        }
+      ]
+    }
+  },
+  "modes": {
+    "final": {
+      "label": "Final",
+      "workflow": "main"
+    }
+  },
+  "default_mode": "final",
+  "tiers": [
+    "16gb",
+    "24gb-64ram",
+    "32gb",
+    "48gb",
+    "96gb"
+  ],
+  "notes": "Needs the CUDA 13 torch (the cu130 image) and an RTX card. The node keeps the whole upscaled clip in RAM as float32, about 100 MB per 4K frame: on a 32 GB box upscale about 10 s to 4K at a time."
+}

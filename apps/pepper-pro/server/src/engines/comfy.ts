@@ -1,5 +1,5 @@
-import { copyFile, mkdir, rename, rm, stat } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { copyFile, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
+import { basename, dirname, extname, join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Engine, MemoryArbiter, ReleaseReason } from '@pepper/core/engines/engine.js';
 import { AppError, errors } from '@pepper/core/errors.js';
@@ -17,6 +17,7 @@ import type { RecipeStore } from '../recipes/store.js';
 import { licenceBlock } from '../recipes/store.js';
 import { buildPrompt } from './build.js';
 import { checkUploads, resolveParams, type ParamValues } from './params.js';
+import { carrySidecars } from './sidecars.js';
 
 /**
  * Every image, video and audio job in Pepper Pro, run through ComfyUI
@@ -43,6 +44,11 @@ export interface RecipeJobParams {
   segment?: number;
   /** The job masters its take (upscales it for delivery) rather than rendering it. */
   master?: boolean;
+  /**
+   * A joint master's takes, in order: one render covering a run of shots
+   * that continue each other, split back into one master per take.
+   */
+  master_takes?: string[];
 }
 
 export interface ComfyEngineDeps {
@@ -156,6 +162,7 @@ export class ComfyEngine implements Engine {
         const lease = await this.deps.backends.acquire('comfy', context.signal);
         if (!lease) throw errors.backendUnavailable('comfy', 'ComfyUI has nothing to serve');
         try {
+          const prefix = `pepper-pro/${context.job.id}`;
           const prompt = buildPrompt({
             recipe,
             mode,
@@ -168,13 +175,13 @@ export class ComfyEngine implements Engine {
             // choice lists in a cached /object_info would not show a file
             // uploaded or downloaded since it was read.
             validate: { ignoreFileChoices: true },
-            outputPrefix: `pepper-pro/${context.job.id}`,
+            outputPrefix: prefix,
           });
           const outputs = await this.execute(prompt, workflow, context);
           this.family = recipe.family;
           this.jobsSinceStart++;
 
-          const result = await this.collect(recipe, outputs, workflow);
+          const result = await this.collect(recipe, outputs, workflow, prefix);
           const first = result[0];
           return {
             [`${first.kind}_url`]: first.url,
@@ -343,18 +350,19 @@ export class ComfyEngine implements Engine {
     recipe: Recipe,
     outputs: Record<string, Record<string, unknown>>,
     workflow: WorkflowSpec,
+    prefix: string,
   ): Promise<{ kind: 'image' | 'video' | 'audio'; name: string; url: string; path: string }[]> {
     const collected: { kind: 'image' | 'video' | 'audio'; name: string; url: string; path: string }[] = [];
     await mkdir(this.deps.paths.outputDir, { recursive: true });
-    for (const { node, kind } of workflow.outputs) {
-      for (const file of outputFiles(outputs[node])) {
-        const source = this.sourcePath(file);
+    for (const { node, kind, scan } of workflow.outputs) {
+      const sources = scan ? await this.scanned(prefix) : outputFiles(outputs[node]).map((file) => this.sourcePath(file));
+      for (const source of sources) {
         try {
           await stat(source);
         } catch {
           continue;
         }
-        const name = uniqueOutputName(extname(file.filename).slice(1) || 'bin', recipe.id);
+        const name = uniqueOutputName(extname(source).slice(1) || 'bin', recipe.id);
         const target = safeResolve(this.deps.paths.outputDir, name);
         await rename(source, target).catch(async () => {
           // Across filesystems (outputs on tmpfs, the cache on a volume) a
@@ -362,13 +370,40 @@ export class ComfyEngine implements Engine {
           await copyFile(source, target);
           await rm(source, { force: true });
         });
+        await carrySidecars(source, target, 'move');
         collected.push({ kind, name, url: `/v1/outputs/${encodeURIComponent(name)}`, path: target });
       }
     }
+    if (workflow.outputs.some((o) => o.scan)) await this.sweep(prefix);
     if (collected.length === 0) {
       throw proErrors.engineFailed('ComfyUI finished without writing an output file');
     }
     return collected;
+  }
+
+  /**
+   * The videos a scanned save node wrote under the job's prefix:
+   * `<prefix>_00001.mp4` and so on, in order. A joint render of several
+   * segments also writes `_s01`… pieces before joining them; only the
+   * joined file is the result.
+   */
+  private async scanned(prefix: string): Promise<string[]> {
+    const dir = safeResolve(this.deps.paths.comfyOutputDir, dirname(prefix));
+    const stem = basename(prefix);
+    const pattern = new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d{5}\\.mp4$`);
+    const names = await readdir(dir).catch(() => [] as string[]);
+    return names
+      .filter((name) => pattern.test(name))
+      .sort()
+      .map((name) => join(dir, name));
+  }
+
+  /** Remove what a scanned save node left under the job's prefix (segment pieces and their sidecars). */
+  private async sweep(prefix: string): Promise<void> {
+    const dir = safeResolve(this.deps.paths.comfyOutputDir, dirname(prefix));
+    const stem = `${basename(prefix)}_`;
+    const names = await readdir(dir).catch(() => [] as string[]);
+    await Promise.all(names.filter((name) => name.startsWith(stem)).map((name) => rm(join(dir, name), { force: true })));
   }
 
   private sourcePath(file: OutputFile): string {
