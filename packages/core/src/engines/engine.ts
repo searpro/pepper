@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { BackendManager } from '../backends/manager.js';
-import type { JobExecutor, JobKind, JobManager } from '../jobs/manager.js';
+import { currentJob, type JobExecutor, type JobKind, type JobManager } from '../jobs/manager.js';
+import { GpuLanes, type GpuLane } from './gpu.js';
 
 /**
  * A generation engine: the job kinds it runs and the lifecycle of whatever
@@ -32,6 +33,12 @@ export interface Engine {
   release?(reason: ReleaseReason): Promise<void>;
   /** Whether the engine currently holds model memory while idle. */
   resident?(): boolean;
+  /**
+   * The GPU lane this engine's work takes (`GpuLanes`): `job` for a
+   * generation engine whose jobs hold the card, `llm` for the language
+   * model. Engines without one are not ordered against the others.
+   */
+  readonly gpuLane?: GpuLane;
   /** Stop everything on shutdown. */
   shutdown?(): Promise<void>;
 }
@@ -63,6 +70,9 @@ export interface MemoryArbiter {
 export class EngineRegistry implements MemoryArbiter {
   private readonly engines = new Map<string, Engine>();
   private readonly kinds = new Map<JobKind, string>();
+  private jobs: JobManager | null = null;
+  /** Orders renders and language-model requests on a shared card; see `GpuLanes`. */
+  readonly gpu = new GpuLanes(() => this.pendingGpuJobs());
 
   constructor(private readonly log: FastifyBaseLogger) {}
 
@@ -80,6 +90,9 @@ export class EngineRegistry implements MemoryArbiter {
 
   /** Register every engine's executors with the job system. */
   attach(jobs: JobManager): void {
+    this.jobs = jobs;
+    // A job settling or being cancelled is what lets a waiting turn in.
+    for (const event of ['updated', 'removed']) jobs.on(event, () => this.gpu.poke());
     for (const engine of this.engines.values()) {
       for (const [kind, executor] of Object.entries(engine.executors()) as [JobKind, JobExecutor][]) {
         jobs.registerExecutor(kind, executor);
@@ -112,6 +125,22 @@ export class EngineRegistry implements MemoryArbiter {
     }
   }
 
+  /**
+   * Take the `llm` lane for `engineId` and free the GPU for it: what every
+   * language-model request does before it reaches the backend. Resolves to
+   * the lane's release.
+   */
+  async forLlm(engineId: string, label: string, signal?: AbortSignal): Promise<() => void> {
+    const release = await this.gpu.acquire('llm', label, signal, currentJob() !== undefined);
+    try {
+      if (this.gpu.state().shared) await this.exclusive(engineId);
+    } catch (err) {
+      release();
+      throw err;
+    }
+    return release;
+  }
+
   async release(engineId: string, reason: ReleaseReason): Promise<void> {
     const engine = this.engines.get(engineId);
     if (!engine?.release) return;
@@ -133,6 +162,14 @@ export class EngineRegistry implements MemoryArbiter {
     for (const engine of this.engines.values()) {
       await engine.shutdown?.().catch(() => {});
     }
+  }
+
+  /** Generation jobs queued or running for an engine on the `job` lane. */
+  private pendingGpuJobs(): number {
+    if (!this.jobs) return 0;
+    return this.jobs
+      .list({ status: ['queued', 'running'] })
+      .filter((job) => this.ownerOf(job.kind)?.gpuLane === 'job').length;
   }
 
   status(): EngineStatus[] {

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import type { Job } from '../jobs/manager.js';
 import type { ToolContext } from '../mcp/kit.js';
 
 /**
@@ -25,6 +26,13 @@ export interface McpRoutesOptions {
   port: number;
   /** Everything a tool needs except the caller's origin, which is per request. */
   context: Omit<ToolContext, 'app' | 'baseUrl'>;
+  /**
+   * What a caller sending `x-pepper-agent: local` gets on top: instructions
+   * for the session and notes on its job results. Pepper Pro uses it for a
+   * Claude Code running on the same GPU as the renders, which needs to know
+   * that its turns wait for them; every other caller sees neither.
+   */
+  agent?: { instructions: string; notes: (jobs: Job[]) => string[] };
   /** Register the product's tools and resources on a fresh server. */
   register: (server: McpServer, ctx: ToolContext) => void;
 }
@@ -33,8 +41,12 @@ export async function mcpRoutes(fastify: FastifyInstance, options: McpRoutesOpti
   const app = fastify;
 
   async function handle(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const server = new McpServer({ name: options.name, version: options.version });
-    options.register(server, { ...options.context, app, baseUrl: baseUrl(request, options.port) });
+    const agent = request.headers['x-pepper-agent'] === 'local' ? options.agent : undefined;
+    const server = new McpServer(
+      { name: options.name, version: options.version },
+      agent ? { instructions: agent.instructions } : undefined,
+    );
+    options.register(server, { ...options.context, app, baseUrl: baseUrl(request, options.port), notes: agent?.notes });
 
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,

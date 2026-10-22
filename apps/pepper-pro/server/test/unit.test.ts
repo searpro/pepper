@@ -30,6 +30,9 @@ import { buildServer, type ProServer } from '../src/server.js';
 import { probeMedia } from '@pepper/core/util/ffmpeg.js';
 import { guessBase } from '../src/loras/bases.js';
 import { lookupLora } from '../src/loras/sources.js';
+import { GpuLanes } from '@pepper/core/engines/gpu.js';
+import { parseLongFlags, presetIni, resolveAgentModel } from '../src/llm/agent.js';
+import { effectiveArgs, type BackendArgSpec } from '@pepper/core/backends/args.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/recipes', import.meta.url));
 const log = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, child: () => log } as unknown as FastifyBaseLogger;
@@ -2212,6 +2215,137 @@ describe('loras', () => {
       expect((await inject('DELETE', `/v1/loras/${id}`)).statusCode).toBe(204);
       expect(existsSync(join(server.paths.modelsDir, 'loras', 'library', 'film_grain_v2.safetensors'))).toBe(false);
       expect((await inject('GET', `/v1/loras/${id}`)).statusCode).toBe(404);
+    } finally {
+      await server.app.close();
+      server.closeDb();
+    }
+  });
+});
+
+describe('gpu sharing', () => {
+  /** Whether `promise` has settled after the microtasks queued so far. */
+  const settled = async (promise: Promise<unknown>) => {
+    let done = false;
+    void promise.then(() => (done = true), () => (done = true));
+    await new Promise((resolve) => setImmediate(resolve));
+    return done;
+  };
+
+  it('puts renders first: a turn waits for a running or queued job, a job only for running turns', async () => {
+    let pending = 0;
+    const gpu = new GpuLanes(() => pending);
+
+    const turn = await gpu.acquire('llm', 'turn');
+    pending = 1;
+    const job = gpu.acquire('job', 'render');
+    expect(await settled(job)).toBe(false);
+    // A second turn queues behind the waiting job rather than slipping in beside the first.
+    const next = gpu.acquire('llm', 'next turn');
+    turn();
+    const releaseJob = await job;
+    expect(await settled(next)).toBe(false);
+
+    // Done with the card, but the queue still has a job: the turn keeps waiting until it is empty.
+    releaseJob();
+    expect(await settled(next)).toBe(false);
+    pending = 0;
+    gpu.poke();
+    expect(await settled(next)).toBe(true);
+  });
+
+  it('lets a call made from inside a job past the queue, but not past a running render', async () => {
+    const pending = 2;
+    const gpu = new GpuLanes(() => pending);
+    expect(await settled(gpu.acquire('llm', 'plan', undefined, true))).toBe(true);
+    expect(await settled(gpu.acquire('llm', 'turn'))).toBe(false);
+
+    const other = new GpuLanes(() => pending);
+    const render = await other.acquire('job', 'render');
+    const check = other.acquire('llm', 'check', undefined, true);
+    expect(await settled(check)).toBe(false);
+    render();
+    expect(await settled(check)).toBe(true);
+  });
+
+  it('never makes a turn wait on a card that holds both, and still runs jobs one at a time', async () => {
+    const gpu = new GpuLanes(() => 1, false);
+    const render = await gpu.acquire('job', 'render');
+    expect(await settled(gpu.acquire('llm', 'turn'))).toBe(true);
+    const second = gpu.acquire('job', 'second');
+    expect(await settled(second)).toBe(false);
+    render();
+    expect(await settled(second)).toBe(true);
+  });
+
+  it('gives up a wait on abort and reports a long pause once', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const gpu = new GpuLanes(() => 0);
+      const controller = new AbortController();
+      const render = await gpu.acquire('job', 'render');
+      const aborted = gpu.acquire('llm', 'gone', controller.signal);
+      controller.abort();
+      await expect(aborted).rejects.toThrow(/Aborted/);
+
+      const turn = gpu.acquire('llm', 'turn');
+      vi.setSystemTime(Date.now() + 61_000);
+      render();
+      (await turn)();
+      const pause = gpu.takePause();
+      expect(pause && pause.to - pause.from).toBeGreaterThanOrEqual(61_000);
+      expect(gpu.takePause()).toBeNull();
+      expect(gpu.state()).toMatchObject({ holders: [], waiting: [] });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('writes the agent preset from long flags and finds its vision projector', async () => {
+    expect(parseLongFlags('--ctx-size 98304 --jinja --temp 0.6')).toEqual({ 'ctx-size': '98304', jinja: '1', temp: '0.6' });
+    expect(() => parseLongFlags('-c 4096')).toThrow(/long flag/);
+
+    const dir = await mkdtemp(join(tmpdir(), 'pro-agent-'));
+    await mkdir(join(dir, 'bundle'));
+    for (const name of ['Qwen3.6-35B-A3B-Q4_K_M.gguf', 'mmproj-Qwen3.6-35B-A3B.gguf', 'mmproj-Other.gguf', 'bundle/model.gguf', 'bundle/mmproj-x.gguf']) {
+      await writeFile(join(dir, name), '');
+    }
+    expect(resolveAgentModel(dir, 'Qwen3.6-35B-A3B-Q4_K_M.gguf')).toEqual({
+      model: join(dir, 'Qwen3.6-35B-A3B-Q4_K_M.gguf'),
+      mmproj: join(dir, 'mmproj-Qwen3.6-35B-A3B.gguf'),
+    });
+    expect(resolveAgentModel(dir, 'bundle')).toEqual({ model: join(dir, 'bundle/model.gguf'), mmproj: join(dir, 'bundle/mmproj-x.gguf') });
+    expect(presetIni('/m.gguf', undefined, { 'ctx-size': '8192' })).toBe('[agent]\nmodel = /m.gguf\nctx-size = 8192\n');
+    // The router's own flags beat a preset, so the settings' context size goes in the global section.
+    expect(presetIni('/m.gguf', '/p.gguf', { 'ctx-size': '98304' }, { 'ctx-size': '4096' })).toBe(
+      '[*]\nctx-size = 4096\n\n[agent]\nmodel = /m.gguf\nmmproj = /p.gguf\nctx-size = 98304\n',
+    );
+  });
+
+  it('drops a setting the product manages as null', () => {
+    const spec: BackendArgSpec = {
+      backend: 'llamacpp',
+      label: 'llama.cpp',
+      kind: 'server',
+      args: [
+        { key: 'ctx_size', flag: '-c', label: 'Context', type: 'number', defaultValue: 4096 },
+        { key: 'threads', flag: '-t', label: 'Threads', type: 'number', defaultValue: null },
+      ],
+    };
+    const args = effectiveArgs(spec, { values: { ctx_size: 32768, threads: 6 }, extraArgs: [] }, { ctx_size: null });
+    expect(args.map((a) => [a.key, a.value])).toEqual([
+      ['ctx_size', null],
+      ['threads', 6],
+    ]);
+  });
+
+  it('serves the GPU state, and no Messages API without an agent model', async () => {
+    const server = await buildServer(await tempConfig());
+    try {
+      const gpu = await server.app.inject({ method: 'GET', url: '/v1/llm/gpu' });
+      expect(gpu.json()).toMatchObject({ shared: true, holders: [], waiting: [], agent: false });
+      const messages = await server.app.inject({ method: 'POST', url: '/v1/messages', payload: { messages: [] } });
+      expect(messages.statusCode).toBe(404);
+      expect(messages.json().error.type).toBe('not_found_error');
     } finally {
       await server.app.close();
       server.closeDb();

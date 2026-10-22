@@ -82,6 +82,11 @@ export interface ToolContext {
   jobs: JobManager;
   outputDir: string;
   uploadsDir: string;
+  /**
+   * Lines added to every job result, for a caller that asked for them (see
+   * `McpRoutesOptions.agent`); unset, results are unchanged.
+   */
+  notes?: (jobs: Job[]) => string[];
 }
 
 export type Content = CallToolResult['content'][number];
@@ -246,7 +251,9 @@ export async function jobsResult(
   jobs: Job[],
   options: { preview?: PreviewSize; extra?: Record<string, unknown> } = {},
 ): Promise<CallToolResult> {
-  const content: Content[] = options.extra ? [json(options.extra)] : [];
+  const notes = ctx.notes?.(jobs) ?? [];
+  const extra = notes.length ? { ...options.extra, notes } : options.extra;
+  const content: Content[] = extra ? [json(extra)] : [];
   const summaries: Array<Record<string, unknown>> = [];
   for (const job of jobs) {
     const summary = summarizeJob(ctx, job);
@@ -255,7 +262,7 @@ export async function jobsResult(
     if (preview) content.push(preview);
     summaries.push(preview ? { ...summary, preview: content.length - 1 } : summary);
   }
-  return { content, structuredContent: { ...options.extra, jobs: summaries } };
+  return { content, structuredContent: { ...extra, jobs: summaries } };
 }
 
 export async function jobResult(ctx: ToolContext, job: Job, preview?: PreviewSize): Promise<CallToolResult> {

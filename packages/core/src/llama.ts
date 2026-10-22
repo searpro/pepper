@@ -74,9 +74,34 @@ export const LLAMACPP_ARGS: BackendArgSpec = {
       type: 'boolean',
       defaultValue: false,
     },
+    // Set only by a product that asks for them (`LlamacppOptions.managed`);
+    // without a value each is left off the command line.
+    {
+      key: 'models_preset',
+      flag: '--models-preset',
+      label: 'Model presets',
+      description: 'Per-model arguments, written by the app.',
+      type: 'string',
+      locked: true,
+    },
+    {
+      key: 'models_max',
+      flag: '--models-max',
+      label: 'Models loaded at once',
+      description: 'Set by the app: 1 where the GPU is shared with renders.',
+      type: 'number',
+      locked: true,
+    },
+    {
+      key: 'slot_save_path',
+      flag: '--slot-save-path',
+      label: 'Slot save folder',
+      description: 'Where a conversation cache is saved across restarts. Managed by the app.',
+      type: 'string',
+      locked: true,
+    },
   ],
 };
-
 
 export interface LlamacppOptions {
   port: number;
@@ -87,6 +112,8 @@ export interface LlamacppOptions {
   accel: Accel;
   /** The directory llama.cpp's router scans for GGUF models. */
   modelsDir: () => string;
+  /** More values for locked arguments (presets, slot saves), read at each start. */
+  managed?: () => Record<string, string | number | null>;
   log: FastifyBaseLogger;
 }
 
@@ -101,7 +128,7 @@ export function llamacppDefinition(options: LlamacppOptions): BackendDefinition 
       options.log,
     ),
     server: { port: options.port, healthPath: '/health' },
-    managed: () => ({ models_dir: options.modelsDir(), host: '127.0.0.1', port: options.port }),
+    managed: () => ({ ...options.managed?.(), models_dir: options.modelsDir(), host: '127.0.0.1', port: options.port }),
   };
 }
 

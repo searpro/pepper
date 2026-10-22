@@ -12,6 +12,7 @@ import type { LogBuffer } from '@pepper/core/logs/buffer.js';
 import { backendBinDir } from '@pepper/core/paths.js';
 import type { ProConfig } from './config.js';
 import { COMFY_FOLDERS, type ProPaths } from './paths.js';
+import { agentLlamaArgs } from './llm/agent.js';
 
 /**
  * Pepper Pro's backends: ComfyUI (every image, video and audio job) and
@@ -141,7 +142,12 @@ function comfyInstaller(config: ProConfig): BackendDefinition['installer'] {
   };
 }
 
-export function proBackendDefinitions(config: ProConfig, paths: ProPaths, log: FastifyBaseLogger): BackendDefinition[] {
+export function proBackendDefinitions(
+  config: ProConfig,
+  paths: ProPaths,
+  settings: SettingsStore,
+  log: FastifyBaseLogger,
+): BackendDefinition[] {
   return [
     {
       id: 'comfy',
@@ -164,6 +170,7 @@ export function proBackendDefinitions(config: ProConfig, paths: ProPaths, log: F
       installDir: backendBinDir(paths, 'llamacpp'),
       accel: config.accel,
       modelsDir: () => paths.llmDir,
+      managed: () => agentLlamaArgs(config, paths, settings),
       log,
     }),
   ];
@@ -183,7 +190,7 @@ export class ProBackendManager extends BackendManager {
     nodePacks: () => string[] = () => [],
   ) {
     super(
-      proBackendDefinitions(config, paths, log),
+      proBackendDefinitions(config, paths, settings, log),
       {
         autoInstall: config.autoInstallBackends,
         startupTimeoutMs: config.backendStartupTimeoutMs,
