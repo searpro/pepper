@@ -114,7 +114,14 @@ def align():
             continue
         pcm = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(wav), '-f', 'f32le', '-ac', '1', '-ar', '16000', '-'],
                              capture_output=True, check=True).stdout
-        parts, _ = model.transcribe(np.frombuffer(pcm, np.float32), word_timestamps=True, initial_prompt=seg['text'])
+        audio = np.frombuffer(pcm, np.float32)
+        parts, _ = model.transcribe(audio, word_timestamps=True, initial_prompt=seg['text'])
+        parts = list(parts)
+        # The script as initial_prompt helps spelling, but once (S03, 2026-10-22)
+        # it made Whisper hear only the line's last four words; without it the
+        # whole line came back exactly. Retry bare when much of the line is missing.
+        if sum(len(p.words) for p in parts) < 0.7 * len(seg['text'].split()):
+            parts = list(model.transcribe(audio, word_timestamps=True)[0])
         words = []
         for w in (w for p in parts for w in p.words):
             text = w.word.strip()
