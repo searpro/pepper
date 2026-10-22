@@ -7,6 +7,7 @@ import {
   json,
   jobsResult,
   MAX_WAIT_S,
+  previewSize,
   query,
   READ_ONLY,
   registerInputTool,
@@ -17,9 +18,10 @@ import {
   SHOWS_MEDIA,
   submit,
   waitSeconds,
+  type PreviewSize,
   type ToolContext,
 } from '@pepper/core/mcp/kit.js';
-import { ASPECT_RATIOS } from '../generate.js';
+import { ASPECT_RATIOS, type ModelDescription } from '../generate.js';
 import { analyzeSchema } from '../routes/analyze.js';
 import { planSchema, renderSchema } from '../routes/projects.js';
 
@@ -47,32 +49,34 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
       title: 'Pepper Pro status',
       description:
         'Is Pepper Pro up, on what hardware tier and licence mode, what the GPU and queue are doing, ' +
-        'which recipes are installed, and the LoRA library (each LoRA\'s base and download state). Call first in a session.',
+        'which recipes are installed, and the LoRA library (each LoRA\'s base and download state). Call once at the start.',
       annotations: READ_ONLY,
     },
     async () => {
       const status = await call<Record<string, unknown>>(ctx, 'GET', '/v1/system/status');
-      const recipes = await call<{ recipes: { id: string; kind: string; state: string; name: string }[] }>(ctx, 'GET', '/v1/recipes');
+      const recipes = await call<{ recipes: { id: string; state: string }[] }>(ctx, 'GET', '/v1/recipes');
       const library = await call<{
-        loras: { id: string; name: string; base: string; state: string; trigger_words: string[]; download?: { received: number; total: number | null; error?: string } }[];
+        loras: { id: string; name: string; base: string; state: string; download?: { received: number; total: number | null; error?: string } }[];
       }>(ctx, 'GET', '/v1/loras');
+      // Recipe ids by install state: names, inputs and notes are list_models' to give.
+      const byState: Record<string, string[]> = {};
+      for (const r of recipes.recipes) (byState[r.state] ??= []).push(r.id);
       return {
         content: [
           json({
             tier: status.tier,
             licence_mode: status.licence_mode,
-            resources: status.resources,
+            resources: resourceSummary(status.resources as Resources | undefined),
             jobs: status.jobs,
-            backends: (status.backends as { backend: string; status: string }[]).map((b) => ({ backend: b.backend, status: b.status })),
-            recipes: recipes.recipes.map((r) => ({ id: r.id, kind: r.kind, name: r.name, state: r.state })),
+            backends: Object.fromEntries((status.backends as { backend: string; status: string }[]).map((b) => [b.backend, b.status])),
+            recipes: byState,
             // The LoRA library, so an install_model lora_url can be followed to `installed`.
             loras: library.loras.map((l) =>
               defined({
                 id: l.id,
                 name: l.name,
                 base: l.base,
-                state: l.state,
-                trigger_words: l.trigger_words.length ? l.trigger_words : undefined,
+                state: l.state === 'installed' ? undefined : l.state,
                 progress: l.download?.total ? Math.round((l.download.received / l.download.total) * 100) / 100 : undefined,
                 error: l.download?.error,
               }),
@@ -94,13 +98,13 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         'aspect ratios, licence, whether it is installed, measured seconds where verified, and the downloaded LoRAs ' +
         'that fit it (`loras`: trigger words, and `notes` on the look each gives). Call it before generating and ' +
         'pass the `model` (and `loras`) that fit the request; the default is only the first verified model that ' +
-        'takes the inputs.',
+        'takes the inputs. Once per session and kind is enough: the list changes only when something is installed.',
       inputSchema: { kind: z.enum(['image', 'video', 'audio']).optional() },
       annotations: READ_ONLY,
     },
     async (args) => {
-      const { models } = await call<{ models: Record<string, unknown>[] }>(ctx, 'GET', `/v1/models${query(args)}`);
-      return { content: [json(models.map((m) => defined({ ...m, install_bytes: m.installed ? undefined : m.install_bytes })))] };
+      const { models } = await call<{ models: ModelDescription[] }>(ctx, 'GET', `/v1/models${query(args)}`);
+      return { content: [json(models.map(compactModel))] };
     },
   );
 
@@ -168,16 +172,14 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
   const MEDIA_IN = 'Media inputs take a URL, a data URI, an upload name (add_input) or a previous output_name. ';
   const generateTool = (kind: 'image' | 'video' | 'audio', fallbackWait: number) =>
     async (args: Record<string, unknown>) => {
-      const { wait_seconds, ...body } = args as { wait_seconds: number } & Record<string, unknown>;
+      const { wait_seconds, preview, ...body } = args as { wait_seconds: number; preview?: PreviewSize } & Record<string, unknown>;
       const created = await call<{ model: string; quality: string; jobs: Job[] }>(ctx, 'POST', '/v1/generate', defined({ ...body, kind }));
       const deadline = Date.now() + Math.min(wait_seconds ?? fallbackWait, MAX_WAIT_S) * 1000;
       const settled: Job[] = [];
       for (const job of created.jobs) {
         settled.push((await waitSettled(ctx, job.id, Math.max(0, deadline - Date.now()))) ?? job);
       }
-      const result = await jobsResult(ctx, settled);
-      result.content.unshift(json({ model: created.model, quality: created.quality }));
-      return result;
+      return jobsResult(ctx, settled, { preview, extra: { model: created.model, quality: created.quality } });
     };
 
   server.registerTool(
@@ -196,6 +198,7 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         aspect_ratio: z.enum(ASPECT_RATIOS).optional(),
         loras,
         wait_seconds: waitSeconds(40),
+        preview: previewSize,
       },
     },
     generateTool('image', 40),
@@ -211,7 +214,7 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         '`video` is motion to transfer. ' +
         MEDIA_IN +
         'Videos take minutes: this returns job ids at once (wait_seconds 0); follow them with get_job ' +
-        '(`ids`, up to 50 s a call). Each finished job has a download_url. ' +
+        '(`ids`, up to 50 s a call). Each finished job has a `url` that works without credentials. ' +
         PROMPTING +
         SHOWN,
       _meta: SHOWS_MEDIA,
@@ -320,7 +323,10 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
     },
     async ({ choose, wait_seconds, ...render }) => {
       if (choose) await call(ctx, 'POST', `/v1/takes/${encodeURIComponent(choose)}/choose`, {});
-      const { takes, skipped_loras } = await call<{ takes: { jobId: string }[]; skipped_loras?: unknown[] }>(ctx, 'POST', '/v1/shots/render', render);
+      const { takes, skipped_loras } = await call<{
+        takes: { id: string; shotId: string; jobId: string; mode: string; seed: number | null }[];
+        skipped_loras?: unknown[];
+      }>(ctx, 'POST', '/v1/shots/render', render);
       const jobs: Job[] = [];
       const deadline = Date.now() + Math.min(wait_seconds, MAX_WAIT_S) * 1000;
       for (const take of takes) {
@@ -329,9 +335,9 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
         const left = Math.max(0, deadline - Date.now());
         jobs.push(left > 0 ? ((await waitSettled(ctx, job.id, left)) ?? job) : job);
       }
-      const result = await jobsResult(ctx, jobs);
-      result.content.unshift(json(skipped_loras?.length ? { takes, skipped_loras } : { takes }));
-      return result;
+      // Takes as Claude follows them: which shot each is for and which job renders it.
+      const made = takes.map((t) => defined({ id: t.id, shot: t.shotId, job: t.jobId, mode: t.mode, seed: t.seed ?? undefined }));
+      return jobsResult(ctx, jobs, { preview: 'none', extra: skipped_loras?.length ? { takes: made, skipped_loras } : { takes: made } });
     },
   );
 
@@ -354,9 +360,13 @@ export function registerProTools(server: McpServer, ctx: ToolContext): void {
     },
     async ({ project_id, choose, export: doExport, subtitles }) => {
       if (!project_id) {
-        const { projects } = await call<{ projects: unknown[] }>(ctx, 'GET', '/v1/projects');
+        const { projects } = await call<{ projects: { id: string; name: string; aspect: string; updatedAt: number }[] }>(ctx, 'GET', '/v1/projects');
         const { assets } = await call<{ assets: LibraryAsset[] }>(ctx, 'GET', '/v1/assets');
-        return { content: [json({ projects, library: assets.map(summarizeAsset) })] };
+        // Newest first and only what picks one out; get_project with its id has the rest.
+        const list = [...projects]
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .map((p) => ({ id: p.id, name: p.name, aspect: p.aspect, updated: new Date(p.updatedAt).toISOString().slice(0, 10) }));
+        return { content: [json({ projects: list, library: assets.map(summarizeAsset) })] };
       }
       const base = `/v1/projects/${encodeURIComponent(project_id)}`;
       if (choose) await call(ctx, 'POST', `/v1/takes/${encodeURIComponent(choose)}/choose`, {});
@@ -486,7 +496,7 @@ function summarizeProject(project: unknown): unknown {
             id: t.id,
             mode: t.mode,
             status: t.status,
-            progress: t.progress,
+            progress: ['queued', 'running'].includes(t.status) ? t.progress : undefined,
             seed: t.seed ?? undefined,
             score: t.score ?? undefined,
             review: t.review ? { ok: t.review.ok, score: t.review.score, issues: t.review.issues } : undefined,
@@ -497,4 +507,60 @@ function summarizeProject(project: unknown): unknown {
     })),
     cuts: p.cuts.map((c) => ({ id: c.id, name: c.name, items: c.items.length, export: c.export })),
   };
+}
+
+interface Resources {
+  cpu?: { percent: number };
+  memory?: { usedBytes: number; totalBytes: number };
+  gpu?: { name: string; percent: number; memoryUsedBytes: number; memoryTotalBytes: number } | null;
+}
+
+const gb = (bytes: number) => Math.round(bytes / 1e8) / 10;
+
+/** Load as a person reads it: percentages and GB, not a sample of byte counters. */
+function resourceSummary(r: Resources | undefined): unknown {
+  if (!r) return undefined;
+  return defined({
+    cpu_percent: r.cpu?.percent,
+    ram_gb: r.memory ? `${gb(r.memory.usedBytes)}/${gb(r.memory.totalBytes)}` : undefined,
+    gpu: r.gpu ? `${r.gpu.name}, ${r.gpu.percent}%, ${gb(r.gpu.memoryUsedBytes)}/${gb(r.gpu.memoryTotalBytes)} GB` : undefined,
+  });
+}
+
+/**
+ * A model as list_models gives it to Claude: what it is for and what it takes,
+ * folded into as few keys as say it. Every sized model takes the same aspect
+ * ratios (the generate tools list them), so `inputs.aspect_ratio` says only
+ * that it takes one; a model that cannot run here keeps only what choosing to
+ * install it needs.
+ */
+export function compactModel(m: ModelDescription): Record<string, unknown> {
+  const qualities = m.qualities.map((q) => (q === m.default_quality && m.qualities.length > 1 ? `${q} (default)` : q));
+  const brief = {
+    id: m.id,
+    name: m.name,
+    kind: m.kind,
+    description: m.description,
+    licence: `${m.licence.name}; commercial: ${m.licence.commercial}`,
+  };
+  if (m.unavailable) return defined({ ...brief, unavailable: m.unavailable, install_gb: m.installed ? undefined : gb(m.install_bytes) });
+  return defined({
+    ...brief,
+    inputs: m.aspect_ratios ? { ...m.inputs, aspect_ratio: 'optional' } : m.inputs,
+    max_reference_images: m.max_reference_images,
+    duration: m.duration,
+    qualities: qualities.join(', '),
+    quality_notes: m.quality_notes,
+    seconds: m.verified?.seconds,
+    lora_base: m.lora_base,
+    loras: m.loras?.map((l) =>
+      defined({
+        id: l.id,
+        name: l.name,
+        trigger_words: l.trigger_words.length ? l.trigger_words : undefined,
+        strength: l.strength === 1 ? undefined : l.strength,
+        notes: l.notes,
+      }),
+    ),
+  });
 }

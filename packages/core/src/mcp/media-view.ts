@@ -13,7 +13,7 @@
  *   supports MCP Apps reads it once and renders it in a sandboxed iframe for
  *   each call; any other host ignores the key and nothing changes.
  * - The host hands the view the tool's result. `structuredContent.jobs` says
- *   what to draw (see `viewJob` in tools.ts). Images are drawn from the inline
+ *   what to draw (see `jobsResult` in kit.ts). Images are drawn from the inline
  *   preview already in the result; video and audio are loaded from Pepper by a
  *   signed link (`signMediaUrl`), which is why the resource declares Pepper's
  *   origin in its CSP — the iframe can send neither a header nor our cookie.

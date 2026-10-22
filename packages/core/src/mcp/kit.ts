@@ -11,6 +11,7 @@ import { contentType } from '../routes/media.js';
 import { storeUpload } from '../util/uploads.js';
 import { ffmpegAvailable, runFfmpeg } from '../util/ffmpeg.js';
 import { JOB_KINDS, type Job, type JobManager } from '../jobs/manager.js';
+import type { LogRecord } from '../logs/buffer.js';
 import { MEDIA_VIEW_HTML, MEDIA_VIEW_MIME, MEDIA_VIEW_URI, mediaViewMeta } from './media-view.js';
 
 /**
@@ -38,12 +39,31 @@ import { MEDIA_VIEW_HTML, MEDIA_VIEW_MIME, MEDIA_VIEW_URI, mediaViewMeta } from 
  * resource (mcp/media-view.ts) that a host supporting MCP Apps renders in the
  * chat: the image, a player, or a progress bar that follows the job. What the
  * model reads (`content`) and what the view draws (`structuredContent`) are
- * built from the same job, side by side, in `jobsResult`.
+ * the same compact job summary, built once in `jobsResult`.
+ *
+ * Every result stays in the caller's context for the rest of its conversation
+ * and is read again on every later turn, so results are compact: JSON without
+ * indentation, one link per output, no timestamps, and previews no larger than
+ * a choice between takes needs. Claude Code shows the model `structuredContent`
+ * in place of the text blocks when a tool returns both, so anything the model
+ * must see (a transcript, the model chosen, take ids) goes in both.
  */
 
 export const MAX_WAIT_S = 50;
 /** Previews above this are sent as a link only; clients reject very large tool results. */
 const MAX_PREVIEW_BYTES = 1_500_000;
+/**
+ * The long edge of an inline preview. A model reads an image as roughly
+ * width × height / 750 tokens, again on every later turn: 768 px (about 450
+ * tokens for 9:16) is enough to choose between takes, and `large` (1568 px,
+ * the most a model reads, about 1,500) is for judging faces and fine detail.
+ */
+const PREVIEW_EDGE = { small: 768, large: 1568 } as const;
+export type PreviewSize = keyof typeof PREVIEW_EDGE | 'none';
+export const previewSize = z
+  .enum(['small', 'large', 'none'])
+  .default('small')
+  .describe('Inline image previews: small (enough to choose), large (faces, detail) or none (already seen).');
 /** The largest output handed over through MCP itself (see the `output` resource). */
 const MAX_RESOURCE_BYTES = 12 * 1024 * 1024;
 const IMAGE_MIME: Record<string, string> = {
@@ -110,8 +130,9 @@ export function query(params: Record<string, string | number | boolean | undefin
   return text ? `?${text}` : '';
 }
 
+/** Compact JSON: indentation would add a third to every result the model keeps reading. */
 export function json(value: unknown): Content {
-  return { type: 'text', text: JSON.stringify(value, null, 2) };
+  return { type: 'text', text: JSON.stringify(value) };
 }
 
 export function absolute(ctx: ToolContext, url: unknown): string | undefined {
@@ -145,43 +166,39 @@ export async function waitForJob(ctx: ToolContext, id: string, seconds: number):
   });
 }
 
-/** The parts of a job a model needs to act on, with links made absolute. */
+/**
+ * The parts of a job a model needs to act on, and all the media view draws:
+ * progress only while it runs, and one link to the output, signed so it works
+ * without the API token (for 7 days, or until the output is swept).
+ */
 export function summarizeJob(ctx: ToolContext, job: Job): Record<string, unknown> {
   const result = (job.result ?? {}) as Record<string, unknown>;
   const metadata = (result.metadata ?? {}) as Record<string, unknown>;
   const output = (result.image_url ?? result.video_url ?? result.audio_url) as string | undefined;
   const name = output ? decodeURIComponent(output.split('/').pop() ?? '') : undefined;
+  const settled = TERMINAL.has(job.status);
   return defined({
     id: job.id,
     kind: job.kind,
     status: job.status,
-    progress: job.progress,
-    step: job.step,
-    total_steps: job.totalSteps,
+    progress: settled ? undefined : Math.round((job.progress ?? 0) * 100) / 100,
     error: job.error,
     output_name: name,
-    url: absolute(ctx, output),
-    // A link that works without the API token, for 7 days or until the
-    // output is swept: what another program fetches the file with.
-    download_url: name && ctx.apiToken ? absolute(ctx, signMediaUrl(ctx.apiToken, name)) : undefined,
+    url: absolute(ctx, name ? signMediaUrl(ctx.apiToken, name) : output),
     text: result.text as string | undefined,
     seed: metadata.seed as number | undefined,
     duration_ms: metadata.duration_ms as number | undefined,
-    created_at: job.createdAt,
-    finished_at: job.finishedAt,
-    next:
-      job.status === 'queued' || job.status === 'running'
-        ? `Still ${job.status}. Call get_job with id "${job.id}" (wait_seconds up to ${MAX_WAIT_S}) to follow it.`
-        : undefined,
   });
 }
 
 /**
  * An inline copy of an image output, so the chat can show it. Re-encoded to a
- * 1024px JPEG when ffmpeg is present, since a full-size PNG is often several
- * megabytes; without ffmpeg only files already small enough are sent.
+ * JPEG whose long edge is `size` when ffmpeg is present, since a full-size PNG
+ * is often several megabytes; without ffmpeg only files already small enough
+ * are sent.
  */
-export async function imagePreview(ctx: ToolContext, job: Job): Promise<Content | null> {
+export async function imagePreview(ctx: ToolContext, job: Job, size: PreviewSize = 'small'): Promise<Content | null> {
+  if (size === 'none') return null;
   const url = (job.result as Record<string, unknown> | undefined)?.image_url;
   if (typeof url !== 'string') return null;
   const name = decodeURIComponent(url.split('/').pop() ?? '');
@@ -196,7 +213,10 @@ export async function imagePreview(ctx: ToolContext, job: Job): Promise<Content 
   if (await ffmpegAvailable()) {
     const out = join(tmpdir(), `pepper-mcp-${process.pid}-${Date.now()}.jpg`);
     try {
-      await runFfmpeg(['-i', path, '-vf', "scale='min(1024,iw)':-2", '-q:v', '4', out], 30_000);
+      const edge = PREVIEW_EDGE[size];
+      // Fit the long edge, whichever it is; never upscale.
+      const fit = `scale='if(gt(iw,ih),min(${edge},iw),-2)':'if(gt(iw,ih),-2,min(${edge},ih))'`;
+      await runFfmpeg(['-i', path, '-vf', fit, '-q:v', '4', out], 30_000);
       const data = await readFile(out);
       if (data.length <= MAX_PREVIEW_BYTES) {
         return { type: 'image', data: data.toString('base64'), mimeType: 'image/jpeg' };
@@ -216,40 +236,30 @@ export async function imagePreview(ctx: ToolContext, job: Job): Promise<Content 
 }
 
 /**
- * A job as the media view draws it: the summary, plus what kind of media the
- * output is, a link the view's iframe can load without credentials, and where
- * in `content` the inline image preview sits.
+ * Report jobs to the model (`content`) and to the media view
+ * (`structuredContent`): the same summaries, plus where in `content` each
+ * inline preview sits. `extra` goes beside `jobs` in both (the model a
+ * generation chose, the takes a render made).
  */
-export function viewJob(ctx: ToolContext, job: Job, previewIndex?: number): Record<string, unknown> {
-  const result = (job.result ?? {}) as Record<string, unknown>;
-  const media = result.image_url ? 'image' : result.video_url ? 'video' : result.audio_url ? 'audio' : undefined;
-  const summary = summarizeJob(ctx, job);
-  const name = summary.output_name as string | undefined;
-  return defined({
-    ...summary,
-    next: undefined,
-    text: undefined,
-    media,
-    media_url: media && name ? absolute(ctx, signMediaUrl(ctx.apiToken, name)) : undefined,
-    preview: previewIndex,
-  });
-}
-
-/** Report jobs to the model (`content`) and to the media view (`structuredContent`). */
-export async function jobsResult(ctx: ToolContext, jobs: Job[]): Promise<CallToolResult> {
-  const content: Content[] = [];
-  const view: Array<Record<string, unknown>> = [];
+export async function jobsResult(
+  ctx: ToolContext,
+  jobs: Job[],
+  options: { preview?: PreviewSize; extra?: Record<string, unknown> } = {},
+): Promise<CallToolResult> {
+  const content: Content[] = options.extra ? [json(options.extra)] : [];
+  const summaries: Array<Record<string, unknown>> = [];
   for (const job of jobs) {
-    content.push(json(summarizeJob(ctx, job)));
-    const preview = job.status === 'completed' ? await imagePreview(ctx, job) : null;
+    const summary = summarizeJob(ctx, job);
+    content.push(json(summary));
+    const preview = job.status === 'completed' ? await imagePreview(ctx, job, options.preview) : null;
     if (preview) content.push(preview);
-    view.push(viewJob(ctx, job, preview ? content.length - 1 : undefined));
+    summaries.push(preview ? { ...summary, preview: content.length - 1 } : summary);
   }
-  return { content, structuredContent: { jobs: view } };
+  return { content, structuredContent: { ...options.extra, jobs: summaries } };
 }
 
-export async function jobResult(ctx: ToolContext, job: Job): Promise<CallToolResult> {
-  return { ...(await jobsResult(ctx, [job])), isError: job.status === 'failed' };
+export async function jobResult(ctx: ToolContext, job: Job, preview?: PreviewSize): Promise<CallToolResult> {
+  return { ...(await jobsResult(ctx, [job], { preview })), isError: job.status === 'failed' };
 }
 
 /** Enqueue through the API, wait up to `wait` seconds, and report. */
@@ -349,18 +359,19 @@ export function registerJobTools(server: McpServer, ctx: ToolContext): void {
       title: 'Get a job',
       description:
         'Status and result of generation jobs, waiting up to wait_seconds for them to finish (give ' +
-        '`id`, or `ids` to wait on several at once). Each finished job has a download_url that works ' +
-        'without credentials. Shows image results inline.' +
+        '`id`, or `ids` to wait on several at once). A finished job\'s `url` works without credentials. ' +
+        'Shows image results inline; poll only the ids still running.' +
         SHOWN,
       _meta: SHOWS_MEDIA,
       inputSchema: {
         id: z.string().optional(),
         ids: z.array(z.string()).max(20).optional(),
         wait_seconds: waitSeconds(30),
+        preview: previewSize,
       },
       annotations: READ_ONLY,
     },
-    async ({ id, ids, wait_seconds }) => {
+    async ({ id, ids, wait_seconds, preview }) => {
       const wanted = [...(id ? [id] : []), ...(ids ?? [])];
       if (wanted.length === 0) throw new ApiCallError('VALIDATION_ERROR: give id or ids');
       // One budget for all of them: each waits for what is left of it.
@@ -371,7 +382,7 @@ export function registerJobTools(server: McpServer, ctx: ToolContext): void {
         if (!job) throw new ApiCallError(`JOB_NOT_FOUND: Job not found: ${one}`);
         settled.push(job);
       }
-      return settled.length === 1 ? jobResult(ctx, settled[0]) : jobsResult(ctx, settled);
+      return settled.length === 1 ? jobResult(ctx, settled[0], preview) : jobsResult(ctx, settled, { preview });
     },
   );
 
@@ -383,7 +394,7 @@ export function registerJobTools(server: McpServer, ctx: ToolContext): void {
       inputSchema: {
         kind: z.enum(JOB_KINDS).optional(),
         status: z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']).optional(),
-        limit: z.number().int().min(1).max(100).default(20),
+        limit: z.number().int().min(1).max(100).default(10),
       },
       annotations: READ_ONLY,
     },
@@ -400,7 +411,10 @@ export function registerJobTools(server: McpServer, ctx: ToolContext): void {
       description: 'Abort a queued or running job.',
       inputSchema: { id: z.string() },
     },
-    async ({ id }) => ({ content: [json(await call(ctx, 'POST', `/v1/jobs/${encodeURIComponent(id)}/cancel`))] }),
+    async ({ id }) => {
+      const job = await call<Job>(ctx, 'POST', `/v1/jobs/${encodeURIComponent(id)}/cancel`);
+      return { content: [json({ id: job.id, status: job.status })] };
+    },
   );
 }
 
@@ -466,19 +480,26 @@ export function registerLogTool(
         source: z.enum(options.sources).optional(),
         min_level: z.enum(['debug', 'info', 'warn', 'error']).optional(),
         search: z.string().optional(),
-        limit: z.number().int().min(1).max(500).default(100),
+        limit: z.number().int().min(1).max(500).default(40),
       },
       annotations: READ_ONLY,
     },
     async ({ source, min_level, search, limit }) => {
-      const { records } = await call<{ records: unknown[] }>(
+      const { records } = await call<{ records: LogRecord[] }>(
         ctx,
         'GET',
         `/v1/logs${query({ source, minLevel: min_level, search, limit })}`,
       );
-      return { content: [json(records)] };
+      return { content: [{ type: 'text', text: records.map(logLine).join('\n') || 'No matching records.' }] };
     },
   );
+}
+
+/** One record per line, `time level source message {fields}`: a third the size of the JSON records. */
+function logLine(record: LogRecord): string {
+  const time = new Date(record.time).toISOString().slice(11, 19);
+  const fields = record.fields && Object.keys(record.fields).length ? ` ${JSON.stringify(record.fields)}` : '';
+  return `${time} ${record.level} ${record.source} ${record.msg}${fields}`;
 }
 
 function extFromType(type: string | null): string {

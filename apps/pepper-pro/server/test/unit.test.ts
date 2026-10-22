@@ -55,6 +55,9 @@ async function loadStore(): Promise<RecipeStore> {
 }
 
 /** Just enough of /object_info for the fixture workflows. */
+/** Bytes of the tools/list response; see the test that checks it. */
+const TOOL_LIST_BUDGET = 24_000;
+
 const OBJECT_INFO: ObjectInfo = {
   EmptyImage: { input: { required: { width: ['INT'], height: ['INT'], batch_size: ['INT'], color: ['INT'] } }, output: ['IMAGE'] },
   ImageInvert: { input: { required: { image: ['IMAGE'] } }, output: ['IMAGE'] },
@@ -1194,6 +1197,8 @@ describe('api', () => {
     const generated = (await mcp('tools/call', { name: 'generate_video', arguments: { model: 'test-video', prompt: 'red', count: 2 } })).json().result;
     expect(generated.isError).toBeFalsy();
     expect(JSON.parse(generated.content[0].text)).toEqual({ model: 'test-video', quality: 'draft' });
+    // Claude Code reads structuredContent alone, so the choice is there too.
+    expect(generated.structuredContent).toMatchObject({ model: 'test-video', quality: 'draft' });
     const ids = generated.structuredContent.jobs.map((j: { id: string }) => j.id);
     expect(ids).toHaveLength(2);
     for (const id of ids) server.jobs.cancel(id);
@@ -1202,6 +1207,62 @@ describe('api', () => {
     for (let i = 0; i < 100 && ids.some((id: string) => ['queued', 'running'].includes(server.jobs.get(id)!.status)); i++) {
       await new Promise((r) => setTimeout(r, 20));
     }
+  });
+
+  it('keeps MCP results compact', async () => {
+    const mcp = async (name: string, args: Record<string, unknown> = {}) =>
+      (
+        await server.app.inject({
+          method: 'POST',
+          url: '/mcp',
+          headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json' },
+          payload: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } },
+        })
+      ).json().result;
+    const text = (result: { content: { type: string; text?: string }[] }) => result.content[0].text!;
+
+    // No indentation, and no fields the model never acts on.
+    const status = await mcp('pro_status');
+    expect(text(status)).not.toContain('\n');
+    const parsed = JSON.parse(text(status));
+    expect(Object.keys(parsed.recipes).length).toBeGreaterThan(0);
+    expect(JSON.stringify(parsed)).not.toMatch(/sampledAt|Bytes/);
+
+    const models = JSON.parse(text(await mcp('list_models', { kind: 'image' })));
+    expect(models.length).toBeGreaterThan(0);
+    for (const model of models) {
+      expect(model).not.toHaveProperty('capabilities');
+      expect(model).not.toHaveProperty('aspect_ratios');
+      expect(model).not.toHaveProperty('verified');
+      expect(typeof model.licence).toBe('string');
+    }
+
+    const logs = text(await mcp('get_logs', { limit: 5 }));
+    expect(logs.split('\n').length).toBeLessThanOrEqual(5);
+    expect(logs).not.toMatch(/^\s*[[{]/);
+
+    // Takes say which shot and job they are; cancelling one answers with its state alone.
+    const project = (await server.app.inject({ method: 'POST', url: '/v1/projects', payload: { name: 'Compact' } })).json();
+    const plan = (await server.app.inject({ method: 'POST', url: `/v1/projects/${project.id}/plan`, payload: { scenes: [{ shots: [{ prompt: 'x', recipe: 'test-video' }] }] } })).json();
+    const rendered = await mcp('render_shots', { shot_ids: [plan.shots[0].id] });
+    const [take] = rendered.structuredContent.takes;
+    expect(take).toMatchObject({ shot: plan.shots[0].id, mode: expect.any(String) });
+    const cancelled = JSON.parse(text(await mcp('cancel_job', { id: take.job })));
+    expect(cancelled).toEqual({ id: take.job, status: expect.any(String) });
+    const listed = JSON.parse(text(await mcp('get_project')));
+    expect(listed.projects[0]).toEqual({ id: project.id, name: 'Compact', aspect: expect.any(String), updated: expect.any(String) });
+  });
+
+  it('keeps the MCP tool listing within its budget', async () => {
+    // Loaded into every conversation that uses the tools: grow it deliberately.
+    const response = await server.app.inject({
+      method: 'POST',
+      url: '/mcp',
+      headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json' },
+      payload: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
+    });
+    const tools = response.json().result.tools as { name: string }[];
+    expect(JSON.stringify(tools).length).toBeLessThan(TOOL_LIST_BUDGET);
   });
 
   it('answers MCP tool listing with the Pro tools', async () => {
