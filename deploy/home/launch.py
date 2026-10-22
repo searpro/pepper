@@ -26,7 +26,8 @@ time, so `down` here before `up` on RunPod, Vast.ai or Kaggle.
 
 Configuration comes from `deploy/home/.env` (git-ignored), falling back to
 `deploy/runpod/.env`, `deploy/vastai/.env` and `deploy/kaggle/.env` for the
-PEPPER_* values they share, and the process environment beats all of them:
+PEPPER_* values they share (of this checkout, then of the main one when this
+is a worktree), and the process environment beats all of them:
 
     PEPPER_HOME_HOST=user@host    the SSH destination (or pass --host)
     PEPPER_API_TOKEN=...          required
@@ -34,6 +35,8 @@ PEPPER_* values they share, and the process environment beats all of them:
     PEPPER_HOSTNAME=...
     HF_TOKEN=...                  for gated Hugging Face repos (LTX-2.5); else
                                   the token `hf auth login` saved, if any
+    LLM_AGENT_MODEL=...           Pepper Pro: the model Claude Code runs on through
+    LLM_AGENT_ARGS=...            /v1/messages (docs/PEPPER-PRO.md §14; llm/claude-box.sh)
 
 The tokens reach the host over SSH's stdin, never a command line, and
 nothing is printed.
@@ -54,9 +57,26 @@ import requests
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-ENV_FILES = [HERE / ".env", HERE.parent / "runpod" / ".env", HERE.parent / "vastai" / ".env", HERE.parent / "kaggle" / ".env"]
+
+
+def _main_checkout() -> Path | None:
+    """The main checkout when this is a git worktree, whose .env files a worktree lacks (they are git-ignored)."""
+    try:
+        common = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    main = Path(common).parent
+    return main if main.resolve() != REPO.resolve() else None
+
+
+ENV_FILES = [root / "deploy" / sub / ".env"
+             for root in (REPO, *filter(None, [_main_checkout()]))
+             for sub in ("home", "runpod", "vastai", "kaggle")]
 CATALOGUE_RAW = "https://raw.githubusercontent.com/searpro/pepper-catalogue/{branch}/pepper-catalogue.json"
 SECRET_KEYS = ("PEPPER_API_TOKEN", "PEPPER_TUNNEL_TOKEN", "HF_TOKEN")
+# Pepper Pro settings passed to the container as they are; the stack's .env is rewritten on every `up`.
+PRO_KEYS = ("LLM_AGENT_MODEL", "LLM_AGENT_ARGS")
 STACKS_DIR = "/srv"
 PORT = 3000
 # Per product: the published image, the Dockerfile `--build` uses, and the
@@ -111,7 +131,7 @@ def load_env() -> dict[str, str]:
                 continue
             key, value = line.split("=", 1)
             values.setdefault(key.strip(), value.strip().strip("'\""))
-    for key in ("PEPPER_HOME_HOST", *SECRET_KEYS, "PEPPER_HOSTNAME"):
+    for key in ("PEPPER_HOME_HOST", *SECRET_KEYS, "PEPPER_HOSTNAME", *PRO_KEYS):
         if os.environ.get(key):
             values[key] = os.environ[key]
     # Gated repos (LTX-2.5) fail every download with a 401 without a token,
@@ -324,6 +344,7 @@ def cmd_up(host: Host, env: dict, a) -> None:
         **{key: env[key] for key in SECRET_KEYS if env.get(key)},
         **({"PEPPER_HOSTNAME": env["PEPPER_HOSTNAME"]} if url else {}),
         **({"PEPPER_TIER": a.tier} if a.product == "pro" else {}),
+        **({key: env[key] for key in PRO_KEYS if env.get(key)} if a.product == "pro" else {}),
         **({"CATALOGUE_URL": CATALOGUE_RAW.format(branch=a.catalogue_branch)} if a.catalogue_branch else {}),
         # Outputs default to the container's /tmp, which every `up` that
         # replaces the container wiped. Here they live with the rest of the

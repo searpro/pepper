@@ -12,6 +12,11 @@
  *   URL    PEPPER_URL, else https://<PEPPER_HOSTNAME>, else http://localhost:3000
  *   Token  PEPPER_API_TOKEN (none is fine for an open local server)
  *
+ * PEPPER_AGENT=local (set by deploy/home/llm/claude-box.sh) says this Claude
+ * Code runs on the box's own GPU model, so Pepper Pro adds notes on how renders
+ * and the model take turns on the card. Sessions on Anthropic's models leave it
+ * unset and see the tools exactly as before.
+ *
  * Each is taken from the process environment first, then `deploy/runpod/.env`,
  * `deploy/vastai/.env`, then `deploy/kaggle/.env` (of this checkout, then of the main one). Set PEPPER_URL=http://localhost:3000 to reach a
  * local `npm run dev` when the .env files name a hostname.
@@ -109,6 +114,7 @@ async function forward(line) {
         // Cloudflare's browser integrity check turns away clients with no user agent.
         'user-agent': 'pepper-mcp-bridge/1.0',
         ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(process.env.PEPPER_AGENT ? { 'x-pepper-agent': process.env.PEPPER_AGENT } : {}),
       },
       body: line,
       signal: AbortSignal.timeout(TIMEOUT_MS),

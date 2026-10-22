@@ -267,6 +267,28 @@ Open:
   (`rtx-master` licence note).
 - Speech in the half takes was not transcribed (no Whisper on the laptop).
 
+### Claude Code on the box's model, inside Pepper Pro (branch `claude/pro-local-llm`, 2026-10-22)
+
+Built and run on the home box (uncommitted): `/v1/messages` on the agent
+model, renders and the model taking turns on the card, notes for
+local-model sessions only (`docs/PEPPER-PRO.md` §14 has the design and
+the measurements). Verified: turns wait behind queued renders (pings keep
+the stream alive), a render queued mid-turn waits for the turn, the
+router takes `--models-dir` with `--models-preset` and every preset key,
+the 96k context (after moving `ctx-size` into the preset's `[*]`), and a
+real `claude-box.sh` session gets the MCP notes. The slot save/restore
+works but gives Qwen3.6 nothing (hybrid model, §14), so a turn after a
+render costs the model load plus a full prefill (~12 s + 1.6k tokens/s).
+
+Deployed as a layer over `pepper-pro:cu130` (`pepper-pro:local`: core's
+and Pro's `dist/` copied in), since `up --build` timed out downloading a
+ComfyUI wheel. `up` now writes `LLM_AGENT_MODEL` / `LLM_AGENT_ARGS` into
+the stack's `.env` from the environment or `deploy/home/.env`, which needs
+`LLM_AGENT_MODEL=Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` and `LLM_AGENT_ARGS=--temp
+0.6 --top-k 20 --top-p 0.95`. Once merged and the cu130 image rebuilt, a
+plain `up --product pro` replaces the layer. The status line was not seen
+in an interactive session.
+
 ### Other open items
 
 - **LongCat-Avatar:** the full-length draft was killed at segment 11 of 17

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
@@ -66,6 +67,18 @@ export interface JobContext {
 export type JobExecutor = (context: JobContext) => Promise<Record<string, unknown>>;
 
 const ACTIVE: JobStatus[] = ['queued', 'running'];
+
+const running = new AsyncLocalStorage<Job>();
+
+/**
+ * The job whose executor this code is running under, if any. Lets a shared
+ * service tell work a job does (already ordered by the queue) from a request
+ * that arrived from outside it — the GPU lanes need the difference, or a job
+ * calling llama.cpp would wait for the jobs queued behind itself.
+ */
+export function currentJob(): Job | undefined {
+  return running.getStore();
+}
 
 export class JobManager extends EventEmitter {
   private readonly executors = new Map<JobKind, JobExecutor>();
@@ -373,7 +386,7 @@ export class JobManager extends EventEmitter {
 
     try {
       await this.slots.run(async () => {
-        const result = await executor({
+        const result = await running.run(job, () => executor({
           job,
           signal: controller.signal,
           onProgress: (progress) => {
@@ -386,7 +399,7 @@ export class JobManager extends EventEmitter {
             this.emit('updated', updated);
           },
           onLog: (line) => this.emit('log', { jobId: job.id, line }),
-        });
+        }));
 
         this.finish(job.id, 'completed', { progress: 1, result });
         this.log.info({ jobId: job.id }, 'job completed');

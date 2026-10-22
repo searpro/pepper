@@ -580,3 +580,74 @@ Recipes: `h3-video`, `h3-reference`, `ltx25-video`, `wan22-video`,
 - Outside the plan and not built: FastH3, H3 multi-keyframe guides, and a
   second ComfyUI instance (the TTS pack turned out to coexist with the rest,
   so none is needed yet).
+
+## 14. Claude Code on the box's own model
+
+Pepper Pro can serve Claude Code itself: `/v1/messages` (Anthropic's
+Messages API) runs on an agent model in llama.cpp (`LLM_AGENT_MODEL`,
+Qwen3.6-35B-A3B Q4_K_M with vision on the home box), and
+`deploy/home/llm/claude-box.sh` starts `claude` pointed at it. On a 16 GB
+card that model (~14.8 GB) and a render cannot be loaded together, so they
+take turns, and that is what this section is about.
+
+**One order for the card** (`packages/core/src/engines/gpu.ts`,
+`GpuLanes`). Two lanes: `job` (ComfyUI renders, one at a time) and `llm`
+(any llama.cpp request). Renders go first: a request waits while a render
+runs *or is queued*; a render waits only for requests already running. An
+agent queues renders and then polls them, and every poll is a model turn,
+so letting turns in between renders would swap the model in and out for
+each poll. A call made by a running job (a plan, an analyze check) waits
+for the card but not for the queue behind it, which could not start
+until that job ends (`currentJob()`, from the job manager's
+`AsyncLocalStorage`). On `96gb` nothing is shared and turns never wait.
+
+Every llama.cpp caller goes through `BackendManager.acquire`, so a gate
+there (`setGate`, wired in `server.ts`) covers text jobs, analyze, the
+chat proxy and `/v1/messages` alike. Holding the `llm` lane then calls
+`exclusive('llamacpp')`, which frees ComfyUI; a render's `makeRoom`
+stops llama.cpp.
+
+**Keeping the conversation across a render.** llama.cpp runs as a router
+(`--models-preset` written to `DATA_DIR/llm-presets.ini`, `--models-max
+1`, `--slot-save-path DATA_DIR/llm-slots`). The router hands its own
+command-line flags to every model over the preset's values, so the
+context size from the settings goes in the preset's `[*]` section and the
+router gets no `-c` (core drops a setting a product manages as `null`);
+the `[agent]` section's own `ctx-size` then wins. Before llama.cpp stops,
+the backend's `beforeStop` hook saves the agent's slot; before the first
+request after a start, `AgentLlm.prepare` loads the model and restores it.
+
+On Qwen3.6 that restore buys nothing, measured on the home box. It is a
+hybrid model: its recurrent layers can only roll back to a context
+checkpoint, and the next prompt always diverges a few dozen tokens before
+the saved end (the last turn's reasoning is dropped from the history).
+Warm turns use the checkpoints llama.cpp keeps in memory; a slot file has
+none, so after a restore the whole prompt is processed again (8.7k tokens
+in 5.4 s, ~1,600 tokens/s). It costs 0.1 s, and a plain-attention agent
+model would read its prefix back, so it stays.
+
+Measured on the home box (RTX 5060 Ti 16 GB, 8.7k-token prompt): a turn
+after a model load 24 s (model load ~12 s plus prefill), a warm turn
+2.9 s; a turn sent with two Z-Image renders and a TTS job queued waited
+45 s with pings and then answered; an image queued 4 s into a 26 s turn
+waited for it and rendered after. A real `claude-box.sh` session (40k
+tokens of Claude Code context) queued a render over MCP and got both
+notes back.
+
+**Waiting without being dropped** (`routes/messages.ts`). A turn can sit
+behind renders for many minutes, and Cloudflare's tunnel drops a response
+silent for 100 s. A streamed request gets SSE headers and a `ping` event
+every 15 s until llama.cpp's own stream begins; an unstreamed one gets
+`529 overloaded_error` after 85 s, which Claude Code retries.
+`count_tokens` estimates while the card is busy rather than swapping for
+it. `GET /v1/llm/gpu` says who holds the card and who waits.
+
+**Telling the agent.** Only a session started by `claude-box.sh` knows any
+of this: it sets `PEPPER_AGENT=local`, the MCP bridge then sends
+`x-pepper-agent: local`, and for that caller alone the MCP server adds
+instructions (queue every render first, then one `get_job`) and `notes`
+on job results: renders still ahead with an estimate from past runs of the
+same recipe and mode, and after a pause how long the turn waited and what
+finished (`src/llm/notes.ts`). Its status line (`statusline.mjs`) shows
+the holder. Claude Code on Anthropic's models sends no header and sees the
+tools and results exactly as before.

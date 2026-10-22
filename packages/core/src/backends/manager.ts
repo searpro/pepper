@@ -82,6 +82,12 @@ export interface BackendDefinition {
   startupTimeoutMs?: number;
 }
 
+/** What `setGate` takes: a wait before a backend is used, and its release. */
+export interface BackendGate {
+  enter(signal?: AbortSignal): Promise<() => void>;
+  wouldWait(): boolean;
+}
+
 export interface BackendManagerOptions {
   /** Install missing binaries on first use. */
   autoInstall: boolean;
@@ -152,6 +158,8 @@ export class BackendManager {
   private readonly definitions = new Map<string, BackendDefinition>();
   private readonly processes = new Map<string, ManagedProcess>();
   private readonly prepares = new Map<string, PrepareHook>();
+  private readonly gates = new Map<string, BackendGate>();
+  private readonly beforeStops = new Map<string, () => Promise<void>>();
   private readonly binaries = new Map<string, InstalledBinary>();
   private readonly installPromises = new Map<string, Promise<InstalledBinary | null>>();
   private readonly skipReasons = new Map<string, string>();
@@ -184,6 +192,26 @@ export class BackendManager {
   /** Register a hook run before each spawn of `backend`. */
   setPrepare(backend: string, hook: PrepareHook): void {
     this.prepares.set(backend, hook);
+  }
+
+  /**
+   * Make every `acquire` of `backend` pass through `gate` first, holding what
+   * it returns until the lease is released. Pepper Pro gates llama.cpp on
+   * the GPU's `llm` lane, so every caller — jobs, the chat proxy, Claude
+   * Code's turns — waits for renders the same way.
+   */
+  setGate(backend: string, gate: BackendGate): void {
+    this.gates.set(backend, gate);
+  }
+
+  /** Register a hook run before a ready `backend` is stopped (see `ManagedProcessOptions.beforeStop`). */
+  setBeforeStop(backend: string, hook: () => Promise<void>): void {
+    this.beforeStops.set(backend, hook);
+  }
+
+  /** Whether `backend`'s gate would make a caller wait now. */
+  gated(backend: string): boolean {
+    return this.gates.get(backend)?.wouldWait() ?? false;
   }
 
   /** Health policy for the recycle monitor. */
@@ -404,6 +432,7 @@ export class BackendManager {
           policy: this.policy(),
           idleTimeoutMs: () => this.idleTimeoutMs(),
           pidFile: this.pidFile(backend),
+          beforeStop: this.beforeStops.has(backend) ? () => this.beforeStops.get(backend)!() : undefined,
         },
         this.log,
         this.logs,
@@ -431,9 +460,29 @@ export class BackendManager {
     backend: string,
     signal?: AbortSignal,
   ): Promise<{ process: ManagedProcess; release: () => void } | null> {
-    const process = await this.ensureRunning(backend, signal);
-    if (!process) return null;
-    return { process, release: process.acquire() };
+    const unlock = await this.gates.get(backend)?.enter(signal);
+    let process: ManagedProcess | null;
+    try {
+      process = await this.ensureRunning(backend, signal);
+    } catch (err) {
+      unlock?.();
+      throw err;
+    }
+    if (!process) {
+      unlock?.();
+      return null;
+    }
+    const done = process.acquire();
+    let released = false;
+    return {
+      process,
+      release: () => {
+        if (released) return;
+        released = true;
+        done();
+        unlock?.();
+      },
+    };
   }
 
   /**

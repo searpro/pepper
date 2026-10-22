@@ -2130,7 +2130,7 @@ describe('engines', () => {
   it('attaches executors to the job system and reports which engine owns a kind', async () => {
     const { EngineRegistry } = await import('@pepper/core/engines/engine.js');
     const registered: string[] = [];
-    const jobs = { registerExecutor: (kind: string) => registered.push(kind) } as unknown as import('@pepper/core/jobs/manager.js').JobManager;
+    const jobs = { registerExecutor: (kind: string) => registered.push(kind), on: () => jobs } as unknown as import('@pepper/core/jobs/manager.js').JobManager;
     const run = async () => ({});
     const registry = new EngineRegistry(log)
       .register({ id: 'gen', label: 'Gen', executors: () => ({ image: run, video: run }) })

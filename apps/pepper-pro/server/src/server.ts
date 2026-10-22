@@ -33,6 +33,9 @@ import { DOWNLOAD_KINDS, comfyLayout, type DownloadKind, type DownloadSlot } fro
 import { RecipeStore } from './recipes/store.js';
 import { generateRoutes } from './routes/generate.js';
 import { loraRoutes } from './routes/loras.js';
+import { messagesRoutes } from './routes/messages.js';
+import { AgentLlm } from './llm/agent.js';
+import { AGENT_INSTRUCTIONS, agentNotes } from './llm/notes.js';
 import { recipeRoutes } from './routes/recipes.js';
 import { LORA_SCHEMA_SQL } from './loras/schema.js';
 import { LoraService } from './loras/service.js';
@@ -99,8 +102,20 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
 
   const jobs = new JobManager(config, db, app.log, logs);
   const engines = new EngineRegistry(app.log);
+  // On a card that cannot hold a render and the language model at once, they
+  // take turns (renders first; engines/gpu.ts). Every llama.cpp caller goes
+  // through `backends.acquire`, so one gate there covers text jobs, analyze,
+  // the chat proxy and /v1/messages.
+  engines.gpu.setShared(config.tier !== '96gb');
+  const agent = new AgentLlm({ config, paths, backends, log: app.log });
+  backends.setGate('llamacpp', {
+    enter: (signal) => engines.forLlm('llamacpp', 'llama.cpp', signal),
+    wouldWait: () => engines.gpu.llmWouldWait(),
+  });
+  // A render stops llama.cpp; keep the agent's processed conversation for the next turn.
+  backends.setBeforeStop('llamacpp', () => agent.save());
   const loras = new LoraService({ db, downloads, storage, recipes, paths, config, log: app.log });
-  const comfy = new ComfyEngine({ config, paths, backends, recipes, loras, memory: engines, log: app.log });
+  const comfy = new ComfyEngine({ config, paths, backends, recipes, loras, memory: engines, gpu: engines.gpu, log: app.log });
   const text = new TextService(config, backends, app.log, logs);
   const projects = new ProjectService({ db, jobs, comfy, recipes, loras, paths, config, log: app.log });
   const golden = new GoldenService({ db, jobs, comfy, recipes, paths, config, log: app.log, file: config.goldenFile });
@@ -108,8 +123,8 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
 
   engines
     .register(comfy)
-    .register(
-      processEngine(backends, 'llamacpp', 'llama.cpp', {
+    .register({
+      ...processEngine(backends, 'llamacpp', 'llama.cpp', {
         text: async (context) => {
           const result = await text.generate({
             params: context.job.params as never,
@@ -128,7 +143,8 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
           };
         },
       }),
-    )
+      gpuLane: 'llm' as const,
+    })
     .register(new RenderEngine({ paths, projects, log: app.log }))
     .register(
       new AnalyzeEngine({ config, paths, projects, recipes, text, jobs, log: app.log, goldenPath: (file) => golden.resultPath(file) }),
@@ -162,6 +178,8 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
   await app.register(generateRoutes, { jobs, comfy, backends, paths, recipes, loras, config, llamacppTimeoutMs: config.llamacppTimeoutMs });
   await app.register(recipeRoutes, { config, recipes, downloads, storage });
   await app.register(loraRoutes, { loras, recipes });
+  // A Claude Code turn can prefill 90k tokens and then write for minutes; LLAMACPP_TIMEOUT is sized for one chat call.
+  await app.register(messagesRoutes, { backends, agent, gpu: engines.gpu, timeoutMs: Math.max(config.llamacppTimeoutMs, 900_000) });
   await app.register(projectRoutes, { projects });
   await app.register(analyzeRoutes, { jobs, projects });
   await app.register(goldenRoutes, { golden, paths });
@@ -174,6 +192,8 @@ export async function buildServer(config: ProConfig): Promise<ProServer> {
     port: config.port,
     context: { apiToken: config.apiToken, jobs, outputDir: paths.outputDir, uploadsDir: paths.uploadsDir },
     register: registerProTools,
+    // Only for a Claude Code on the agent model sharing this card; see llm/notes.ts.
+    agent: agent.enabled && config.tier !== '96gb' ? { instructions: AGENT_INSTRUCTIONS, notes: agentNotes(engines.gpu, jobs) } : undefined,
   });
 
   await serveSpa(app, join(dirname(fileURLToPath(import.meta.url)), '..', 'public'));

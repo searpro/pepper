@@ -5,7 +5,7 @@ import type { Engine, MemoryArbiter, ReleaseReason } from '@pepper/core/engines/
 import { AppError, errors } from '@pepper/core/errors.js';
 import type { JobContext, JobExecutor } from '@pepper/core/jobs/manager.js';
 import { safeResolve } from '@pepper/core/paths.js';
-import { Semaphore } from '@pepper/core/util/semaphore.js';
+import type { GpuLanes } from '@pepper/core/engines/gpu.js';
 import { uniqueOutputName } from '@pepper/core/util/files.js';
 import type { BackendManager } from '@pepper/core/backends/manager.js';
 import { ComfyClient, PromptRejected, type ExecutionEvent, type ObjectInfo, type OutputFile, type Prompt } from '../comfy/client.js';
@@ -55,6 +55,8 @@ export interface ComfyEngineDeps {
   recipes: RecipeStore;
   loras: LoraService;
   memory: MemoryArbiter;
+  /** Orders jobs against language-model requests; jobs take the `job` lane. */
+  gpu: GpuLanes;
   log: FastifyBaseLogger;
 }
 
@@ -63,7 +65,7 @@ const OUT_OF_MEMORY = /out of memory|OutOfMemoryError|Allocation on device|CUDA 
 export class ComfyEngine implements Engine {
   readonly id = 'comfy';
   readonly label = 'ComfyUI';
-  private readonly slot = new Semaphore(1);
+  readonly gpuLane = 'job' as const;
   private objectInfo: ObjectInfo | null = null;
   /** The recipe family whose models ComfyUI last loaded. */
   private family: string | null = null;
@@ -155,7 +157,7 @@ export class ComfyEngine implements Engine {
     const workflow = recipe.workflows[mode.workflow];
     const loras = await this.deps.loras.resolve(recipe, workflow, requested);
 
-    return this.slot.run(async () => {
+    return this.deps.gpu.run('job', `${recipe.id} job ${context.job.id.slice(0, 8)}`, async () => {
       try {
         await this.makeRoom(recipe, context.onLog);
         // A ComfyUI that was not running starts fresh: its node types are

@@ -109,6 +109,12 @@ export function effectiveArgs(
         overridden: false,
       };
     }
+    // A product can take a setting over and pass it some other way (Pepper
+    // Pro's llama.cpp router carries the context size in its preset, where
+    // a per-model value can beat it): managing it as null leaves it out.
+    if (Object.prototype.hasOwnProperty.call(managed, definition.key) && managed[definition.key] === null) {
+      return { ...definition, value: null, overridden: false };
+    }
     const has = Object.prototype.hasOwnProperty.call(overrides.values, definition.key);
     return {
       ...definition,

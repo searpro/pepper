@@ -43,6 +43,8 @@ import { evaluatePolicy, sampleProcess, type HealthPolicy, type ProcessStats } f
 export type ProcessStatus = 'stopped' | 'installing' | 'starting' | 'ready' | 'unhealthy' | 'failed';
 
 const HEALTH_POLL_INTERVAL_MS = 300;
+/** How long a before-stop hook may hold up a stop. */
+const BEFORE_STOP_MS = 30_000;
 const STOP_GRACE_MS = 5000;
 /** Collapses the restarts triggered by several downloads finishing together. */
 const RESTART_DEBOUNCE_MS = 3000;
@@ -71,6 +73,12 @@ export interface ManagedProcessOptions {
    * a crashed or force-killed server can be found and reaped by the next one.
    */
   pidFile?: string;
+  /**
+   * Runs before a ready process is stopped, for state worth keeping across a
+   * restart (llama.cpp saves its conversation cache). Bounded and best effort:
+   * a failure never keeps the process from stopping.
+   */
+  beforeStop?: () => Promise<void>;
 }
 
 export interface ProcessState {
@@ -414,6 +422,15 @@ export class ManagedProcess extends EventEmitter {
     if (!child) {
       this._status = 'stopped';
       return;
+    }
+
+    if (this._status === 'ready' && this.options.beforeStop) {
+      await Promise.race([
+        this.options.beforeStop().catch((err) => {
+          this.log.warn({ backend: this.options.backend, err: (err as Error).message }, 'before-stop hook failed');
+        }),
+        new Promise((resolvePromise) => setTimeout(resolvePromise, BEFORE_STOP_MS).unref()),
+      ]);
     }
 
     this.stopping = true;

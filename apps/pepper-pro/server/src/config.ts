@@ -75,6 +75,14 @@ export interface ProConfig extends CoreConfig {
    * The llama.cpp vision model that checks takes, by the name llama.cpp's
    * router lists it under; empty until one is installed.
    */
+  /**
+   * The GGUF in DATA_DIR/models/llm that `/v1/messages` serves, for Claude
+   * Code running on this box's GPU (`LLM_AGENT_MODEL`). Empty turns the
+   * endpoint off.
+   */
+  agentModel: string;
+  /** Its llama.cpp flags, long form, over `AGENT_DEFAULT_ARGS` (`LLM_AGENT_ARGS`). */
+  agentArgs: string;
   checkModel: string;
   /** The llama.cpp model that turns a script into shots (analyze task `plan`); the check model by default. */
   planModel: string;
@@ -120,6 +128,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProConfig {
     llamacppPort: positiveNum('LLAMACPP_PORT', env.LLAMACPP_PORT, 8090),
     llamacppTimeoutMs: num('LLAMACPP_TIMEOUT', env.LLAMACPP_TIMEOUT, 300_000),
     llamacppReleaseRepo: repo('LLAMACPP_RELEASE_REPO', env.LLAMACPP_RELEASE_REPO, 'searpro/llama.cpp'),
+    agentModel: env.LLM_AGENT_MODEL?.trim() ?? '',
+    agentArgs: env.LLM_AGENT_ARGS?.trim() ?? '',
     checkModel: env.CHECK_MODEL?.trim() ?? '',
     planModel: env.PLAN_MODEL?.trim() || env.CHECK_MODEL?.trim() || '',
 
