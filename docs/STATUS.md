@@ -289,6 +289,24 @@ the stack's `.env` from the environment or `deploy/home/.env`, which needs
 plain `up --product pro` replaces the layer. The status line was not seen
 in an interactive session.
 
+**Qwen3.8 27B with MTP (2026-10-22).** The box now runs Qwen3.8-27B
+UD-IQ3_S with its built-in MTP head (`--spec-type draft-mtp
+--spec-draft-n-max 4`), args in `apps/pepper-pro/server/.env.example`.
+Bench on the box (24k-token prompt, temp 0.6): 9.8 t/s with the old flags
+(`-ngl auto` had moved layers to the CPU: the 4096 ubatches and the
+GPU mmproj did not fit), 25.7 with every layer on the GPU, then with MTP
+~60 t/s writing code and ~40 thinking (85–92% of drafts accepted);
+prefill ~800 t/s either way. n-max 5 was no better, the mmproj on the GPU
+plus MTP does not fit (it runs on the CPU: ~19 s per image question).
+Real `claude-box.sh` turns: 42–57 t/s, a new session 27 s (33k of 42k
+tokens from cache), a turn after a render 78 s (full 42k re-prefill, as
+§14 says for hybrid models). Pro's llama.cpp release (`searpro/llama.cpp`
+b11224) has no Blackwell SASS, so the first request after each container
+start JIT-compiles for ~60 s; searpro/llama.cpp#1 adds `120a-real`
+(verified with a local build), then a release needs dispatching. The
+stack was brought up with the args exported; `deploy/home/.env` still
+holds the old `LLM_AGENT_ARGS` until the user updates it.
+
 ### Other open items
 
 - **LongCat-Avatar:** the full-length draft was killed at segment 11 of 17
